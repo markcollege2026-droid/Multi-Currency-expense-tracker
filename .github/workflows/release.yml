@@ -27,10 +27,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK (Android 15 compatible)
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --install "build-tools;34.0.0" "platforms;android-34" "platform-tools" || true
+          sdkmanager --install "build-tools;35.0.0" "build-tools;34.0.0" "platforms;android-35" "platforms;android-34" "platform-tools" || true
+          sdkmanager --list_installed | grep -E "build-tools|platforms" || true
           sdkmanager --list_installed | grep -E "build-tools|platforms" || true
 
       - name: Make gradlew executable
