@@ -60,8 +60,8 @@ try_real_gradle() {
     if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ]; then
         echo "CI detected, trying real Gradle build..."
         cd "$PROJECT_ROOT"
-        # Use wrapper jar directly to avoid recursion
-        if java -jar "$PROJECT_ROOT/gradle/wrapper/gradle-wrapper.jar" "$task" --stacktrace --no-daemon; then
+        # Use wrapper jar with main class (manifest has no Main-Class)
+        if java -cp "$PROJECT_ROOT/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$task" --stacktrace --no-daemon; then
             echo "Real Gradle build succeeded for $task"
             ls -lh "$PROJECT_ROOT/app/build/outputs/apk/debug/" 2>/dev/null || true
             ls -lh "$PROJECT_ROOT/app/build/outputs/apk/release/" 2>/dev/null || true
