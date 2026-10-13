@@ -26,8 +26,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // For full app from scratch, disable minify initially to ensure build succeeds on all Android versions
+            // R8 can be re-enabled after verifying full app builds
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
