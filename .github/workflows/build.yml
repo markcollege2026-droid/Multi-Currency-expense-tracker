@@ -35,58 +35,68 @@ jobs:
         run: chmod +x ./gradlew && ls -lh gradle/wrapper/
 
       - name: Build Full App Debug (Real Gradle - Full Compose/Room/Hilt)
+        id: build_debug
         run: |
-          echo "=== Building FULL APP via Real Gradle (not demo) ==="
-          echo "This should produce 20-50MB APK with Compose/Room/Hilt"
-          echo "If this fails, check logs for compilation errors"
-          java -jar gradle/wrapper/gradle-wrapper.jar assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m"
-          echo "=== Build finished, checking APK ==="
-          ls -lh app/build/outputs/apk/debug/
+          echo "=== Building FULL APP via Real Gradle (not demo) ===" | tee build.log
+          echo "This should produce 20-50MB APK with Compose/Room/Hilt" | tee -a build.log
+          java -jar gradle/wrapper/gradle-wrapper.jar assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee -a build.log
+          echo "=== Build finished, checking APK ===" | tee -a build.log
+          ls -lh app/build/outputs/apk/debug/ 2>&1 | tee -a build.log || true
           SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
-          echo "APK size: $SIZE bytes"
+          echo "APK size: $SIZE bytes" | tee -a build.log
           if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: APK too small ($SIZE), expected full app >1MB"
+            echo "ERROR: APK too small ($SIZE), expected full app >1MB" | tee -a build.log
             exit 1
           fi
-          echo "SUCCESS: Full app APK built! Size $SIZE"
 
       - name: Build Full App Release
+        if: success()
         run: |
-          java -jar gradle/wrapper/gradle-wrapper.jar assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m"
-          ls -lh app/build/outputs/apk/release/
+          java -jar gradle/wrapper/gradle-wrapper.jar assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee -a build-release.log
+          ls -lh app/build/outputs/apk/release/ || true
+
+      - name: Show Build Logs on Failure
+        if: failure()
+        run: |
+          echo "=== BUILD LOG (last 300 lines) ==="
+          tail -n 300 build.log || true
+          echo "=== ERRORS ==="
+          grep -i -A2 -B2 "error\|failed\|exception\|FAILED" build.log | tail -n 200 || true
+          echo "=== Checking files ==="
+          ls -lh app/build/ || true
+          find app/build -type f -name "*.log" | head -n 20 || true
+          cat app/build/outputs/logs/* 2>/dev/null | tail -n 100 || true
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-full-app
+          path: |
+            build.log
+            build-release.log
+            app/build/outputs/logs/
+            app/build/reports/
+          if-no-files-found: warn
 
       - name: Copy APKs to apk/ folder
+        if: success()
         run: |
           mkdir -p apk
           cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk
           cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk
           ls -lh apk/
 
-      - name: Upload Full App Debug APK
+      - name: Upload Full App APKs
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-full
-          path: app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Upload Full App Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-full
-          path: app/build/outputs/apk/release/app-release.apk
-
-      - name: Upload All APKs + Docs
-        uses: actions/upload-artifact@v4
-        with:
-          name: all-apks-full
+          name: full-app-apks
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
             apk/app-debug.apk
             apk/app-release.apk
-            release.keystore
-            debug.keystore
-            README.md
-            KEYSTORE.md
 
   build-demo:
     name: Build Demo APK (Manual aapt2/d8 - Offline Fallback - Always Works)
@@ -114,7 +124,6 @@ jobs:
           ./gradlew assembleRelease --stacktrace
           ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/
           echo "Demo APKs are 13KB minimal with balance logic, compatible with Android 14/15+"
-          echo "For full app (20-50MB), see build-full-app job"
 
       - name: Upload Demo APKs
         uses: actions/upload-artifact@v4
