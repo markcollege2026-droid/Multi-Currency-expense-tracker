@@ -59,13 +59,13 @@ kotlin {
 }
 
 dependencies {
-    // Core Android
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    implementation("androidx.activity:activity-compose:1.8.2")
+    // Core Android - updated for API 35 and Kotlin 2.0
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+    implementation("androidx.activity:activity-compose:1.9.3")
 
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
+    // Compose BOM - updated for Kotlin 2.0.21
+    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -74,30 +74,30 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.animation:animation")
 
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.7")
+    // Navigation - updated for API 35
+    implementation("androidx.navigation:navigation-compose:2.8.4")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // Hilt
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    ksp("com.google.dagger:hilt-compiler:2.51.1")
+    // Hilt - updated to 2.52 for Kotlin 2.0.21 support (was 2.51.1)
+    implementation("com.google.dagger:hilt-android:2.52")
+    ksp("com.google.dagger:hilt-compiler:2.52")
     implementation("androidx.hilt:hilt-work:1.2.0")
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
-    // Room
+    // Room - 2.6.1 is stable, supports Kotlin 2.0
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // Lifecycle & ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    // Lifecycle & ViewModel - updated
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
 
     // DataStore
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
-    // WorkManager for notifications
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    // WorkManager for notifications - updated for API 35
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     // Networking
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
