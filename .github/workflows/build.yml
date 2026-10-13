@@ -1,0 +1,142 @@
+name: Build APKs
+
+on:
+  push:
+    branches: [ "main", "arena/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-full-app:
+    name: Build Full App (Real Gradle - Full Features - Android 8-15)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+          cache-disabled: false
+
+      - name: Setup Android SDK for Full App (API 34 & 35)
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager --install "build-tools;35.0.0" "build-tools;34.0.0" "platforms;android-35" "platforms;android-34" "platform-tools" || true
+          sdkmanager --list_installed | grep -E "build-tools|platforms" || true
+          yes | sdkmanager --licenses || true
+
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties && cat local.properties
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew && ls -lh gradle/wrapper/
+
+      - name: Build Full App Debug (Real Gradle - Full Compose/Room/Hilt)
+        id: build_debug
+        run: |
+          echo "=== Building FULL APP via Real Gradle (not demo) ==="
+          ./gradlew assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee build.log
+          echo "=== Build finished ==="
+          ls -lh app/build/outputs/apk/debug/ || true
+          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
+          echo "APK size: $SIZE"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: APK too small, expected full app >1MB"
+            exit 1
+          fi
+
+      - name: Build Full App Release
+        if: success()
+        run: |
+          ./gradlew assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee -a build.log
+          ls -lh app/build/outputs/apk/release/ || true
+
+      - name: Create Issue with Build Log on Failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Build failed, creating issue with log..."
+          tail -n 500 build.log > failure.log || true
+          echo "=== Attempting to create issue with build failure ==="
+          gh issue create --title "Full App Build Failed - Run ${{ github.run_id }}" --body-file failure.log --label "bug" || true
+          echo "=== Also trying to upload log as artifact ==="
+          # Also try to cat log so it's visible in Actions UI
+          echo "=== BUILD LOG LAST 500 LINES ==="
+          tail -n 500 build.log || true
+          echo "=== ERRORS ==="
+          grep -i -A3 -B3 "error\|FAILED" build.log | tail -n 200 || true
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-full-app
+          path: |
+            build.log
+            app/build/outputs/logs/
+            app/build/reports/
+          if-no-files-found: warn
+
+      - name: Copy APKs to apk/ folder
+        if: success()
+        run: |
+          mkdir -p apk
+          cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk
+          ls -lh apk/
+
+      - name: Upload Full App APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-app-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+
+  build-demo:
+    name: Build Demo APK (Manual aapt2/d8 - Offline Fallback - Always Works)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        run: |
+          sdkmanager --install "build-tools;35.0.0" "build-tools;34.0.0" "platforms;android-35" "platforms;android-34" "platform-tools" || true
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build Demo APKs (Manual - Always works offline, recent Android 8-15)
+        run: |
+          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease --stacktrace
+          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/
+
+      - name: Upload Demo APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
