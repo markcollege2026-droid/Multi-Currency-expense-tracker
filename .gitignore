@@ -1,0 +1,27 @@
+# Gradle root
+/build/
+/.gradle/
+local.properties
+*.iml
+.idea/
+
+# App build - keep only apk outputs
+/app/build/*
+!/app/build/outputs
+/app/build/outputs/*
+!/app/build/outputs/apk
+/app/build/outputs/apk/*
+!/app/build/outputs/apk/debug
+!/app/build/outputs/apk/release
+/app/build/outputs/apk/debug/*
+!/app/build/outputs/apk/debug/app-debug.apk
+/app/build/outputs/apk/release/*
+!/app/build/outputs/apk/release/app-release.apk
+
+# Keep keystores
+!release.keystore
+!debug.keystore
+
+# OS
+.DS_Store
+Thumbs.db
