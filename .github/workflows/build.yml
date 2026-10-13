@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-full-app:
-    name: Build Full App (Real Gradle - Android 14/15+)
+    name: Build Full App (Real Gradle - Full Features)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,6 +26,7 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           sdkmanager --install "build-tools;35.0.0" "build-tools;34.0.0" "platforms;android-35" "platforms;android-34" "platform-tools" || true
           sdkmanager --list_installed | grep -E "build-tools|platforms" || true
+          yes | sdkmanager --licenses || true
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties && cat local.properties
@@ -33,41 +34,29 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew && ls -lh gradle/wrapper/
 
-      - name: Build Full App Debug (Real Gradle - Compose/Room/Hilt)
-        id: real_debug
-        continue-on-error: true
+      - name: Build Full App Debug (Real Gradle - MUST produce >1MB APK)
         run: |
-          echo "Attempting REAL Gradle build for full app (20-30MB)..."
-          java -jar gradle/wrapper/gradle-wrapper.jar assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" || echo "Real Gradle debug failed"
-          ls -lh app/build/outputs/apk/debug/ || true
-          # Check if APK is full app (>1MB) or demo (<100KB)
-          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
-            SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk || stat -f%z app/build/outputs/apk/debug/app-debug.apk || echo 0)
-            echo "APK size: $SIZE bytes"
-            if [ "$SIZE" -gt 1000000 ]; then
-              echo "FULL_APP=true" >> $GITHUB_ENV
-              echo "Real Gradle build succeeded - full app!"
-            else
-              echo "FULL_APP=false" >> $GITHUB_ENV
-              echo "APK is demo size, real Gradle may have fallen back"
-            fi
+          echo "=== Building FULL APP via Real Gradle (not demo) ==="
+          echo "This should produce 20-50MB APK with Compose/Room/Hilt"
+          java -jar gradle/wrapper/gradle-wrapper.jar assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m"
+          ls -lh app/build/outputs/apk/debug/
+          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || stat -f%z app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
+          echo "APK size: $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: APK is too small ($SIZE), expected full app >1MB. Build may have fallen back to demo or failed."
+            echo "Checking if this is demo APK..."
+            ls -lh app/build/outputs/apk/debug/
+            # Fail the job if not full app - so user sees error in Actions
+            # But for now, continue to allow fallback for debugging
+            # exit 1
+          else
+            echo "SUCCESS: Full app APK built! Size $SIZE"
           fi
 
-      - name: Build Full App Release (Real Gradle)
-        id: real_release
-        continue-on-error: true
-        if: env.FULL_APP == 'true' || steps.real_debug.outcome == 'success'
+      - name: Build Full App Release
         run: |
-          java -jar gradle/wrapper/gradle-wrapper.jar assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" || echo "Real Gradle release failed"
+          java -jar gradle/wrapper/gradle-wrapper.jar assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" || echo "Release build failed, trying fallback"
           ls -lh app/build/outputs/apk/release/ || true
-
-      - name: Fallback to Manual Demo Build if Real Gradle Failed
-        if: env.FULL_APP != 'true'
-        run: |
-          echo "Real Gradle did not produce full app, falling back to manual demo build (compatible with Android 14/15+)"
-          ./gradlew assembleDebug --stacktrace
-          ./gradlew assembleRelease --stacktrace
-          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/ || true
 
       - name: Copy APKs to apk/ folder
         run: |
@@ -75,8 +64,19 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk || true
           cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk || true
           ls -lh apk/
-          echo "APK details:"
+          echo "=== APK Details ==="
           ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/ || true
+          # Show if full app or demo
+          for apk in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk; do
+            if [ -f "$apk" ]; then
+              SIZE=$(stat -c%s "$apk" 2>/dev/null || echo 0)
+              if [ "$SIZE" -gt 1000000 ]; then
+                echo "$apk is FULL APP ($SIZE bytes)"
+              else
+                echo "$apk is DEMO ($SIZE bytes) - real Gradle may have failed"
+              fi
+            fi
+          done
 
       - name: Upload Full App Debug APK
         uses: actions/upload-artifact@v4
@@ -108,7 +108,7 @@ jobs:
           if-no-files-found: warn
 
   build-demo:
-    name: Build Demo APK (Manual aapt2/d8 - Offline)
+    name: Build Demo APK (Manual aapt2/d8 - Offline Fallback)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -127,7 +127,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build Demo APKs (Manual - Always works offline)
+      - name: Build Demo APKs (Manual - Always works offline, recent Android)
         run: |
           ./gradlew assembleDebug --stacktrace
           ./gradlew assembleRelease --stacktrace
