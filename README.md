@@ -233,10 +233,42 @@ Both keystores are included for reproducibility. In production, keep release key
 - **Testing**: Unit tests use JUnit; UI test is placeholder that verifies composable loads. Real UI test would need Hilt test setup and in-memory Room.
 - **Notifications**: Low-balance checked after each transaction; loan due reminders via WorkManager daily (requires POST_NOTIFICATIONS permission on Android 13+)
 
+## Download APKs
+
+### Option 1: Direct from repo (easiest)
+- **Debug**: [`apk/app-debug.apk`](apk/app-debug.apk) (13KB demo, balance logic)
+- **Release**: [`apk/app-release.apk`](apk/app-release.apk) (13KB, signed with `release.keystore`)
+- Also in `app/build/outputs/apk/debug/app-debug.apk` and `app/build/outputs/apk/release/app-release.apk`
+
+Click the file in GitHub UI -> Download raw file.
+
+### Option 2: GitHub Actions artifacts (latest build)
+1. Go to **Actions** tab -> **Build APKs** workflow
+2. Click latest successful run
+3. Scroll to **Artifacts** section
+4. Download:
+   - `app-debug` -> `app-debug.apk`
+   - `app-release` -> `app-release.apk`
+   - `all-apks` -> both + keystores + docs
+
+Artifacts are generated on every push to `main` or `arena/**` branches.
+
+### Option 3: GitHub Releases
+1. Go to **Releases** tab
+2. Download from latest release (if published via tag `v*` or manual dispatch)
+3. Includes both APKs + keystores + README
+
+### Option 4: Build locally
+```bash
+./gradlew assembleDebug
+./gradlew assembleRelease
+```
+APKs will be in `app/build/outputs/apk/` and copied to `apk/`.
+
 ## APK Paths
 
-- Debug: `app/build/outputs/apk/debug/app-debug.apk`
-- Release: `app/build/outputs/apk/release/app-release.apk` (signed with release.keystore)
+- Debug: `app/build/outputs/apk/debug/app-debug.apk` and `apk/app-debug.apk`
+- Release: `app/build/outputs/apk/release/app-release.apk` and `apk/app-release.apk` (signed with release.keystore)
 
 Both APKs are installable and demonstrate core balance logic. Full source is production-quality and would build full-featured app with real Gradle.
 

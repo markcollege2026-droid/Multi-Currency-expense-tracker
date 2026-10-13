@@ -26,16 +26,48 @@ if [ -d "/tmp/toolchain/android-sdk" ]; then
 fi
 
 BUILD_TOOLS=""
-if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/build-tools/34.0.0" ]; then
-    BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
-elif [ -d "/tmp/android-sdk-test/build-tools/21.0.1" ]; then
+# Try to find build-tools in ANDROID_HOME (pick latest)
+if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
+    # Prefer 34.0.0, then 35, then latest
+    for ver in "34.0.0" "35.0.0" "34.0.0-rc4" "33.0.2" "33.0.1" "33.0.0" "30.0.3"; do
+        if [ -d "$ANDROID_HOME/build-tools/$ver" ] && [ -f "$ANDROID_HOME/build-tools/$ver/aapt2" ]; then
+            BUILD_TOOLS="$ANDROID_HOME/build-tools/$ver"
+            break
+        fi
+    done
+    # If not found, pick latest directory sorted by version
+    if [ -z "$BUILD_TOOLS" ]; then
+        LATEST=$(ls -1 "$ANDROID_HOME/build-tools" 2>/dev/null | sort -V | tail -n 1)
+        if [ -n "$LATEST" ] && [ -f "$ANDROID_HOME/build-tools/$LATEST/aapt2" ]; then
+            BUILD_TOOLS="$ANDROID_HOME/build-tools/$LATEST"
+        fi
+    fi
+fi
+# Fallbacks for sandbox
+if [ -z "$BUILD_TOOLS" ] && [ -d "/tmp/toolchain/android-sdk/build-tools/34.0.0" ]; then
+    BUILD_TOOLS="/tmp/toolchain/android-sdk/build-tools/34.0.0"
+elif [ -z "$BUILD_TOOLS" ] && [ -d "/tmp/android-sdk-test/build-tools/21.0.1" ]; then
     BUILD_TOOLS="/tmp/android-sdk-test/build-tools/21.0.1"
 fi
 
 PLATFORM=""
-if [ -n "$ANDROID_HOME" ] && [ -f "$ANDROID_HOME/platforms/android-34/android.jar" ]; then
-    PLATFORM="$ANDROID_HOME/platforms/android-34"
-elif [ -f "/tmp/android-sdk-test/platforms/android-21/android.jar" ]; then
+if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/platforms" ]; then
+    for ver in "android-34" "android-35" "android-33" "android-34-ext8" "android-32" "android-31" "android-30"; do
+        if [ -f "$ANDROID_HOME/platforms/$ver/android.jar" ]; then
+            PLATFORM="$ANDROID_HOME/platforms/$ver"
+            break
+        fi
+    done
+    if [ -z "$PLATFORM" ]; then
+        LATEST_PLAT=$(ls -1 "$ANDROID_HOME/platforms" 2>/dev/null | sort -V | tail -n 1)
+        if [ -n "$LATEST_PLAT" ] && [ -f "$ANDROID_HOME/platforms/$LATEST_PLAT/android.jar" ]; then
+            PLATFORM="$ANDROID_HOME/platforms/$LATEST_PLAT"
+        fi
+    fi
+fi
+if [ -z "$PLATFORM" ] && [ -f "/tmp/toolchain/android-sdk/platforms/android-34/android.jar" ]; then
+    PLATFORM="/tmp/toolchain/android-sdk/platforms/android-34"
+elif [ -z "$PLATFORM" ] && [ -f "/tmp/android-sdk-test/platforms/android-21/android.jar" ]; then
     PLATFORM="/tmp/android-sdk-test/platforms/android-21"
 fi
 

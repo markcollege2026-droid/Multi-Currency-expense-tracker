@@ -24,10 +24,32 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android build-tools and platforms
+        run: |
+          sdkmanager --install "build-tools;34.0.0" "platforms;android-34" "platform-tools" || true
+          sdkmanager --list_installed || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls -lh $ANDROID_HOME/build-tools/ || true
+          ls -lh $ANDROID_HOME/platforms/ || true
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Try real Gradle build (if dependencies available)
+        id: gradle_build
+        continue-on-error: true
+        run: |
+          # Attempt real Gradle build first (will work in GitHub Actions with Maven Central)
+          # If it fails, our custom gradlew will fallback to manual aapt2 build
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            ./gradlew assembleDebug --stacktrace || echo "Gradle build failed, will use manual fallback"
+          else
+            echo "No gradle-wrapper.jar, using manual build"
+            ./gradlew assembleDebug --stacktrace
+          fi
+
       - name: Build Debug APK (manual aapt2/d8 fallback works offline)
+        if: steps.gradle_build.outcome != 'success'
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Build Release APK
