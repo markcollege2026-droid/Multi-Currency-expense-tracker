@@ -1,0 +1,41 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "abc123",
+    "entities": [
+      {
+        "tableName": "categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `iconName` TEXT NOT NULL, `color` INTEGER NOT NULL, `isDefault` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)"
+      },
+      {
+        "tableName": "expenses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `amountOriginal` TEXT NOT NULL, `currencyOriginal` TEXT NOT NULL, `amountConverted` TEXT NOT NULL, `currencyConverted` TEXT NOT NULL, `exchangeRateUsed` TEXT NOT NULL, `categoryId` INTEGER NOT NULL, `date` INTEGER NOT NULL, `note` TEXT, `paymentMethod` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)"
+      },
+      {
+        "tableName": "top_ups",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `amount` TEXT NOT NULL, `date` INTEGER NOT NULL, `note` TEXT, `createdAt` INTEGER NOT NULL)"
+      },
+      {
+        "tableName": "app_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY NOT NULL, `balanceCurrency` TEXT NOT NULL, `startingBalance` TEXT NOT NULL, `lowBalanceThreshold` TEXT, `theme` TEXT NOT NULL, `defaultCategoryId` INTEGER, `lastRatesUpdate` INTEGER, `isSetupComplete` INTEGER NOT NULL)"
+      },
+      {
+        "tableName": "exchange_rates",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `baseCurrency` TEXT NOT NULL, `targetCurrency` TEXT NOT NULL, `rate` TEXT NOT NULL, `timestamp` INTEGER NOT NULL)"
+      },
+      {
+        "tableName": "loan_debts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `type` TEXT NOT NULL, `personName` TEXT NOT NULL, `amountOriginal` TEXT NOT NULL, `currencyOriginal` TEXT NOT NULL, `date` INTEGER NOT NULL, `dueDate` INTEGER, `note` TEXT, `isSettled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)"
+      },
+      {
+        "tableName": "repayments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `loanDebtId` INTEGER NOT NULL, `amount` TEXT NOT NULL, `date` INTEGER NOT NULL, `note` TEXT, `createdAt` INTEGER NOT NULL, FOREIGN KEY(`loanDebtId`) REFERENCES `loan_debts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'abc123')"
+    ]
+  }
+}
