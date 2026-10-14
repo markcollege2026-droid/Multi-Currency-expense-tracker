@@ -71,7 +71,6 @@ fun MainScaffold(
             }
             composable(Screen.Transactions.route) {
                 TransactionsScreen(
-                    onBack = { navController.popBackStack() },
                     onEditExpense = onEditExpense,
                     onEditTopUp = onEditTopUp,
                     onAddExpense = onNavigateToAddExpense,
@@ -80,13 +79,12 @@ fun MainScaffold(
             }
             composable(Screen.Loans.route) {
                 LoansScreen(
-                    onBack = { navController.popBackStack() },
                     onAddLoan = onAddLoan,
                     onEditLoan = onEditLoan
                 )
             }
             composable(Screen.Settings.route) {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen()
             }
         }
     }

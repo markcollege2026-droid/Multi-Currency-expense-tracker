@@ -43,11 +43,13 @@ class SetupViewModel @Inject constructor(
 
     fun completeSetup(onComplete: () -> Unit) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
+                // Accept both "1.5" and locale-style "1,5" input
+                val normalized = _uiState.value.startingBalance.trim().replace(',', '.')
                 val balance = try {
-                    if (_uiState.value.startingBalance.isBlank()) BigDecimal.ZERO
-                    else BigDecimal(_uiState.value.startingBalance)
+                    if (normalized.isBlank()) BigDecimal.ZERO
+                    else BigDecimal(normalized)
                 } catch (e: Exception) {
                     _uiState.value = _uiState.value.copy(error = "Invalid starting balance", isLoading = false)
                     return@launch

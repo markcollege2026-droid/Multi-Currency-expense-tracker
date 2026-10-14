@@ -20,7 +20,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoansScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onAddLoan: () -> Unit,
     onEditLoan: (Long) -> Unit,
     viewModel: LoansViewModel = hiltViewModel()
@@ -31,7 +31,11 @@ fun LoansScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Loans & Debts") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = if (onBack != null) {
+                    {
+                        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    }
+                } else null
             )
         },
         floatingActionButton = {

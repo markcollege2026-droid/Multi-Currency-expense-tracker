@@ -97,6 +97,7 @@ class ExportImportManager @Inject constructor(
             // Clear existing
             financeRepository.eraseAll()
             loanRepository.eraseAll()
+            rateRepository.clearRates()
 
             data.settings?.let {
                 financeRepository.saveSettings(
@@ -138,13 +139,25 @@ class ExportImportManager @Inject constructor(
     suspend fun exportTransactionsCsv(): String {
         val expenses = financeRepository.getAllExpensesSync()
         val topUps = financeRepository.getAllTopUpsSync()
+        val balanceCurrency = financeRepository.getSettingsSync()?.balanceCurrency ?: "USD"
+        fun csvEscape(value: String?): String {
+            val v = value.orEmpty()
+            return if (v.contains(',') || v.contains('"') || v.contains('\n')) {
+                "\"${v.replace("\"", "\"\"")}\""
+            } else v
+        }
         val sb = StringBuilder()
         sb.appendLine("type,id,amount_original,currency_original,amount_converted,currency_converted,rate,categoryId,date,note,paymentMethod")
         expenses.forEach {
-            sb.appendLine("EXPENSE,${it.id},${it.amountOriginal},${it.currencyOriginal},${it.amountConverted},${it.currencyConverted},${it.exchangeRateUsed},${it.categoryId},${it.date},\"${it.note?.replace("\"","\"\"")}\",${it.paymentMethod}")
+            sb.appendLine(
+                "EXPENSE,${it.id},${it.amountOriginal},${it.currencyOriginal},${it.amountConverted},${it.currencyConverted},${it.exchangeRateUsed},${it.categoryId ?: ""},${it.date},${csvEscape(it.note)},${csvEscape(it.paymentMethod)}"
+            )
         }
         topUps.forEach {
-            sb.appendLine("TOPUP,${it.id},${it.amount},${it.amount},${it.amount},${it.amount},1,,${it.date},\"${it.note?.replace("\"","\"\"")}\",")
+            // Top-ups are stored in the balance currency
+            sb.appendLine(
+                "TOPUP,${it.id},${it.amount},$balanceCurrency,${it.amount},$balanceCurrency,1,,${it.date},${csvEscape(it.note)},"
+            )
         }
         return sb.toString()
     }

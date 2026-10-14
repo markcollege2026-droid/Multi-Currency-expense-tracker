@@ -13,6 +13,7 @@ import com.spendingtracker.app.util.Constants
 import com.spendingtracker.app.util.CurrencyFormatter
 import com.spendingtracker.app.util.NotificationHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -48,6 +49,9 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    // Only notify on the transition into the low-balance state, not on every data change.
+    private var lowBalanceNotified = false
+
     init {
         viewModelScope.launch {
             financeRepository.ensureDefaultCategories()
@@ -68,11 +72,14 @@ class HomeViewModel @Inject constructor(
                 val isLow = balanceCalculator.isLowBalance(balanceResult.balance, threshold)
                 val isNegative = balanceCalculator.isNegative(balanceResult.balance)
 
-                if (isLow) {
+                if (isLow && !lowBalanceNotified) {
+                    lowBalanceNotified = true
                     notificationHelper.showLowBalanceNotification(
                         CurrencyFormatter.formatSimple(balanceResult.balance, appSettings.balanceCurrency),
                         threshold?.let { CurrencyFormatter.formatSimple(it, appSettings.balanceCurrency) } ?: ""
                     )
+                } else if (!isLow) {
+                    lowBalanceNotified = false
                 }
 
                 // Weekly and monthly
@@ -133,9 +140,12 @@ class HomeViewModel @Inject constructor(
                     isLowBalance = isLow,
                     isNegativeBalance = isNegative
                 )
-            }.collect { state ->
-                _uiState.value = state
             }
+                // Heavy aggregation (BigDecimal math, grouping, trend) runs off the main thread.
+                .flowOn(Dispatchers.Default)
+                .collect { state ->
+                    _uiState.value = state
+                }
         }
 
         // Refresh rates if needed

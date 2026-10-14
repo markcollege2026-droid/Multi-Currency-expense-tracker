@@ -18,7 +18,8 @@ data class AddTopUpUiState(
     val balanceCurrency: String = "USD",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val isEditMode: Boolean = false
+    val isEditMode: Boolean = false,
+    val createdAt: Long? = null
 )
 
 @HiltViewModel
@@ -47,7 +48,8 @@ class AddTopUpViewModel @Inject constructor(
                         date = topUp.date,
                         note = topUp.note ?: "",
                         balanceCurrency = settings?.balanceCurrency ?: "USD",
-                        isEditMode = true
+                        isEditMode = true,
+                        createdAt = topUp.createdAt
                     )
                 }
             } catch (e: Exception) {
@@ -79,7 +81,8 @@ class AddTopUpViewModel @Inject constructor(
                     id = topUpId ?: 0,
                     amount = amount.toPlainString(),
                     date = state.date,
-                    note = state.note.ifBlank { null }
+                    note = state.note.ifBlank { null },
+                    createdAt = state.createdAt ?: System.currentTimeMillis()
                 )
                 if (state.isEditMode && topUpId != null) {
                     financeRepository.updateTopUp(topUp.copy(id = topUpId))

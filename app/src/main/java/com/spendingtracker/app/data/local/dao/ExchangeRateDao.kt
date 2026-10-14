@@ -9,6 +9,9 @@ interface ExchangeRateDao {
     @Query("SELECT * FROM exchange_rates")
     fun getAllRates(): Flow<List<ExchangeRate>>
 
+    @Query("SELECT * FROM exchange_rates")
+    suspend fun getAllRatesSync(): List<ExchangeRate>
+
     @Query("SELECT * FROM exchange_rates WHERE baseCurrency = :base AND targetCurrency = :target LIMIT 1")
     suspend fun getRate(base: String, target: String): ExchangeRate?
 

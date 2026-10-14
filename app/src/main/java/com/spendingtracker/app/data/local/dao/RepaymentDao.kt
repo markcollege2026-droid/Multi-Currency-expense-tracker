@@ -12,6 +12,9 @@ interface RepaymentDao {
     @Query("SELECT * FROM repayments WHERE loanDebtId = :loanDebtId ORDER BY date DESC")
     suspend fun getRepaymentsForLoanSync(loanDebtId: Long): List<Repayment>
 
+    @Query("SELECT * FROM repayments ORDER BY date DESC")
+    suspend fun getAllRepaymentsSync(): List<Repayment>
+
     @Query("SELECT * FROM repayments WHERE id = :id")
     suspend fun getRepaymentById(id: Long): Repayment?
 

@@ -1,12 +1,15 @@
 package com.spendingtracker.app.ui.screens.transactions
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -40,7 +43,13 @@ fun AddExpenseScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                // Scrollable + keyboard-aware so the Save button stays reachable on small screens
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             OutlinedTextField(
@@ -167,6 +176,8 @@ fun CurrencyPickerDialog(
             }.take(100)
         }
     }
+    // Scale the list to the screen so dialogs fit on small devices
+    val listMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.4f).dp.coerceAtMost(340.dp)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -177,7 +188,7 @@ fun CurrencyPickerDialog(
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search") }, modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(8.dp))
-                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.height(340.dp)) {
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = listMaxHeight)) {
                     items(filtered.size) { idx ->
                         val c = filtered[idx]
                         Card(
@@ -207,11 +218,12 @@ fun CurrencyPickerDialog(
 
 @Composable
 fun CategoryPickerDialog(categories: List<com.spendingtracker.app.data.local.entity.Category>, onDismiss: () -> Unit, onCategorySelected: (Long?) -> Unit) {
+    val listMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.4f).dp.coerceAtMost(300.dp)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select category") },
         text = {
-            androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.height(300.dp)) {
+            androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = listMaxHeight)) {
                 items(categories.size) { idx ->
                     val cat = categories[idx]
                     Button(onClick = { onCategorySelected(cat.id) }, modifier = Modifier.fillMaxWidth().padding(4.dp)) {

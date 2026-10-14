@@ -28,7 +28,8 @@ data class AddLoanUiState(
     val newRepaymentNote: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val isEditMode: Boolean = false
+    val isEditMode: Boolean = false,
+    val createdAt: Long? = null
 )
 
 @HiltViewModel
@@ -66,7 +67,8 @@ class AddLoanViewModel @Inject constructor(
                         isSettled = loan.isSettled,
                         balanceCurrency = settings?.balanceCurrency ?: "USD",
                         repayments = reps,
-                        isEditMode = true
+                        isEditMode = true,
+                        createdAt = loan.createdAt
                     )
                 }
             } catch (e: Exception) {
@@ -109,7 +111,8 @@ class AddLoanViewModel @Inject constructor(
                     date = s.date,
                     dueDate = s.dueDate,
                     note = s.note.ifBlank { null },
-                    isSettled = s.isSettled
+                    isSettled = s.isSettled,
+                    createdAt = s.createdAt ?: System.currentTimeMillis()
                 )
                 if (s.isEditMode && loanId != null) loanRepository.updateLoanDebt(loan.copy(id = loanId))
                 else loanRepository.insertLoanDebt(loan)
