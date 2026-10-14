@@ -78,7 +78,12 @@ class FinanceRepository @Inject constructor(
     suspend fun getAllTopUpsSync(): List<TopUp> = topUpDao.getAllTopUpsSync()
 
     fun getTransactions(): Flow<List<TransactionItem>> {
-        return combine(expenseDao.getAllExpenses(), topUpDao.getAllTopUps()) { expenses, topups ->
+        return combine(
+            expenseDao.getAllExpenses(),
+            topUpDao.getAllTopUps(),
+            accountDao.getAllAccounts()
+        ) { expenses, topups, accounts ->
+            val currencyByAccount = accounts.associate { it.id to it.currency }
             val expenseItems = expenses.map {
                 TransactionItem(
                     id = it.id,
@@ -95,13 +100,15 @@ class FinanceRepository @Inject constructor(
                 )
             }
             val topUpItems = topups.map {
+                // Top-ups are stored in the account's balance currency.
+                val accountCurrency = currencyByAccount[it.accountId] ?: ""
                 TransactionItem(
                     id = it.id,
                     type = "TOPUP",
                     amountOriginal = it.amountAsBigDecimal(),
-                    currencyOriginal = "", // will be filled from the account
+                    currencyOriginal = accountCurrency,
                     amountConverted = it.amountAsBigDecimal(),
-                    currencyConverted = "",
+                    currencyConverted = accountCurrency,
                     rateUsed = null,
                     categoryId = null,
                     date = it.date,
