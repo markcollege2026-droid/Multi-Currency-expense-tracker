@@ -37,6 +37,19 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- On-demand WorkManager initialization (app implements Configuration.Provider):
+             remove the default WorkManagerInitializer from androidx.startup -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
     </application>
 
 </manifest>
