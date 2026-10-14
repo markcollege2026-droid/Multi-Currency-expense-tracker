@@ -68,19 +68,35 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }}
           name: Spending Tracker ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }} - Full App
           body: |
-            Offline-first Spending Tracker + Loans & Debts - FULL APP
+            Offline-first Spending Tracker + Loans & Debts - FULL APP (v1.2)
+
+            **New in this release:**
+            - Multiple accounts per device (own currency, starting balance,
+              low-balance threshold); switch accounts from Home. Expenses and
+              top-ups are tracked per account. Loans & debts stay SHARED
+              across accounts.
+            - Recurring payments (daily/weekly/monthly/yearly) with chosen
+              due dates, start/end dates, pause/resume. Due payments post
+              automatically as expenses, converted at execution time; missed
+              occurrences are caught up, missing rates retry (never guessed).
+            - Loans: pick any due date (date picker), and see the date each
+              loan/debt was made.
+            - Custom categories: create (with color) and delete in the
+              category picker.
+            - Export/import JSON covers accounts + recurring payments; old
+              export files still import.
 
             **Full App Features (Real Gradle Build):**
             - Compose + Material 3 dynamic color
-            - Room DB offline-first (7 entities)
+            - Room DB offline-first (9 entities)
             - Hilt DI, Navigation, ViewModels
             - Balance = starting + topups - converted expenses (BigDecimal)
             - Multi-currency with cached rates from open.er-api.com
             - Loans & Debts separate from balance with repayments, progress, overdue
             - Dashboard with balance card, stats, trend, quick-add FAB
             - Transactions grouped by day with search/filters
-            - Settings with export/import JSON/CSV, erase, theme, threshold
-            - WorkManager notifications
+            - Settings with accounts management, export/import JSON/CSV, erase, theme, threshold
+            - WorkManager notifications + daily recurring payments
 
             **Performance:**
             - R8 code + resource shrinking enabled for release
