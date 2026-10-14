@@ -56,7 +56,7 @@ Offline-first personal finance app with multi-currency expense tracking and loan
 - **Architecture**: MVVM, single-activity, Navigation Compose, Hilt DI, coroutines/Flow
 - **Storage**: Room (SQLite) offline-first
 - **Networking**: Retrofit/OkHttp for exchange rates only
-- **Other**: WorkManager for notifications, DataStore, kotlinx-serialization
+- **Other**: WorkManager for notifications, kotlinx-serialization
 - **minSdk 26, targetSdk 34, Gradle Kotlin DSL**
 
 ## Architecture Overview
@@ -152,19 +152,24 @@ For restricted networks, use the bundle from https://github.com/whynusn/android-
 - Contains JDK 17, build-tools, platforms, platform-tools
 - See its README for setup
 
-### Build APK
+### Build APK / App Bundle
 
 ```bash
 # Debug
 ./gradlew assembleDebug
 
-# Release (signed)
+# Release APK (signed, R8-minified)
 ./gradlew assembleRelease
+
+# Play Store App Bundle (signed, R8-minified) - upload this to Google Play Console
+./gradlew bundleRelease
 ```
 
 Outputs:
 - `app/build/outputs/apk/debug/app-debug.apk`
 - `app/build/outputs/apk/release/app-release.apk`
+- `app/build/outputs/bundle/release/app-release.aab` (Google Play)
+- `app/build/outputs/mapping/release/mapping.txt` (R8 crash deobfuscation)
 
 ### Run Tests
 
@@ -220,57 +225,55 @@ Both keystores are included for reproducibility. In production, keep release key
 
 - **Exchange rate source**: Uses open.er-api.com which is free but rate-limited; fallback to manual rate if unavailable
 - **Currency conversion**: Simplified - rate is stored as conversion factor from original to balance (original * rate = converted). Inverse handling for API rates
-- **Balance currency change**: Re-expresses history using stored rates where possible; if no stored rate for original->new currency, keeps old converted amount but notes limitation. Full re-expression would require historical rates for all pairs, which free API doesn't provide historically.
+- **Balance currency change**: Re-expresses all history (starting balance, top-ups, expenses) using stored rates, including cross-rates via pivot currencies. If no rate path exists at all, the change is refused instead of corrupting balances.
 - **Loans/Debts**: Repayments assumed same currency as original loan; multi-currency repayments would require conversion but simplified for v1
 - **No backend**: Fully offline, no sync, no accounts, no analytics as required
 - **Permissions**: Only INTERNET and POST_NOTIFICATIONS
-- **ProGuard/R8**: Enabled for release via `isMinifyEnabled=true` in app/build.gradle.kts
-- **Room migrations**: Configured with `fallbackToDestructiveMigration()` for v1; schema exported to `app/schemas` for future migrations
+- **ProGuard/R8**: Enabled for release (`isMinifyEnabled=true`, `isShrinkResources=true` in app/build.gradle.kts) for smaller APK/AAB and faster startup. R8 mapping is uploaded by CI for crash deobfuscation
+- **Room migrations**: Configured with `fallbackToDestructiveMigration()` for v1; schema exported to `app/schemas` for future migrations. Replace with real migrations before shipping schema changes
 - **Compose**: Uses Material 3 with dynamic color on Android 12+, fallback palette otherwise
 - **Accessibility**: 48dp touch targets, content descriptions, contrast, font scaling considered in UI
 - **Localization**: All strings in `res/values/strings.xml`, ready for translation; currency formatting uses `NumberFormat` with locale
-- **Manual APK build**: In restricted networks, `gradlew` falls back to manual aapt2/d8 build that produces minimal functional APK (balance demo). Full Compose/Room/Hilt app requires real Gradle + Maven dependencies.
+- **Manual APK build**: The included `gradlew` wrapper script prefers the real Gradle build; a manual aapt2/d8 fallback exists only for restricted-network environments and produces a minimal demo APK
 - **Testing**: Unit tests use JUnit; UI test is placeholder that verifies composable loads. Real UI test would need Hilt test setup and in-memory Room.
-- **Notifications**: Low-balance checked after each transaction; loan due reminders via WorkManager daily (requires POST_NOTIFICATIONS permission on Android 13+)
+- **Notifications**: Low-balance notified on the transition into low balance; loan due reminders via WorkManager every 12h (requires POST_NOTIFICATIONS permission on Android 13+, requested at first launch)
 
-## Download APKs
+## Download
 
-### Option 1: Direct from repo (easiest)
-- **Debug**: [`apk/app-debug.apk`](apk/app-debug.apk) (13KB demo, balance logic)
-- **Release**: [`apk/app-release.apk`](apk/app-release.apk) (13KB, signed with `release.keystore`)
-- Also in `app/build/outputs/apk/debug/app-debug.apk` and `app/build/outputs/apk/release/app-release.apk`
-
-Click the file in GitHub UI -> Download raw file.
+### Option 1: Google Play
+The app ships to Google Play as an **App Bundle (AAB)**, built with R8 code + resource
+shrinking. On the device, install it from the Play Store — Play delivers the smallest
+APK split for the device and can install startup/baseline profiles for faster launches.
 
 ### Option 2: GitHub Actions artifacts (latest build)
 1. Go to **Actions** tab -> **Build APKs** workflow
 2. Click latest successful run
 3. Scroll to **Artifacts** section
 4. Download:
-   - `app-debug` -> `app-debug.apk`
-   - `app-release` -> `app-release.apk`
-   - `all-apks` -> both + keystores + docs
+   - `full-app-apks` -> `app-debug.apk` + `app-release.apk`
+   - `play-app-bundle` -> `app-release.aab` (for Google Play Console)
+   - `release-mapping` -> R8 mapping (crash deobfuscation)
 
 Artifacts are generated on every push to `main` or `arena/**` branches.
 
 ### Option 3: GitHub Releases
 1. Go to **Releases** tab
-2. Download from latest release (if published via tag `v*` or manual dispatch)
-3. Includes both APKs + keystores + README
+2. Download from latest release (published via tag `v*` or manual dispatch)
+3. Includes APKs + Play AAB + R8 mapping + keystores + README
 
 ### Option 4: Build locally
 ```bash
 ./gradlew assembleDebug
-./gradlew assembleRelease
+./gradlew assembleRelease   # signed, R8-minified APK
+./gradlew bundleRelease     # signed AAB for Google Play
 ```
-APKs will be in `app/build/outputs/apk/` and copied to `apk/`.
+Outputs are in `app/build/outputs/`.
 
 ## APK Paths
 
-- Debug: `app/build/outputs/apk/debug/app-debug.apk` and `apk/app-debug.apk`
-- Release: `app/build/outputs/apk/release/app-release.apk` and `apk/app-release.apk` (signed with release.keystore)
-
-Both APKs are installable and demonstrate core balance logic. Full source is production-quality and would build full-featured app with real Gradle.
+- Debug: `app/build/outputs/apk/debug/app-debug.apk`
+- Release: `app/build/outputs/apk/release/app-release.apk` (signed with `release.keystore`)
+- Play bundle: `app/build/outputs/bundle/release/app-release.aab`
 
 ## License
 

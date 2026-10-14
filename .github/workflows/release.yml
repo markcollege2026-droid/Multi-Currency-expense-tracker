@@ -27,6 +27,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+          cache-disabled: false
+
       - name: Setup Android SDK (Android 15 compatible)
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
@@ -38,43 +44,32 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Try Real Gradle Build First (Full App)
-        id: real_build
-        continue-on-error: true
+      - name: Build Full App (debug APK, release APK + Play AAB)
         run: |
-          echo "Trying REAL Gradle build for full Compose/Room/Hilt app..."
-          java -cp gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain assembleDebug assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" || echo "Real Gradle failed"
-          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/ || true
-          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || stat -f%z app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
+          set -o pipefail
+          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee build.log
+          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/ app/build/outputs/bundle/release/
+          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
           echo "Debug APK size: $SIZE"
-          if [ "$SIZE" -gt 1000000 ]; then
-            echo "FULL_APP=true" >> $GITHUB_ENV
-          else
-            echo "FULL_APP=false" >> $GITHUB_ENV
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: APK too small, expected full app >1MB"
+            exit 1
           fi
-
-      - name: Fallback to Manual Build if Real Failed
-        if: env.FULL_APP != 'true'
-        run: |
-          echo "Falling back to manual build (recent Android compatible)"
-          ./gradlew assembleDebug
-          ./gradlew assembleRelease
-          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/
 
       - name: Copy to apk folder
         run: |
           mkdir -p apk
-          cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk || true
-          cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk || true
+          cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk
 
-      - name: Create Release with Full App APKs
+      - name: Create Release with Full App APKs + Play AAB
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }}
           name: Spending Tracker ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }} - Full App
           body: |
             Offline-first Spending Tracker + Loans & Debts - FULL APP
-            
+
             **Full App Features (Real Gradle Build):**
             - Compose + Material 3 dynamic color
             - Room DB offline-first (7 entities)
@@ -86,22 +81,28 @@ jobs:
             - Transactions grouped by day with search/filters
             - Settings with export/import JSON/CSV, erase, theme, threshold
             - WorkManager notifications
-            
+
+            **Performance:**
+            - R8 code + resource shrinking enabled for release
+            - Strong-skipping Compose compiler
+            - Baseline-profile ready (profileinstaller)
+
             **Compatibility:**
             - minSdk 26 (Android 8), targetSdk 35 (Android 15)
-            - Tested on Android 8 - Android 15
             - v2+v3 signing for Android 14/15+
-            
-            **APKs:**
+
+            **Artifacts:**
             - app-debug.apk (full app, debug)
-            - app-release.apk (full app, release signed with release.keystore pass: spendingtracker)
-            
-            **If real Gradle failed in CI, fallback is demo APK (13KB) with balance logic only - still compatible with Android 14/15+ but not full features. Check Actions logs for build type.**
-            
-            Install via adb or file manager.
+            - app-release.apk (full app, release signed with release.keystore)
+            - app-release.aab (Play Store bundle - upload this to Google Play Console)
+            - mapping/ (R8 crash deobfuscation mapping)
+
+            Install APK via adb or file manager. For Google Play, upload the AAB.
           files: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/mapping/release/mapping.txt
             release.keystore
             README.md
             KEYSTORE.md

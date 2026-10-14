@@ -1,29 +1,13 @@
-# Gradle root
-/build/
-/.gradle/
+# Gradle / build output
+build/
+.gradle/
 local.properties
 *.iml
 .idea/
 
-# App build - keep only apk outputs
-/app/build/*
-!/app/build/outputs
-/app/build/outputs/*
-!/app/build/outputs/apk
-/app/build/outputs/apk/*
-!/app/build/outputs/apk/debug
-!/app/build/outputs/apk/release
-/app/build/outputs/apk/debug/*
-!/app/build/outputs/apk/debug/app-debug.apk
-/app/build/outputs/apk/release/*
-!/app/build/outputs/apk/release/app-release.apk
-
-# Keep keystores and apk folder
-!release.keystore
-!debug.keystore
-!/apk/
-!/apk/app-debug.apk
-!/apk/app-release.apk
+# Built APK/AAB artifacts are distributed via CI artifacts and GitHub Releases,
+# not committed to the repository.
+/apk/
 
 # OS
 .DS_Store

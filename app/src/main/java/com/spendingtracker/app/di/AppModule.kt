@@ -1,6 +1,7 @@
 package com.spendingtracker.app.di
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import androidx.room.Room
 import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.data.remote.ExchangeRateApi
@@ -10,10 +11,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @Module
@@ -55,9 +59,21 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOkHttp(): OkHttpClient {
+    fun provideOkHttp(@ApplicationContext context: Context): OkHttpClient {
         return OkHttpClient.Builder()
-            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+            // Tight timeouts so a slow/hanging rate API can't stall conversions
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            // Small HTTP cache so repeated rate fetches can be served from disk
+            .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
+            .apply {
+                // Log network traffic only in debug builds
+                if ((context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                    addInterceptor(HttpLoggingInterceptor().apply {
+                        level = HttpLoggingInterceptor.Level.BASIC
+                    })
+                }
+            }
             .build()
     }
 

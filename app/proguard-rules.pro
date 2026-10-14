@@ -1,6 +1,18 @@
+# Keep readable crash stack traces after R8 obfuscation
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
 # Keep data classes
 -keep class com.spendingtracker.app.data.** { *; }
 -keep class com.spendingtracker.app.domain.** { *; }
+
+# kotlinx-serialization models used for JSON export/import (in util)
+-keep class com.spendingtracker.app.util.Export* { *; }
+-keepclassmembers class com.spendingtracker.app.util.Export* {
+    *** Companion;
+    *** INSTANCE;
+    kotlinx.serialization.KSerializer serializer(...);
+}
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
