@@ -44,11 +44,11 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
-                navigationIcon = if (onBack != null) {
-                    {
+                navigationIcon = {
+                    if (onBack != null) {
                         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
                     }
-                } else null
+                }
             )
         }
     ) { padding ->

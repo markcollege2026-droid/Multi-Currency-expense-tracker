@@ -31,11 +31,11 @@ fun LoansScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Loans & Debts") },
-                navigationIcon = if (onBack != null) {
-                    {
+                navigationIcon = {
+                    if (onBack != null) {
                         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
                     }
-                } else null
+                }
             )
         },
         floatingActionButton = {

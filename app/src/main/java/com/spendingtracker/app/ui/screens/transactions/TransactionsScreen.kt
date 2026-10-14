@@ -35,11 +35,11 @@ fun TransactionsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Transactions") },
-                navigationIcon = if (onBack != null) {
-                    {
+                navigationIcon = {
+                    if (onBack != null) {
                         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
                     }
-                } else null
+                }
             )
         },
         floatingActionButton = {
