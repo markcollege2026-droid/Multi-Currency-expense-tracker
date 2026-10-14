@@ -15,9 +15,11 @@ import com.spendingtracker.app.data.local.entity.*
         AppSettings::class,
         ExchangeRate::class,
         LoanDebt::class,
-        Repayment::class
+        Repayment::class,
+        Account::class,
+        RecurringPayment::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -29,4 +31,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun exchangeRateDao(): ExchangeRateDao
     abstract fun loanDebtDao(): LoanDebtDao
     abstract fun repaymentDao(): RepaymentDao
+    abstract fun accountDao(): AccountDao
+    abstract fun recurringPaymentDao(): RecurringPaymentDao
 }

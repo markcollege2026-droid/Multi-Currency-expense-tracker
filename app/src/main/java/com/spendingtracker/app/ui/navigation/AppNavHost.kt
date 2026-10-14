@@ -9,6 +9,7 @@ import androidx.navigation.navArgument
 import com.spendingtracker.app.ui.screens.home.HomeScreen
 import com.spendingtracker.app.ui.screens.loans.AddLoanScreen
 import com.spendingtracker.app.ui.screens.loans.LoansScreen
+import com.spendingtracker.app.ui.screens.recurring.RecurringScreen
 import com.spendingtracker.app.ui.screens.settings.SettingsScreen
 import com.spendingtracker.app.ui.screens.setup.SetupScreen
 import com.spendingtracker.app.ui.screens.transactions.AddExpenseScreen
@@ -35,6 +36,7 @@ fun AppNavHost(
             com.spendingtracker.app.ui.screens.MainScaffold(
                 onNavigateToAddExpense = { navController.navigate(Screen.AddExpense.createRoute()) },
                 onNavigateToAddTopUp = { navController.navigate(Screen.AddTopUp.createRoute()) },
+                onNavigateToRecurring = { navController.navigate(Screen.Recurring.route) },
                 onEditExpense = { id -> navController.navigate(Screen.AddExpense.createRoute(id)) },
                 onEditTopUp = { id -> navController.navigate(Screen.AddTopUp.createRoute(id)) },
                 onAddLoan = { navController.navigate(Screen.AddLoan.createRoute()) },
@@ -46,6 +48,7 @@ fun AppNavHost(
             HomeScreen(
                 onNavigateToAddExpense = { navController.navigate(Screen.AddExpense.createRoute()) },
                 onNavigateToAddTopUp = { navController.navigate(Screen.AddTopUp.createRoute()) },
+                onNavigateToRecurring = { navController.navigate(Screen.Recurring.route) },
                 onNavigateToTransactions = { navController.navigate(Screen.Main.route) },
                 onNavigateToSettings = { navController.navigate(Screen.Main.route) },
                 onNavigateToLoans = { navController.navigate(Screen.Main.route) },
@@ -87,6 +90,11 @@ fun AppNavHost(
                 onBack = { navController.popBackStack() },
                 onAddLoan = { navController.navigate(Screen.AddLoan.createRoute()) },
                 onEditLoan = { id -> navController.navigate(Screen.AddLoan.createRoute(id)) }
+            )
+        }
+        composable(Screen.Recurring.route) {
+            RecurringScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(

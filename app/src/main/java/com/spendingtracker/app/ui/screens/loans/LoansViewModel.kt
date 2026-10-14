@@ -48,9 +48,9 @@ class LoansViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 loanRepository.getAllLoanDebts(),
-                financeRepository.getSettings()
-            ) { allLoans, settings ->
-                val balanceCurrency = settings?.balanceCurrency ?: "USD"
+                financeRepository.observeActiveAccount()
+            ) { allLoans, account ->
+                val balanceCurrency = account?.currency ?: "USD"
                 val debts = mutableListOf<LoanWithBalance>()
                 val loans = mutableListOf<LoanWithBalance>()
                 var totalDebtConverted = BigDecimal.ZERO

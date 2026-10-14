@@ -113,6 +113,15 @@ fun SetupScreen(
             }
             item {
                 OutlinedTextField(
+                    value = uiState.accountName,
+                    onValueChange = viewModel::onAccountNameChanged,
+                    label = { Text("Account name (optional, e.g. Main, Personal)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                OutlinedTextField(
                     value = uiState.startingBalance,
                     onValueChange = viewModel::onStartingBalanceChanged,
                     label = { Text("Starting balance (optional)") },

@@ -19,7 +19,8 @@ data class AddTopUpUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val isEditMode: Boolean = false,
-    val createdAt: Long? = null
+    val createdAt: Long? = null,
+    val accountId: Long? = null
 )
 
 @HiltViewModel
@@ -32,8 +33,11 @@ class AddTopUpViewModel @Inject constructor(
     fun loadTopUp(topUpId: Long?) {
         if (topUpId == null) {
             viewModelScope.launch {
-                val settings = financeRepository.getSettingsSync()
-                _uiState.value = _uiState.value.copy(balanceCurrency = settings?.balanceCurrency ?: "USD")
+                val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
+                _uiState.value = _uiState.value.copy(
+                    balanceCurrency = account?.currency ?: "USD",
+                    accountId = account?.id
+                )
             }
             return
         }
@@ -41,15 +45,18 @@ class AddTopUpViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true)
             try {
                 val topUp = financeRepository.getTopUpById(topUpId)
-                val settings = financeRepository.getSettingsSync()
+                val account = financeRepository.getAccountById(
+                    topUp?.accountId ?: financeRepository.getActiveAccountId()
+                )
                 if (topUp != null) {
                     _uiState.value = AddTopUpUiState(
                         amount = topUp.amount,
                         date = topUp.date,
                         note = topUp.note ?: "",
-                        balanceCurrency = settings?.balanceCurrency ?: "USD",
+                        balanceCurrency = account?.currency ?: "USD",
                         isEditMode = true,
-                        createdAt = topUp.createdAt
+                        createdAt = topUp.createdAt,
+                        accountId = topUp.accountId
                     )
                 }
             } catch (e: Exception) {
@@ -79,6 +86,7 @@ class AddTopUpViewModel @Inject constructor(
                 }
                 val topUp = TopUp(
                     id = topUpId ?: 0,
+                    accountId = state.accountId ?: financeRepository.getActiveAccountId(),
                     amount = amount.toPlainString(),
                     date = state.date,
                     note = state.note.ifBlank { null },

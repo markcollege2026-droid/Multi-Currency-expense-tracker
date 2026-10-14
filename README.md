@@ -4,6 +4,14 @@ Offline-first personal finance app with multi-currency expense tracking and loan
 
 ## Features
 
+### New in v1.2
+- **Multiple accounts** on one device (e.g. Personal / Work / Family), each with its own currency, starting balance and low-balance threshold. Expenses and top-ups are tracked per account; switch the active account from the Home screen or Settings. **Loans & debts stay shared across all accounts.**
+- **Recurring payments**: schedule repeating payments (daily / weekly / monthly / yearly) with a start date, optional end date and a chosen due date. Each due payment is posted automatically as an expense in its account, converted at execution time. Missed occurrences are caught up (capped per run); if no exchange rate is available the payment stays due and retries - it is never posted with a wrong amount. Manage them from Home → "Recurring payments" (pause / resume / edit / delete).
+- **Loan due-date picker**: choose any due date for a loan or debt (previously only "in 7 days").
+- Loans & debts now show the **date they were made** as well as the due date.
+- **Custom categories**: create your own categories (with colors) when adding an expense, and delete them from the category picker.
+- Export/import JSON now covers accounts, per-account data and recurring payments; old export files still import fine (data goes into a single "Main" account).
+
 ### Account Balance (Central)
 - ONE balance in fixed currency chosen at first launch
 - Balance = starting balance + sum(top-ups) - sum(converted expenses)
@@ -18,7 +26,7 @@ Offline-first personal finance app with multi-currency expense tracking and loan
 ### Spending Tracker
 - Add/edit/delete expenses: amount, currency, category, date, note, payment method
 - Add/edit/delete top-ups
-- Default categories with icons/colors + custom categories
+- Default categories with icons/colors + custom categories (create/delete in the category picker)
 - Transaction list grouped by day, search & filters
 - Dashboard: balance, weekly/monthly totals, top categories, trend chart, breakdown
 - Quick-add FAB with Expense/Add money toggle
@@ -35,7 +43,7 @@ Offline-first personal finance app with multi-currency expense tracking and loan
 
 ### Loans & Debts
 - Two sections: "I owe" (debts) and "Owed to me" (loans)
-- Each: person, amount, currency, date, due date, note
+- Each: person, amount, currency, date made, due date (pick any date), note
 - Partial repayments with remaining balance & progress bar
 - Mark settled, show overdue
 - Summary converted to balance currency using cached rates

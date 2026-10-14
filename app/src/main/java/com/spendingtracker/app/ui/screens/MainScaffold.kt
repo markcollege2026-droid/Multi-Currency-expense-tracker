@@ -22,6 +22,7 @@ data class BottomNavItem(val label: String, val route: String, val icon: String)
 fun MainScaffold(
     onNavigateToAddExpense: () -> Unit,
     onNavigateToAddTopUp: () -> Unit,
+    onNavigateToRecurring: () -> Unit,
     onEditExpense: (Long) -> Unit,
     onEditTopUp: (Long) -> Unit,
     onAddLoan: () -> Unit,
@@ -62,6 +63,7 @@ fun MainScaffold(
                 HomeScreen(
                     onNavigateToAddExpense = onNavigateToAddExpense,
                     onNavigateToAddTopUp = onNavigateToAddTopUp,
+                    onNavigateToRecurring = onNavigateToRecurring,
                     onNavigateToTransactions = { navController.navigate(Screen.Transactions.route) },
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                     onNavigateToLoans = { navController.navigate(Screen.Loans.route) },

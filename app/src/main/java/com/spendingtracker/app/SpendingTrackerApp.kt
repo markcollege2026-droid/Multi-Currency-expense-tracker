@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.spendingtracker.app.util.NotificationHelper
 import com.spendingtracker.app.worker.LoanReminderWorker
+import com.spendingtracker.app.worker.RecurringPaymentWorker
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -25,6 +26,7 @@ class SpendingTrackerApp : Application(), Configuration.Provider {
         super.onCreate()
         notificationHelper.createChannels()
         scheduleLoanReminders()
+        scheduleRecurringPayments()
     }
 
     private fun scheduleLoanReminders() {
@@ -38,6 +40,17 @@ class SpendingTrackerApp : Application(), Configuration.Provider {
         )
     }
 
+    private fun scheduleRecurringPayments() {
+        val request = PeriodicWorkRequestBuilder<RecurringPaymentWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(1, TimeUnit.HOURS)
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            RECURRING_WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -45,5 +58,6 @@ class SpendingTrackerApp : Application(), Configuration.Provider {
 
     companion object {
         private const val LOAN_REMINDER_WORK_NAME = "loan_due_reminders"
+        private const val RECURRING_WORK_NAME = "recurring_payments"
     }
 }

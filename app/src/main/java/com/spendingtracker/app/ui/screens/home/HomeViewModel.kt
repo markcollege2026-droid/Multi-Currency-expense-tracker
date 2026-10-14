@@ -2,12 +2,14 @@ package com.spendingtracker.app.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.local.entity.AppSettings
 import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
+import com.spendingtracker.app.data.repository.RecurringRepository
 import com.spendingtracker.app.domain.BalanceCalculator
 import com.spendingtracker.app.util.Constants
 import com.spendingtracker.app.util.CurrencyFormatter
@@ -35,13 +37,16 @@ data class HomeUiState(
     val lastRatesUpdate: Long? = null,
     val lowBalanceThreshold: BigDecimal? = null,
     val isLowBalance: Boolean = false,
-    val isNegativeBalance: Boolean = false
+    val isNegativeBalance: Boolean = false,
+    val accounts: List<Account> = emptyList(),
+    val activeAccount: Account? = null
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val financeRepository: FinanceRepository,
     private val rateRepository: ExchangeRateRepository,
+    private val recurringRepository: RecurringRepository,
     private val balanceCalculator: BalanceCalculator,
     private val notificationHelper: NotificationHelper
 ) : ViewModel() {
@@ -53,30 +58,46 @@ class HomeViewModel @Inject constructor(
     private var lowBalanceNotified = false
 
     init {
+        // Post any recurring payments that came due (also runs daily via WorkManager)
+        viewModelScope.launch {
+            try { recurringRepository.processDuePayments() } catch (e: Exception) { /* next run retries */ }
+        }
+
         viewModelScope.launch {
             financeRepository.ensureDefaultCategories()
+            val accountAndList = combine(
+                financeRepository.observeActiveAccount(),
+                financeRepository.getAllAccounts()
+            ) { active, all -> active to all }
+
             combine(
-                financeRepository.getSettings(),
+                accountAndList,
                 financeRepository.getAllExpenses(),
                 financeRepository.getAllTopUps(),
-                financeRepository.getCategories()
-            ) { settings, expenses, topUps, categories ->
+                financeRepository.getCategories(),
+                financeRepository.getSettings()
+            ) { (account, accounts), allExpenses, allTopUps, categories, settings ->
                 val appSettings = settings ?: AppSettings()
-                val starting = try { BigDecimal(appSettings.startingBalance) } catch (e: Exception) { BigDecimal.ZERO }
+                val accountId = account?.id
+                val expenses = if (accountId == null) emptyList() else allExpenses.filter { it.accountId == accountId }
+                val topUps = if (accountId == null) emptyList() else allTopUps.filter { it.accountId == accountId }
+
+                val starting = account?.startingBalanceAsBigDecimal() ?: BigDecimal.ZERO
                 val topUpAmounts = topUps.map { try { BigDecimal(it.amount) } catch (e: Exception) { BigDecimal.ZERO } }
                 val expenseConverted = expenses.map { try { BigDecimal(it.amountConverted) } catch (e: Exception) { BigDecimal.ZERO } }
 
                 val balanceResult = balanceCalculator.calculate(starting, topUpAmounts, expenseConverted)
 
-                val threshold = appSettings.lowBalanceThreshold?.let { try { BigDecimal(it) } catch (e: Exception) { null } }
+                val threshold = account?.thresholdAsBigDecimal()
                 val isLow = balanceCalculator.isLowBalance(balanceResult.balance, threshold)
                 val isNegative = balanceCalculator.isNegative(balanceResult.balance)
+                val balanceCurrency = account?.currency ?: "USD"
 
                 if (isLow && !lowBalanceNotified) {
                     lowBalanceNotified = true
                     notificationHelper.showLowBalanceNotification(
-                        CurrencyFormatter.formatSimple(balanceResult.balance, appSettings.balanceCurrency),
-                        threshold?.let { CurrencyFormatter.formatSimple(it, appSettings.balanceCurrency) } ?: ""
+                        CurrencyFormatter.formatSimple(balanceResult.balance, balanceCurrency),
+                        threshold?.let { CurrencyFormatter.formatSimple(it, balanceCurrency) } ?: ""
                     )
                 } else if (!isLow) {
                     lowBalanceNotified = false
@@ -125,7 +146,7 @@ class HomeViewModel @Inject constructor(
 
                 HomeUiState(
                     balance = balanceResult.balance,
-                    balanceCurrency = appSettings.balanceCurrency,
+                    balanceCurrency = balanceCurrency,
                     startingBalance = starting,
                     totalSpentWeek = spentWeek,
                     totalSpentMonth = spentMonth,
@@ -138,7 +159,9 @@ class HomeViewModel @Inject constructor(
                     lastRatesUpdate = appSettings.lastRatesUpdate,
                     lowBalanceThreshold = threshold,
                     isLowBalance = isLow,
-                    isNegativeBalance = isNegative
+                    isNegativeBalance = isNegative,
+                    accounts = accounts,
+                    activeAccount = account
                 )
             }
                 // Heavy aggregation (BigDecimal math, grouping, trend) runs off the main thread.
@@ -150,13 +173,21 @@ class HomeViewModel @Inject constructor(
 
         // Refresh rates if needed
         viewModelScope.launch {
-            val settings = financeRepository.getSettingsSync()
-            val base = settings?.balanceCurrency ?: "USD"
-            val lastUpdate = settings?.lastRatesUpdate ?: 0L
+            val accountId = financeRepository.getActiveAccountId()
+            val account = financeRepository.getAccountById(accountId)
+            val base = account?.currency ?: "USD"
+            val lastUpdate = financeRepository.getSettingsSync()?.lastRatesUpdate ?: 0L
             val shouldRefresh = System.currentTimeMillis() - lastUpdate > Constants.RATE_REFRESH_INTERVAL_HOURS * 60 * 60 * 1000L
             if (shouldRefresh) {
                 refreshRates(base)
             }
+        }
+    }
+
+    fun switchAccount(accountId: Long) {
+        viewModelScope.launch {
+            val current = financeRepository.getSettingsSync() ?: return@launch
+            financeRepository.saveSettings(current.copy(activeAccountId = accountId))
         }
     }
 
@@ -190,22 +221,25 @@ class HomeViewModel @Inject constructor(
             val diff = desiredBalance.subtract(currentBalance)
             if (diff.compareTo(BigDecimal.ZERO) == 0) return@launch
 
-            val settings = financeRepository.getSettingsSync()
-            val balanceCurrency = settings?.balanceCurrency ?: _uiState.value.balanceCurrency
+            val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
+                ?: return@launch
+            val balanceCurrency = account.currency
             val now = System.currentTimeMillis()
 
             if (diff.compareTo(BigDecimal.ZERO) > 0) {
                 // Need to add money
                 val topUp = TopUp(
+                    accountId = account.id,
                     amount = diff.abs().toPlainString(),
                     date = now,
                     note = "Balance adjustment"
                 )
                 financeRepository.insertTopUp(topUp)
             } else {
-                // Need to subtract money -> create expense in balance currency
+                // Need to subtract money -> create expense in the account currency
                 val absDiff = diff.abs()
                 val expense = Expense(
+                    accountId = account.id,
                     amountOriginal = absDiff.toPlainString(),
                     currencyOriginal = balanceCurrency,
                     amountConverted = absDiff.toPlainString(),

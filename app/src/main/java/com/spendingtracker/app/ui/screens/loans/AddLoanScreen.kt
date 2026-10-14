@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.LoanDebt
+import com.spendingtracker.app.ui.components.DueDatePickerDialog
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
@@ -28,6 +29,7 @@ fun AddLoanScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showCurrencyPicker by remember { mutableStateOf(false) }
+    var showDueDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(loanId) { viewModel.loadLoan(loanId) }
 
@@ -64,7 +66,10 @@ fun AddLoanScreen(
             item {
                 Text("Date: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(uiState.date))}")
                 Text("Due: ${uiState.dueDate?.let { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it)) } ?: "Not set"}")
-                Button(onClick = { viewModel.onDueDateChanged(System.currentTimeMillis() + 7 * 24 * 60 * 60 * 1000L) }) { Text("Set due in 7 days") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { showDueDatePicker = true }) { Text("Pick due date") }
+                    OutlinedButton(onClick = { viewModel.onDueDateChanged(System.currentTimeMillis() + 7 * 24 * 60 * 60 * 1000L) }) { Text("In 7 days") }
+                }
                 if (uiState.dueDate != null) {
                     TextButton(onClick = { viewModel.onDueDateChanged(null) }) { Text("Clear due date") }
                 }
@@ -103,6 +108,14 @@ fun AddLoanScreen(
 
         if (showCurrencyPicker) {
             CurrencyPickerDialog(onDismiss = { showCurrencyPicker = false }, onCurrencySelected = { code -> viewModel.onCurrencyChanged(code); showCurrencyPicker = false })
+        }
+
+        if (showDueDatePicker) {
+            DueDatePickerDialog(
+                initialDateMillis = uiState.dueDate,
+                onDismiss = { showDueDatePicker = false },
+                onConfirm = { millis -> viewModel.onDueDateChanged(millis) }
+            )
         }
     }
 }

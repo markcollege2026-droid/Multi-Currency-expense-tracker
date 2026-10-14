@@ -36,7 +36,9 @@ data class SettingsUiState(
     val exportJson: String? = null,
     val exportCsv: String? = null,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val accounts: List<com.spendingtracker.app.data.local.entity.Account> = emptyList(),
+    val activeAccountId: Long = 1
 )
 
 @HiltViewModel
@@ -92,9 +94,62 @@ class SettingsViewModel @Inject constructor(
                     recentCurrencies = recents,
                     currencies = CurrencyProvider.allCurrencies,
                     orderedCurrencies = ordered,
+                    activeAccountId = settings?.activeAccountId ?: 1L,
                     isLoading = false
                 )
             }
+        }
+        viewModelScope.launch {
+            financeRepository.getAllAccounts().collect { accounts ->
+                _uiState.value = _uiState.value.copy(accounts = accounts)
+            }
+        }
+    }
+
+    fun switchAccount(account: com.spendingtracker.app.data.local.entity.Account) {
+        viewModelScope.launch {
+            val current = financeRepository.getSettingsSync()
+            financeRepository.saveSettings(
+                current?.copy(activeAccountId = account.id) ?: AppSettings(activeAccountId = account.id)
+            )
+            _uiState.value = _uiState.value.copy(activeAccountId = account.id)
+        }
+    }
+
+    fun addAccount(name: String, currency: String, startingBalance: String) {
+        viewModelScope.launch {
+            val sb = try {
+                if (startingBalance.isBlank()) BigDecimal.ZERO else BigDecimal(startingBalance.trim())
+            } catch (e: NumberFormatException) {
+                BigDecimal.ZERO
+            }
+            val id = financeRepository.insertAccount(
+                com.spendingtracker.app.data.local.entity.Account(
+                    name = name.ifBlank { "Account" },
+                    currency = currency.ifBlank { "USD" },
+                    startingBalance = sb.toPlainString()
+                )
+            )
+            val current = financeRepository.getSettingsSync()
+            financeRepository.saveSettings(
+                current?.copy(activeAccountId = id) ?: AppSettings(activeAccountId = id)
+            )
+            _uiState.value = _uiState.value.copy(activeAccountId = id, message = "Account created")
+        }
+    }
+
+    fun renameAccount(account: com.spendingtracker.app.data.local.entity.Account, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            financeRepository.insertAccount(account.copy(name = trimmed))
+        }
+    }
+
+    fun deleteAccount(account: com.spendingtracker.app.data.local.entity.Account) {
+        viewModelScope.launch {
+            financeRepository.deleteAccountCascade(account)
+            _uiState.value = _uiState.value.copy(message = "Account deleted")
         }
     }
 

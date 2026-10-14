@@ -34,7 +34,8 @@ data class AddExpenseUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val isEditMode: Boolean = false,
-    val createdAt: Long? = null
+    val createdAt: Long? = null,
+    val accountId: Long? = null
 )
 
 @HiltViewModel
@@ -63,14 +64,16 @@ class AddExpenseViewModel @Inject constructor(
     fun loadExpense(expenseId: Long?) {
         if (expenseId == null) {
             viewModelScope.launch {
+                val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 val settings = financeRepository.getSettingsSync()
                 val cats = financeRepository.getAllCategoriesSync()
                 val ordered = computeOrdered(settings)
                 _uiState.value = _uiState.value.copy(
-                    balanceCurrency = settings?.balanceCurrency ?: "USD",
+                    balanceCurrency = account?.currency ?: "USD",
                     categories = cats,
-                    currency = settings?.balanceCurrency ?: "USD",
-                    orderedCurrencies = ordered
+                    currency = account?.currency ?: "USD",
+                    orderedCurrencies = ordered,
+                    accountId = account?.id
                 )
             }
             return
@@ -97,7 +100,8 @@ class AddExpenseViewModel @Inject constructor(
                         convertedAmount = expense.convertedAsBigDecimal(),
                         rateUsed = expense.rateAsBigDecimal(),
                         isEditMode = true,
-                        createdAt = expense.createdAt
+                        createdAt = expense.createdAt,
+                        accountId = expense.accountId
                     )
                 }
             } catch (e: Exception) {
@@ -125,6 +129,33 @@ class AddExpenseViewModel @Inject constructor(
         }
     }
     fun onCategoryChanged(id: Long?) { _uiState.value = _uiState.value.copy(categoryId = id) }
+
+    /** Creates a custom category and selects it for the current expense. */
+    fun createCategory(name: String, color: Int) {
+        viewModelScope.launch {
+            val trimmed = name.trim()
+            if (trimmed.isBlank()) return@launch
+            val id = financeRepository.insertCategory(
+                Category(name = trimmed, iconName = "category", color = color)
+            )
+            val cats = financeRepository.getAllCategoriesSync()
+            _uiState.update { it.copy(categories = cats, categoryId = id) }
+        }
+    }
+
+    /** Deletes a custom category (expenses using it are kept, without category). */
+    fun deleteCategory(category: Category) {
+        viewModelScope.launch {
+            financeRepository.deleteCategory(category)
+            val cats = financeRepository.getAllCategoriesSync()
+            _uiState.update {
+                it.copy(
+                    categories = cats,
+                    categoryId = if (it.categoryId == category.id) null else it.categoryId
+                )
+            }
+        }
+    }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun onPaymentMethodChanged(v: String) { _uiState.value = _uiState.value.copy(paymentMethod = v) }
     fun onManualRateChanged(v: String) { _uiState.value = _uiState.value.copy(manualRate = v); calculateConversion() }
@@ -189,6 +220,7 @@ class AddExpenseViewModel @Inject constructor(
 
                 val expense = Expense(
                     id = expenseId ?: 0,
+                    accountId = state.accountId ?: financeRepository.getActiveAccountId(),
                     amountOriginal = amountOriginal.toPlainString(),
                     currencyOriginal = state.currency,
                     amountConverted = converted.toPlainString(),

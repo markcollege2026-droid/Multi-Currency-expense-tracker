@@ -3,6 +3,8 @@ package com.spendingtracker.app.di
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.data.remote.ExchangeRateApi
 import com.spendingtracker.app.util.Constants
@@ -24,6 +26,66 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
+    /**
+     * v2 -> v3: introduces multiple accounts and recurring payments.
+     * Creates the accounts/recurring_payments tables, links expenses and top-ups
+     * to an account (existing rows become part of the auto-created "Main" account),
+     * and records the active account in app_settings.
+     */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `accounts` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`name` TEXT NOT NULL, " +
+                    "`currency` TEXT NOT NULL, " +
+                    "`startingBalance` TEXT NOT NULL, " +
+                    "`lowBalanceThreshold` TEXT, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+            db.execSQL(
+                "INSERT INTO `accounts` (`id`, `name`, `currency`, `startingBalance`, `lowBalanceThreshold`, `createdAt`) " +
+                    "VALUES (1, 'Main', " +
+                    "COALESCE((SELECT `balanceCurrency` FROM `app_settings` WHERE `id` = 1), 'USD'), " +
+                    "COALESCE((SELECT `startingBalance` FROM `app_settings` WHERE `id` = 1), '0'), " +
+                    "(SELECT `lowBalanceThreshold` FROM `app_settings` WHERE `id` = 1), " +
+                    System.currentTimeMillis() + ")"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `recurring_payments` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`accountId` INTEGER NOT NULL, " +
+                    "`title` TEXT NOT NULL, " +
+                    "`amountOriginal` TEXT NOT NULL, " +
+                    "`currencyOriginal` TEXT NOT NULL, " +
+                    "`categoryId` INTEGER, " +
+                    "`note` TEXT, " +
+                    "`paymentMethod` TEXT, " +
+                    "`frequency` TEXT NOT NULL, " +
+                    "`startDate` INTEGER NOT NULL, " +
+                    "`endDate` INTEGER, " +
+                    "`nextDueAt` INTEGER NOT NULL, " +
+                    "`lastRunAt` INTEGER, " +
+                    "`isActive` INTEGER NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_recurring_payments_accountId` ON `recurring_payments` (`accountId`)"
+            )
+            db.execSQL("ALTER TABLE `expenses` ADD COLUMN `accountId` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_expenses_accountId` ON `expenses` (`accountId`)"
+            )
+            db.execSQL("ALTER TABLE `topups` ADD COLUMN `accountId` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_topups_accountId` ON `topups` (`accountId`)"
+            )
+            db.execSQL(
+                "ALTER TABLE `app_settings` ADD COLUMN `activeAccountId` INTEGER NOT NULL DEFAULT 1"
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -32,6 +94,7 @@ object AppModule {
             AppDatabase::class.java,
             Constants.DATABASE_NAME
         )
+            .addMigrations(MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -56,6 +119,12 @@ object AppModule {
 
     @Provides
     fun provideRepaymentDao(db: AppDatabase) = db.repaymentDao()
+
+    @Provides
+    fun provideAccountDao(db: AppDatabase) = db.accountDao()
+
+    @Provides
+    fun provideRecurringPaymentDao(db: AppDatabase) = db.recurringPaymentDao()
 
     @Provides
     @Singleton

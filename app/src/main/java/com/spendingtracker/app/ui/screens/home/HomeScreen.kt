@@ -28,6 +28,7 @@ import java.util.*
 fun HomeScreen(
     onNavigateToAddExpense: () -> Unit,
     onNavigateToAddTopUp: () -> Unit,
+    onNavigateToRecurring: () -> Unit = {},
     onNavigateToTransactions: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToLoans: () -> Unit,
@@ -38,12 +39,41 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showQuickAdd by remember { mutableStateOf(false) }
     var showAdjustBalance by remember { mutableStateOf(false) }
+    var accountMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Spending Tracker") },
                 actions = {
+                    // Account switcher
+                    TextButton(onClick = { accountMenuExpanded = true }) {
+                        Text(uiState.activeAccount?.name ?: "Account", maxLines = 1)
+                    }
+                    DropdownMenu(
+                        expanded = accountMenuExpanded,
+                        onDismissRequest = { accountMenuExpanded = false }
+                    ) {
+                        uiState.accounts.forEach { account ->
+                            DropdownMenuItem(
+                                text = { Text("${account.name} (${account.currency})") },
+                                trailingIcon = {
+                                    if (account.id == uiState.activeAccount?.id) Text("✓")
+                                },
+                                onClick = {
+                                    viewModel.switchAccount(account.id)
+                                    accountMenuExpanded = false
+                                }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Manage accounts…") },
+                            onClick = {
+                                accountMenuExpanded = false
+                                onNavigateToSettings()
+                            }
+                        )
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -159,6 +189,20 @@ fun HomeScreen(
                     }
                 }
 
+                // Recurring payments entry
+                item {
+                    Card(modifier = Modifier.fillMaxWidth(), onClick = onNavigateToRecurring) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⏰ Recurring payments", fontWeight = FontWeight.SemiBold)
+                            Text("Manage →", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+
                 // Recent transactions
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -183,7 +227,8 @@ fun HomeScreen(
             QuickAddBottomSheet(
                 onDismiss = { showQuickAdd = false },
                 onAddExpense = { showQuickAdd = false; onNavigateToAddExpense() },
-                onAddMoney = { showQuickAdd = false; onNavigateToAddTopUp() }
+                onAddMoney = { showQuickAdd = false; onNavigateToAddTopUp() },
+                onAddRecurring = { showQuickAdd = false; onNavigateToRecurring() }
             )
         }
 
@@ -319,12 +364,18 @@ fun ExpenseItem(expense: Expense, balanceCurrency: String, onEdit: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickAddBottomSheet(onDismiss: () -> Unit, onAddExpense: () -> Unit, onAddMoney: () -> Unit) {
+fun QuickAddBottomSheet(
+    onDismiss: () -> Unit,
+    onAddExpense: () -> Unit,
+    onAddMoney: () -> Unit,
+    onAddRecurring: () -> Unit = {}
+) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Quick add", style = MaterialTheme.typography.titleLarge)
             Button(onClick = onAddExpense, modifier = Modifier.fillMaxWidth()) { Text("Add Expense") }
             OutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Add Money") }
+            OutlinedButton(onClick = onAddRecurring, modifier = Modifier.fillMaxWidth()) { Text("Recurring payment") }
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
