@@ -1,6 +1,13 @@
 package com.spendingtracker.app.ui.screens.settings
 
 import android.content.Context
+import android.net.Uri
+import com.spendingtracker.app.util.BackupFileManager
+import com.spendingtracker.app.util.BackupEncryption
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.spendingtracker.app.data.local.entity.AppSettings
@@ -38,7 +45,10 @@ data class SettingsUiState(
     val message: String? = null,
     val error: String? = null,
     val accounts: List<com.spendingtracker.app.data.local.entity.Account> = emptyList(),
-    val activeAccountId: Long = 1
+    val activeAccountId: Long = 1,
+    val backupBusy: Boolean = false,
+    val restoreEncrypted: Boolean? = null,
+    val backupDocumentName: String? = null
 )
 
 @HiltViewModel
@@ -47,6 +57,7 @@ class SettingsViewModel @Inject constructor(
     private val rateRepository: ExchangeRateRepository,
     private val loanRepository: LoanRepository,
     private val exportImportManager: ExportImportManager,
+    private val backupFiles: BackupFileManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -211,11 +222,69 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private var pendingRestore: ByteArray? = null
+
+    fun reportBackupError(message: String) { _uiState.update { it.copy(error = message) } }
+
+    fun saveBackup(uri: Uri, format: BackupFileManager.Format, password: CharArray? = null) {
+        if (_uiState.value.backupBusy) { password?.fill('\u0000'); return }
+        _uiState.update { it.copy(backupBusy = true, error = null, message = null) }
+        viewModelScope.launch {
+            try {
+                val name = withContext(Dispatchers.IO) { backupFiles.save(uri, format, password) }
+                _uiState.update { it.copy(message = "Saved $name to the location you selected in the Android file picker.") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _uiState.update { it.copy(error = "Backup not saved: ${e.message}. Remove any incomplete file at the selected location.") } }
+            finally { password?.fill('\u0000'); _uiState.update { it.copy(backupBusy = false) } }
+        }
+    }
+
+    fun openBackup(uri: Uri) {
+        if (_uiState.value.backupBusy) return
+        cancelRestore()
+        _uiState.update { it.copy(backupBusy = true, error = null, message = null) }
+        viewModelScope.launch {
+            try {
+                val (bytes, name) = withContext(Dispatchers.IO) { backupFiles.read(uri) to backupFiles.displayName(uri) }
+                pendingRestore = bytes
+                _uiState.update { it.copy(restoreEncrypted = BackupEncryption.isEncrypted(bytes), backupDocumentName = name) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _uiState.update { it.copy(error = "Cannot read backup: ${e.message}. Existing data was not changed.") } }
+            finally { _uiState.update { it.copy(backupBusy = false) } }
+        }
+    }
+
+    fun restoreBackup(password: CharArray? = null) {
+        val bytes = pendingRestore ?: run { password?.fill('\u0000'); return }
+        if (_uiState.value.backupBusy) { password?.fill('\u0000'); return }
+        _uiState.update { it.copy(backupBusy = true, error = null, message = null) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { backupFiles.restore(bytes, password) }
+                pendingRestore?.fill(0); pendingRestore = null
+                _uiState.update { it.copy(restoreEncrypted = null, backupDocumentName = null, message = "Backup restored successfully. Existing data was replaced.") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _uiState.update { it.copy(error = "Restore failed: ${e.message}. Existing data was not changed.") } }
+            finally { password?.fill('\u0000'); _uiState.update { it.copy(backupBusy = false) } }
+        }
+    }
+
+    fun cancelRestore() {
+        if (_uiState.value.backupBusy) return
+        pendingRestore?.fill(0); pendingRestore = null
+        _uiState.update { it.copy(restoreEncrypted = null, backupDocumentName = null, error = null) }
+    }
+
+    override fun onCleared() {
+        pendingRestore?.fill(0); pendingRestore = null
+        super.onCleared()
+    }
+
     fun exportJson() {
         viewModelScope.launch {
             try {
                 val json = exportImportManager.exportAll()
-                _uiState.value = _uiState.value.copy(exportJson = json, message = "JSON exported")
+                _uiState.value = _uiState.value.copy(exportJson = json, message = "JSON prepared for sharing; not saved to a file")
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             }
@@ -226,7 +295,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val csv = exportImportManager.exportTransactionsCsv()
-                _uiState.value = _uiState.value.copy(exportCsv = csv, message = "CSV exported")
+                _uiState.value = _uiState.value.copy(exportCsv = csv, message = "CSV prepared for sharing; not saved to a file")
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             }

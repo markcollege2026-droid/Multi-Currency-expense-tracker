@@ -1,31 +1,14 @@
 name: Release APKs
 on:
-  push:
-    branches: ['arena/5a437cab-multi-currency-expense-tracker']
-    paths: ['.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
       tag:
         description: Release tag
         required: true
-        default: v1.8.0
+        default: v1.8.1
 permissions:
   contents: write
 jobs:
-  refresh-published-metadata:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Publish checksums and migration documentation
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh api "repos/$GH_REPO/releases/tags/v1.8.0" --jq '.assets[] | select(.name=="app-release.apk" or .name=="app-debug.apk" or .name=="app-release.aab") | (.digest|sub("^sha256:";""))+"  "+.name' > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq 3
-          cp app/schemas/com.spendingtracker.app.data.local.AppDatabase/4.json room-schema-4.json
-          gh release upload v1.8.0 SHA256SUMS.txt room-schema-4.json RELEASE_NOTES.md CODEBASE_REVIEW.md --clobber
   build-and-release:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
@@ -56,7 +39,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f build.log ]; then gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(tail -c 45000 build.log)"; fi
-      - name: Verify upgrade compatibility against v1.7
+      - name: Verify upgrade compatibility against v1.8.0
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/verify_upgrade.sh

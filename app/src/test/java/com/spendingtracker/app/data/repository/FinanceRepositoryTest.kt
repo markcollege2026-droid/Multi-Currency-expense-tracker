@@ -122,6 +122,43 @@ class FinanceRepositoryTest {
         assertTrue(csv.contains("\"INCOME\""))
         assertTrue(csv.contains("\"10\",\"ILS\""))
     }
+    private fun backupFile() = java.io.File.createTempFile("tracker-backup", ".stbk", RuntimeEnvironment.getApplication().cacheDir)
+    private fun fileManager() = com.spendingtracker.app.util.BackupFileManager(RuntimeEnvironment.getApplication(), backups())
+    @Test fun plainFileBackupRestoresBalances() = runBlocking {
+        val file = backupFile()
+        try {
+            val uri = android.net.Uri.fromFile(file)
+            fileManager().save(uri, com.spendingtracker.app.util.BackupFileManager.Format.JSON)
+            assertTrue(file.readText().contains("creditCardPayments"))
+            repository.insertExpense(expense(cashId, "20"))
+            fileManager().restore(fileManager().read(uri))
+            money("100", cashId)
+        } finally { file.delete() }
+    }
+    @Test fun encryptedFileBackupRestoresAndWrongPasswordLeavesDataUntouched() = runBlocking {
+        val file = backupFile()
+        try {
+            val uri = android.net.Uri.fromFile(file)
+            fileManager().save(uri, com.spendingtracker.app.util.BackupFileManager.Format.ENCRYPTED, "test backup passphrase".toCharArray())
+            val bytes = fileManager().read(uri)
+            assertTrue(com.spendingtracker.app.util.BackupEncryption.isEncrypted(bytes))
+            repository.insertExpense(expense(cashId, "20"))
+            rejected { fileManager().restore(bytes, "wrong password".toCharArray()) }
+            money("80", cashId)
+            fileManager().restore(bytes, "test backup passphrase".toCharArray())
+            money("100", cashId); money("1000", mainId); money("-250", cardId)
+        } finally { file.delete() }
+    }
+    @Test fun invalidPlainFileDoesNotEraseExistingData() = runBlocking {
+        try { fileManager().restore("not json".toByteArray()); fail("Expected invalid backup") }
+        catch (_: Exception) { }
+        money("1000", mainId); money("100", cashId)
+    }
+    @Test fun emptyBackupFileIsRejected() = runBlocking {
+        val file = backupFile()
+        try { rejected { fileManager().read(android.net.Uri.fromFile(file)) } }
+        finally { file.delete() }
+    }
     @Test fun migrationOneThroughFourPreservesLegacyData() = runBlocking {
         val context: Context = RuntimeEnvironment.getApplication()
         val name = "legacy-migration.db"

@@ -1,41 +1,33 @@
-# Spending Tracker 1.8.0 — Multiple balances
+# Spending Tracker 1.8.1 — File backups and lightweight encryption
 
-## Major changes
-- Each existing account remains a main/debit ledger and can have one cash balance and multiple credit cards, all in its currency.
-- Home displays main/debit, cash, each card's signed balance, total available funds, upcoming autopay amounts, and insufficient-funds warnings.
-- New expenses use an explicit payment-account picker. Cash reduces only cash; credit-card expenses increase only card debt. Categories and spending reports still include both.
-- Manual card payments deduct main/debit and reduce debt atomically. Payments are separate history records, never duplicate expenses. Overpayment requires explicit consent; insufficient main funds do not change either balance.
-- Per-card autopay supports enable/disable, due day 1–31, full debt or a fixed amount capped at debt. Short months use the last day. Persistent monthly keys prevent repeat automatic attempts, including failed attempts. Retry, partial payment and ignore are available on Home.
-- Background autopay checks hourly and when Home opens. Android can defer background execution (especially after force-stop); no exact-time guarantee. These are local ledger entries, not actual bank transfers.
-- Centralized BigDecimal ledger calculation keeps all balances consistent after edits/deletes/payments. Cash overdraft must be explicitly enabled when saving an expense.
-- JSON backup schema 4 includes sub-accounts, expense routing, autopay settings and payment attempts. Replace-all imports are transactional; older JSON exports remain supported.
-- Existing global currency rewriting was unsafe across independent currencies and is now blocked. Create another account in the desired currency instead.
-- GitHub Actions now gates builds/releases on unit tests and lint, retains build reports, and no longer publishes the signing keystore as a release asset.
+## Save and restore
+Open **Settings → Data → Backup files**:
+- **Save JSON backup to file**: choose an actual filename/folder using Android's file picker (Downloads, device storage or a supported cloud document provider).
+- **Save CSV report to file**: saves a transaction report. CSV is not a restorable backup.
+- **Save encrypted backup**: enter and confirm a password, then choose the save location. Produces a portable `.stbk` file.
+- **Restore from backup file**: select a JSON or encrypted `.stbk` backup. Review the replace-all confirmation; encrypted files additionally require their password.
 
-## Database migrations
-Room database version **3 → 4** adds account type/parent, optional credit limit, autopay settings/start date, nullable `expenses.balanceAccountId`, and `credit_card_payments` with a unique `(cardId, autopayPeriod)` index. Balances remain derived, not duplicated mutable fields.
+There is no hidden export folder. Android's document provider controls the actual file location; the app confirms the document name only after writing and closing it successfully. Existing share-as-text options remain, but their messages now distinguish prepared text from a saved file.
 
-Existing accounts become `MAIN`. Historical expenses keep their original main-account effect even if their free-text method says Cash/Credit card. No historical amounts, dates, categories or notes are changed. Select a new payment account when editing if you intentionally want to reassign an old transaction.
+## Encryption
+Uses built-in Java/Android crypto only: **AES-128-GCM**, with a fresh random 16-byte salt and 12-byte nonce per backup, and **PBKDF2-HMAC-SHA256 (600,000 iterations)** deriving the key from the password. No extra crypto dependency, no custom cipher, no device-bound key, and only 49 bytes of format overhead. The deliberately slower password derivation resists guessing; encryption/file work runs off the UI thread.
 
-The existing **2 → 3** migration remains. A **1 → 2** migration handles early `top_ups` naming, nullable expense categories and currency-order fields. Unknown database versions fail safely rather than destructively erasing data. Back up before upgrading; the repository's early schema-1 export was incomplete, so test very old installations on a backup first.
+AES-GCM authenticates the header and contents. Wrong passwords, changed contents, unsupported versions and truncated files are rejected before importing data. Passwords are not persisted or logged. Use a long passphrase; the UI requires at least 8 characters and confirmation. **Forgotten passwords cannot be recovered.** The encryption format is versioned independently of the existing JSON backup format.
 
-## Upgrade compatibility
-Same application ID (`com.spendingtracker.app`), existing release signing key, versionCode **6** (previously 5), minSdk **26** (Android 8+), targetSdk **35**. Install **app-release.apk over a previous release-signed APK** without uninstalling. Debug-signed installations need the matching debug build; release/debug signatures are not interchangeable. Android will reject upgrades signed by a different key.
+Encrypted backup creation does not write a plaintext temporary file. Decrypted data is held in memory during restore. On a JVM, clearing byte/character arrays is best-effort memory hygiene, not a guarantee that all runtime copies are erased.
 
-The existing release key is already committed in the historical repository. It is retained for upgrade compatibility, not a security recommendation; removing it from this change cannot revoke historical exposure. Plan a signing-key migration separately if needed.
+## Data safety and fixes
+- Export reads from a consistent Room transaction snapshot.
+- Restore prompts before replacing data and uses the existing atomic import transaction. Invalid data, wrong passwords and failed imports leave current data unchanged.
+- Restore now replaces categories and the exchange-rate cache too, rather than leaving unrelated old entries behind; these changes participate in the same rollback transaction.
+- Files are bounded to 20 MiB to prevent unbounded memory consumption.
+- Save/read/restore failures are displayed instead of being silently ignored. Interrupted or failed writes may leave an incomplete document; delete that document and save again.
+- Busy indicators prevent duplicate backup operations. Cancelling the file picker does not perform an export or restore.
 
-Additional cleanup: fixed account renaming (update instead of conflicting insert), made low-balance thresholds apply to the active account rather than obsolete global settings, removed an unused floating-point SQL balance aggregate, and replaced the old wrapper's stub-APK/test-success fallback with the genuine Gradle wrapper. Cash income appears alongside other income in transaction history.
+## Compatibility / migrations
+Same application ID and release signing key. Version code **7**, Android **8+** (minSdk 26), targetSdk 35. Install `app-release.apk` over an existing release-signed app without uninstalling. The database stays at **version 4** and JSON backups stay at **schema 4**: **no new database migration is needed**. Existing plain JSON backups remain importable. Encrypted `.stbk` backups require this version or later; older app versions cannot decrypt them.
 
-Backup restore validates account hierarchy, currency ownership, numeric amounts and payment references before committing. An unreadable database now shows a non-destructive error instead of misleading first-launch setup. CI serializes schema-generating compiler tasks to avoid debug/release schema export races.
+## Testing
+Unit tests cover encryption round-trip/Unicode, random salt/nonce, wrong passwords, tampering, truncation, unsupported versions and weak-password rejection. Room/Robolectric tests save actual JSON and encrypted files, restore account balances, verify wrong-password/no-data-loss behavior, and reject empty or invalid backups. GitHub Actions gates APK/AAB publication on the full test suite, lint and compatibility checks against v1.8.0.
 
-
-## Verified release
-- GitHub Actions: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/actions/runs/38716103327
-- **53 tests passed; 0 failures/errors/skips**, including 12 real Room repository/backup/migration tests and 11 multi-balance calculation tests.
-- `lintDebug`, debug APK, signed/minified release APK and release AAB all passed.
-- Actual APK checks against v1.7 passed: identical application ID and signing certificate, increased version code, minSdk 26.
-- Release APK: 2,158,079 bytes; SHA-256 `7d419eb6e495ae2aa1993fe777bfb8d8ab928a879934c55ae9e9142f60ec0b18`.
-- Release: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.8.0
-- Source review: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/pull/11
-
-The app binaries were built from commit `ff52b938c31f1f7b06e7e687022124fb07152e6e`. The subsequent branch record adds the identical Room-generated schema, verification documentation and a checksum-filename correction; it does not change Android application source. No physical-device or emulator installation/UI test was run in this sandbox.
+Android's interactive file-picker/provider UI still requires physical-device or emulator smoke testing; local file tests do not simulate every cloud provider or interrupted device write.

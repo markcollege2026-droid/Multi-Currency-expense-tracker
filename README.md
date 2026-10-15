@@ -2,9 +2,11 @@
 
 Offline-first personal finance app with multi-currency expense tracking and loan/debt management.
 
-## Current release: 1.8.0 — multiple balances
+## Current release: 1.8.1 — file backups, encryption and multiple balances
 
 See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).
+
+**File backups:** Settings → Data → Backup files lets you choose a save folder for JSON backups, CSV reports, or password-encrypted `.stbk` backups. Restore accepts JSON or `.stbk` and prompts before replacing existing data. Encryption uses built-in AES-128-GCM with PBKDF2-HMAC-SHA256; no extra library. Remember your password—there is no recovery. CSV reports cannot be restored.
 
 Each existing account is a main/debit ledger with an optional cash sub-account and any number of credit cards. Home → **Set up cash balance / Add credit card** sets opening amounts; these do not transfer funds from main. **Add cash income** records external cash income. The expense form selects the exact payment account. Main/debit remains the default for income and expenses.
 
@@ -19,7 +21,7 @@ Card payments are separate history entries and do not inflate category spending.
 
 Historical payment labels are not reinterpreted during migration, so existing balances stay unchanged. JSON backup format 4 includes the new data and still accepts older backups. Existing ledger currencies are fixed: create another account instead of rewriting mixed-currency history.
 
-GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.7. An explicitly marked `[release]` push publishes v1.8.0 only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
+GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.8.0. An explicitly marked `[release]` push publishes v1.8.1 only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
 
 ## Features (earlier releases)
 

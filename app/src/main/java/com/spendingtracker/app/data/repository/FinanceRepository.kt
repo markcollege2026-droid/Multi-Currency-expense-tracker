@@ -198,6 +198,10 @@ class FinanceRepository @Inject constructor(
     suspend fun restoreExpense(expense: Expense): Long = expenseDao.insertExpense(expense)
 
     /** Called before committing a restore; malformed references or money roll back the whole import. */
+    suspend fun clearCategoriesForRestore() {
+        categoryDao.getAllCategoriesSync().forEach { categoryDao.deleteCategory(it) }
+    }
+
     suspend fun validateRestoredLedger() {
         val accounts = accountDao.getAllAccountsSync()
         val byId = accounts.associateBy { it.id }

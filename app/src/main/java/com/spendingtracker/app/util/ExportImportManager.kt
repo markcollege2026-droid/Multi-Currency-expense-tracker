@@ -176,7 +176,7 @@ class ExportImportManager @Inject constructor(
         encodeDefaults = true
     }
 
-    suspend fun exportAll(): String {
+    suspend fun exportAll(): String = financeRepository.atomic {
         val settings = financeRepository.getSettingsSync()
         val categories = financeRepository.getAllCategoriesSync()
         val expenses = financeRepository.getAllExpensesSync()
@@ -284,7 +284,7 @@ class ExportImportManager @Inject constructor(
                 )
             }
         )
-        return json.encodeToString(export)
+        json.encodeToString(export)
     }
 
     /**
@@ -301,6 +301,8 @@ class ExportImportManager @Inject constructor(
             financeRepository.atomic {
                 financeRepository.eraseAll()
                 loanRepository.eraseAll()
+                financeRepository.clearCategoriesForRestore()
+                rateRepository.clearRates()
 
                 // Accounts: use exported ones, or synthesize a default account for legacy exports.
                 val accountsToInsert = if (data.accounts.isNotEmpty()) {
@@ -462,7 +464,7 @@ class ExportImportManager @Inject constructor(
         }
     }
 
-    suspend fun exportTransactionsCsv(): String {
+    suspend fun exportTransactionsCsv(): String = financeRepository.atomic {
         val accounts = financeRepository.getAllAccountsSync().associateBy { it.id }
         val output = StringBuilder()
         fun row(vararg values: Any?) {
@@ -482,6 +484,6 @@ class ExportImportManager @Inject constructor(
             row("CARD_PAYMENT", it.id, it.amount, currency, it.amount, currency, "1", null, it.date,
                 "Credit card payment", "MAIN", it.sourceAccountId, it.cardId, it.status)
         }
-        return output.toString()
+        output.toString()
     }
 }

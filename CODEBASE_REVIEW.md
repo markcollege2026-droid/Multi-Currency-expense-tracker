@@ -38,3 +38,6 @@ The release build passed **53 tests with zero failures, errors or skips**, lint 
 - No new cross-currency sub-account transfers or bank integrations. Existing independent multi-currency wallets remain independent.
 - Existing converter reference rates, synthetic fallback chart series and synthetic percentage-change badges are pre-existing converter behavior, not new ledger inputs. They deserve a separate market-data accuracy pass; this change does not claim to make them live market data.
 - The historical release signing key is committed publicly in the repository. It is retained for install-over compatibility; removing its current file cannot revoke exposure. Key rotation/distribution requires a separate upgrade plan.
+
+## File-backup follow-up (1.8.1)
+`BackupControls` uses Android CreateDocument/OpenDocument to save JSON/CSV/encrypted files and confirm restore. `BackupFileManager` implements bounded document reads/writes. `BackupEncryption` uses platform AES-GCM and PBKDF2 with a random salt/nonce, without an added dependency. Settings operations run on IO and expose progress/errors; no passwords enter saved instance state. Exports are consistent snapshots; restores also replace categories/rates atomically. Database/schema versions stay unchanged.

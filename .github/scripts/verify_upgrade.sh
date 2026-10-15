@@ -3,7 +3,7 @@ set -euo pipefail
 apk=app/build/outputs/apk/release/app-release.apk
 tools="$ANDROID_HOME/build-tools/35.0.0"
 mkdir -p previous-release
-gh release download v1.7 --pattern app-release.apk --dir previous-release
+gh release download v1.8.0 --pattern app-release.apk --dir previous-release
 old=previous-release/app-release.apk
 new_cert=$("$tools/apksigner" verify --print-certs "$apk" | grep 'Signer #1 certificate SHA-256 digest:')
 old_cert=$("$tools/apksigner" verify --print-certs "$old" | grep 'Signer #1 certificate SHA-256 digest:')
