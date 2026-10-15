@@ -154,6 +154,14 @@ class FinanceRepositoryTest {
         catch (_: Exception) { }
         money("1000", mainId); money("100", cashId)
     }
+    @Test fun restoreReplacesCategoriesAndRateCache() = runBlocking {
+        val saved = backups().exportAll()
+        repository.insertCategory(Category(name = "Not in backup", iconName = "category", color = 0))
+        db.exchangeRateDao().insertRate(ExchangeRate(baseCurrency = "USD", targetCurrency = "ILS", rate = "3.5"))
+        assertTrue(backups().importAll(saved).isSuccess)
+        assertTrue(repository.getAllCategoriesSync().isEmpty())
+        assertTrue(db.exchangeRateDao().getAllRatesSync().isEmpty())
+    }
     @Test fun emptyBackupFileIsRejected() = runBlocking {
         val file = backupFile()
         try { rejected { fileManager().read(android.net.Uri.fromFile(file)) } }

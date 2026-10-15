@@ -13,7 +13,6 @@ import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.data.repository.LoanRepository
 import com.spendingtracker.app.data.repository.RecurringRepository
-import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -181,7 +180,7 @@ class ExportImportManager @Inject constructor(
         val categories = financeRepository.getAllCategoriesSync()
         val expenses = financeRepository.getAllExpensesSync()
         val topUps = financeRepository.getAllTopUpsSync()
-        val rates = rateRepository.getAllRates().first()
+        val rates = rateRepository.getAllRatesSync()
         val loanDebts = loanRepository.getAllLoanDebtsSync()
         val repayments = mutableListOf<Repayment>()
         for (loan in loanDebts) {

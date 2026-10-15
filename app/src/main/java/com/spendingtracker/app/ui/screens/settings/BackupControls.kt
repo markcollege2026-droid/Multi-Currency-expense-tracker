@@ -3,6 +3,8 @@ package com.spendingtracker.app.ui.screens.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -82,10 +84,10 @@ private fun BackupPasswordDialog(
             Text(description)
             if (requirePassword) {
                 OutlinedTextField(password, { password = it }, label = { Text("Password") }, enabled = !busy,
-                    visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                    visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), singleLine = true)
                 if (confirmation) {
                     OutlinedTextField(repeat, { repeat = it }, label = { Text("Confirm password") }, enabled = !busy,
-                        visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), singleLine = true)
                     Text("At least 8 characters; longer is safer.")
                 }
             }
