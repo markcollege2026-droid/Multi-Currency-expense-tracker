@@ -71,6 +71,11 @@ jobs:
             Offline-first Spending Tracker + Loans & Debts - FULL APP (v1.2)
 
             **New in this release:**
+            - Navigation stability fix: the bottom navigation can no longer get
+              stuck (e.g. Home button landing on Settings). Tabs are
+              state-based with no back stacks to corrupt; system back always
+              returns to Home first; stale screens from old app versions
+              redirect to the main screen automatically.
             - Multiple accounts per device (own currency, starting balance,
               low-balance threshold); switch accounts from Home. Expenses and
               top-ups are tracked per account. Loans & debts stay SHARED
