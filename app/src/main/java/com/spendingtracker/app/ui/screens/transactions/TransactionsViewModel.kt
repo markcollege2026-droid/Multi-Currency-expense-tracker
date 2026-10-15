@@ -42,14 +42,14 @@ class TransactionsViewModel @Inject constructor(
                 financeRepository.getAllExpenses(),
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
-                financeRepository.getSettings()
-            ) { expenses, topUps, categories, settings ->
-                val balanceCurrency = settings?.balanceCurrency ?: "USD"
+                financeRepository.observeActiveAccount()
+            ) { expenses, topUps, categories, account ->
+                val accountId = account?.id
                 _uiState.value.copy(
-                    allExpenses = expenses,
-                    allTopUps = topUps,
+                    allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
+                    allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId == accountId },
                     categories = categories,
-                    balanceCurrency = balanceCurrency,
+                    balanceCurrency = account?.currency ?: "USD",
                     isLoading = false
                 )
             }.collect { baseState ->

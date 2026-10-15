@@ -36,7 +36,9 @@ data class SettingsUiState(
     val exportJson: String? = null,
     val exportCsv: String? = null,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val accounts: List<com.spendingtracker.app.data.local.entity.Account> = emptyList(),
+    val activeAccountId: Long = 1
 )
 
 @HiltViewModel
@@ -92,9 +94,62 @@ class SettingsViewModel @Inject constructor(
                     recentCurrencies = recents,
                     currencies = CurrencyProvider.allCurrencies,
                     orderedCurrencies = ordered,
+                    activeAccountId = settings?.activeAccountId ?: 1L,
                     isLoading = false
                 )
             }
+        }
+        viewModelScope.launch {
+            financeRepository.getAllAccounts().collect { accounts ->
+                _uiState.value = _uiState.value.copy(accounts = accounts)
+            }
+        }
+    }
+
+    fun switchAccount(account: com.spendingtracker.app.data.local.entity.Account) {
+        viewModelScope.launch {
+            val current = financeRepository.getSettingsSync()
+            financeRepository.saveSettings(
+                current?.copy(activeAccountId = account.id) ?: AppSettings(activeAccountId = account.id)
+            )
+            _uiState.value = _uiState.value.copy(activeAccountId = account.id)
+        }
+    }
+
+    fun addAccount(name: String, currency: String, startingBalance: String) {
+        viewModelScope.launch {
+            val sb = try {
+                if (startingBalance.isBlank()) BigDecimal.ZERO else BigDecimal(startingBalance.trim())
+            } catch (e: NumberFormatException) {
+                BigDecimal.ZERO
+            }
+            val id = financeRepository.insertAccount(
+                com.spendingtracker.app.data.local.entity.Account(
+                    name = name.ifBlank { "Account" },
+                    currency = currency.ifBlank { "USD" },
+                    startingBalance = sb.toPlainString()
+                )
+            )
+            val current = financeRepository.getSettingsSync()
+            financeRepository.saveSettings(
+                current?.copy(activeAccountId = id) ?: AppSettings(activeAccountId = id)
+            )
+            _uiState.value = _uiState.value.copy(activeAccountId = id, message = "Account created")
+        }
+    }
+
+    fun renameAccount(account: com.spendingtracker.app.data.local.entity.Account, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            financeRepository.insertAccount(account.copy(name = trimmed))
+        }
+    }
+
+    fun deleteAccount(account: com.spendingtracker.app.data.local.entity.Account) {
+        viewModelScope.launch {
+            financeRepository.deleteAccountCascade(account)
+            _uiState.value = _uiState.value.copy(message = "Account deleted")
         }
     }
 
@@ -145,17 +200,82 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(showChangeCurrencyDialog = false)
                 return@launch
             }
-            // Need to re-express history? For simplicity, we will attempt to convert starting balance and keep expenses converted amounts as is?
-            // Spec says: all history will be re-expressed using stored rates.
-            // Implementation: for each expense, we have original and converted. We need to reconvert using rate from original to newCurrency if available, else keep?
-            // For simplicity, we will update settings and try to refresh rates for new base, and for future expenses use new base.
-            // Existing converted amounts remain as they were (in old currency) but we interpret them as in new currency? That's not correct but we document limitation.
-            // Better: we attempt to recalculate converted amounts using stored rates if possible.
-            // For this demo, we will just update currency and note that history conversion is best-effort.
-            financeRepository.saveSettings(current.copy(balanceCurrency = newCurrency))
-            // Refresh rates for new base
-            rateRepository.refreshRates(newCurrency)
-            _uiState.value = _uiState.value.copy(showChangeCurrencyDialog = false, message = "Currency changed to $newCurrency. History re-expressed where possible.")
+
+            // Rate for 1 unit of the old balance currency expressed in the new one
+            var rateOldToNew = rateRepository.getConversionRate(oldCurrency, newCurrency)
+            if (rateOldToNew == null) {
+                // Try fetching fresh rates for the old base (covers offline cache misses), then retry
+                rateRepository.refreshRates(oldCurrency)
+                rateOldToNew = rateRepository.getConversionRate(oldCurrency, newCurrency)
+            }
+            if (rateOldToNew == null) {
+                _uiState.value = _uiState.value.copy(
+                    showChangeCurrencyDialog = false,
+                    error = "Cannot change currency: no exchange rate available between $oldCurrency and $newCurrency. Refresh rates and try again."
+                )
+                return@launch
+            }
+
+            val mc = java.math.MathContext(20, java.math.RoundingMode.HALF_EVEN)
+            fun scale(amount: BigDecimal, rate: BigDecimal): BigDecimal =
+                amount.multiply(rate, mc).setScale(6, java.math.RoundingMode.HALF_EVEN)
+
+            try {
+                // 1) Re-express starting balance
+                val newStarting = scale(
+                    try { BigDecimal(current.startingBalance) } catch (e: Exception) { BigDecimal.ZERO },
+                    rateOldToNew
+                ).toPlainString()
+
+                // 2) Re-express expenses: recalculate from the original amount/currency where a
+                //    rate exists, otherwise scale the old converted amount by the old->new rate.
+                for (expense in financeRepository.getAllExpensesSync()) {
+                    val original = try { BigDecimal(expense.amountOriginal) } catch (e: Exception) { continue }
+                    val directRate = if (expense.currencyOriginal == newCurrency) {
+                        BigDecimal.ONE
+                    } else {
+                        rateRepository.getConversionRate(expense.currencyOriginal, newCurrency)
+                    }
+                    val converted: BigDecimal
+                    val rateUsed: BigDecimal
+                    if (directRate != null) {
+                        converted = scale(original, directRate)
+                        rateUsed = directRate
+                    } else {
+                        val oldConverted = try { BigDecimal(expense.amountConverted) } catch (e: Exception) { original }
+                        converted = scale(oldConverted, rateOldToNew)
+                        rateUsed = try {
+                            BigDecimal(expense.exchangeRateUsed).multiply(rateOldToNew, mc)
+                        } catch (e: Exception) { rateOldToNew }
+                    }
+                    financeRepository.updateExpense(
+                        expense.copy(
+                            amountConverted = converted.toPlainString(),
+                            currencyConverted = newCurrency,
+                            exchangeRateUsed = rateUsed.toPlainString()
+                        )
+                    )
+                }
+
+                // 3) Re-express top-ups (they live in the balance currency)
+                for (topUp in financeRepository.getAllTopUpsSync()) {
+                    val amount = try { BigDecimal(topUp.amount) } catch (e: Exception) { continue }
+                    financeRepository.updateTopUp(topUp.copy(amount = scale(amount, rateOldToNew).toPlainString()))
+                }
+
+                // 4) Finally switch the currency and refresh rates for the new base
+                financeRepository.saveSettings(current.copy(balanceCurrency = newCurrency, startingBalance = newStarting))
+                rateRepository.refreshRates(newCurrency)
+                _uiState.value = _uiState.value.copy(
+                    showChangeCurrencyDialog = false,
+                    message = "Currency changed to $newCurrency. History re-expressed using stored rates."
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    showChangeCurrencyDialog = false,
+                    error = "Failed to change currency: ${e.message}"
+                )
+            }
         }
     }
 

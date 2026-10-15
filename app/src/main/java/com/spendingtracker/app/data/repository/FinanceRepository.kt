@@ -27,10 +27,49 @@ class FinanceRepository @Inject constructor(
     private val expenseDao: ExpenseDao,
     private val topUpDao: TopUpDao,
     private val settingsDao: AppSettingsDao,
-    private val categoryDao: CategoryDao
+    private val categoryDao: CategoryDao,
+    private val accountDao: AccountDao,
+    private val recurringPaymentDao: RecurringPaymentDao
 ) {
+    // ---- Accounts ----
+    fun getAllAccounts(): Flow<List<Account>> = accountDao.getAllAccounts()
+    suspend fun getAllAccountsSync(): List<Account> = accountDao.getAllAccountsSync()
+    suspend fun getAccountById(id: Long): Account? = accountDao.getAccountById(id)
+    suspend fun insertAccount(account: Account): Long = accountDao.insertAccount(account)
+    suspend fun updateAccount(account: Account) = accountDao.updateAccount(account)
+    suspend fun getAccountCount(): Int = accountDao.getCount()
+
+    /** The account currently selected in settings (falls back to the first account). */
+    fun observeActiveAccount(): Flow<Account?> =
+        combine(settingsDao.getSettings(), accountDao.getAllAccounts()) { settings, accounts ->
+            val activeId = settings?.activeAccountId
+            accounts.find { it.id == activeId } ?: accounts.firstOrNull()
+        }
+
+    suspend fun getActiveAccountId(): Long {
+        val fromSettings = settingsDao.getSettingsSync()?.activeAccountId
+        if (fromSettings != null && accountDao.getAccountById(fromSettings) != null) return fromSettings
+        return accountDao.getAllAccountsSync().firstOrNull()?.id ?: 1L
+    }
+
+    /**
+     * Deletes an account together with all account-scoped data (expenses, top-ups,
+     * recurring payments). Loans & debts are shared between accounts and are kept.
+     */
+    suspend fun deleteAccountCascade(account: Account) {
+        recurringPaymentDao.deleteForAccount(account.id)
+        topUpDao.deleteForAccount(account.id)
+        expenseDao.deleteForAccount(account.id)
+        accountDao.deleteAccount(account)
+    }
+
+    // ---- Transactions (account-scoped) ----
     fun getAllExpenses(): Flow<List<Expense>> = expenseDao.getAllExpenses()
     fun getAllTopUps(): Flow<List<TopUp>> = topUpDao.getAllTopUps()
+    fun getExpensesForAccount(accountId: Long): Flow<List<Expense>> = expenseDao.getExpensesForAccount(accountId)
+    fun getTopUpsForAccount(accountId: Long): Flow<List<TopUp>> = topUpDao.getTopUpsForAccount(accountId)
+
+    // ---- Settings / categories ----
     fun getSettings(): Flow<AppSettings?> = settingsDao.getSettings()
     fun getCategories(): Flow<List<Category>> = categoryDao.getAllCategories()
 
@@ -39,7 +78,12 @@ class FinanceRepository @Inject constructor(
     suspend fun getAllTopUpsSync(): List<TopUp> = topUpDao.getAllTopUpsSync()
 
     fun getTransactions(): Flow<List<TransactionItem>> {
-        return combine(expenseDao.getAllExpenses(), topUpDao.getAllTopUps()) { expenses, topups ->
+        return combine(
+            expenseDao.getAllExpenses(),
+            topUpDao.getAllTopUps(),
+            accountDao.getAllAccounts()
+        ) { expenses, topups, accounts ->
+            val currencyByAccount = accounts.associate { it.id to it.currency }
             val expenseItems = expenses.map {
                 TransactionItem(
                     id = it.id,
@@ -56,13 +100,15 @@ class FinanceRepository @Inject constructor(
                 )
             }
             val topUpItems = topups.map {
+                // Top-ups are stored in the account's balance currency.
+                val accountCurrency = currencyByAccount[it.accountId] ?: ""
                 TransactionItem(
                     id = it.id,
                     type = "TOPUP",
                     amountOriginal = it.amountAsBigDecimal(),
-                    currencyOriginal = "", // will be filled from settings
+                    currencyOriginal = accountCurrency,
                     amountConverted = it.amountAsBigDecimal(),
-                    currencyConverted = "",
+                    currencyConverted = accountCurrency,
                     rateUsed = null,
                     categoryId = null,
                     date = it.date,
@@ -86,7 +132,13 @@ class FinanceRepository @Inject constructor(
 
     suspend fun insertCategory(category: Category): Long = categoryDao.insertCategory(category)
     suspend fun updateCategory(category: Category) = categoryDao.updateCategory(category)
-    suspend fun deleteCategory(category: Category) = categoryDao.deleteCategory(category)
+
+    /** Deletes a category and unlinks it from expenses that used it. */
+    suspend fun deleteCategory(category: Category) {
+        expenseDao.clearCategoryFromExpenses(category.id)
+        categoryDao.deleteCategory(category)
+    }
+
     suspend fun getAllCategoriesSync(): List<Category> = categoryDao.getAllCategoriesSync()
 
     suspend fun ensureDefaultCategories() {
@@ -98,11 +150,11 @@ class FinanceRepository @Inject constructor(
     suspend fun saveSettings(settings: AppSettings) = settingsDao.insertSettings(settings)
 
     suspend fun eraseAll() {
+        recurringPaymentDao.deleteAll()
         expenseDao.deleteAll()
         topUpDao.deleteAll()
-        // Keep settings but reset? We'll delete settings too and recreate default
+        accountDao.getAllAccountsSync().forEach { accountDao.deleteAccount(it) }
+        // Keep settings structure but reset; categories are kept (defaults)
         settingsDao.deleteAll()
-        categoryDao.getAllCategoriesSync().let { /* keep? */ }
-        // Don't delete categories, keep defaults
     }
 }

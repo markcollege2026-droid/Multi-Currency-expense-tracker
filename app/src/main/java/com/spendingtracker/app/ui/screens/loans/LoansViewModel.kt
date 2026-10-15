@@ -8,6 +8,7 @@ import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.data.repository.LoanRepository
 import com.spendingtracker.app.domain.LoanCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -47,16 +48,19 @@ class LoansViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 loanRepository.getAllLoanDebts(),
-                financeRepository.getSettings()
-            ) { allLoans, settings ->
-                val balanceCurrency = settings?.balanceCurrency ?: "USD"
+                financeRepository.observeActiveAccount()
+            ) { allLoans, account ->
+                val balanceCurrency = account?.currency ?: "USD"
                 val debts = mutableListOf<LoanWithBalance>()
                 val loans = mutableListOf<LoanWithBalance>()
                 var totalDebtConverted = BigDecimal.ZERO
                 var totalLoanConverted = BigDecimal.ZERO
 
+                // One bulk query instead of one query per loan (N+1)
+                val repaymentsByLoan = loanRepository.getAllRepaymentsSync().groupBy { it.loanDebtId }
+
                 for (loan in allLoans) {
-                    val repayments = loanRepository.getRepaymentsForLoanSync(loan.id)
+                    val repayments = repaymentsByLoan[loan.id].orEmpty()
                     val repaymentAmounts = repayments.map { try { BigDecimal(it.amount) } catch (e: Exception) { BigDecimal.ZERO } }
                     val calc = loanCalculator.calculateRemaining(loan.amountAsBigDecimal(), repaymentAmounts)
 
@@ -102,7 +106,10 @@ class LoansViewModel @Inject constructor(
                     balanceCurrency = balanceCurrency,
                     isLoading = false
                 )
-            }.collect { _uiState.value = it }
+            }
+                // Aggregation + rate lookups run off the main thread
+                .flowOn(Dispatchers.Default)
+                .collect { _uiState.value = it }
         }
     }
 

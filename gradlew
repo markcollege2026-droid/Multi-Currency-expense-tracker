@@ -28,12 +28,13 @@ if [ -d "/tmp/toolchain/android-sdk" ]; then
     export ANDROID_SDK_ROOT="$ANDROID_HOME"
 fi
 
-# Parse task
+# Parse task (used for the offline manual fallback)
 TASK="assembleDebug"
 for arg in "$@"; do
     case $arg in
         assembleDebug) TASK="assembleDebug" ;;
         assembleRelease) TASK="assembleRelease" ;;
+        bundleRelease) TASK="bundleRelease" ;;
         test) TASK="test" ;;
         connectedAndroidTest) TASK="connectedAndroidTest" ;;
     esac
@@ -48,10 +49,10 @@ echo "PWD: $PROJECT_ROOT"
 mkdir -p "$PROJECT_ROOT/app/build/outputs/apk/debug"
 mkdir -p "$PROJECT_ROOT/app/build/outputs/apk/release"
 
-# Function to try real Gradle build (works in GitHub Actions with internet)
+# Function to try real Gradle build (works in GitHub Actions with internet).
+# Forwards ALL arguments (tasks and flags) to Gradle unchanged.
 try_real_gradle() {
-    local task=$1
-    echo "Attempting real Gradle build for $task..."
+    echo "Attempting real Gradle build: $*..."
     if [ ! -f "$PROJECT_ROOT/gradle/wrapper/gradle-wrapper.jar" ]; then
         echo "No gradle-wrapper.jar, skipping real Gradle"
         return 1
@@ -61,13 +62,14 @@ try_real_gradle() {
         echo "CI detected, trying real Gradle build..."
         cd "$PROJECT_ROOT"
         # Use wrapper jar with main class (manifest has no Main-Class)
-        if java -cp "$PROJECT_ROOT/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$task" --stacktrace --no-daemon; then
-            echo "Real Gradle build succeeded for $task"
+        if java -cp "$PROJECT_ROOT/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"; then
+            echo "Real Gradle build succeeded"
             ls -lh "$PROJECT_ROOT/app/build/outputs/apk/debug/" 2>/dev/null || true
             ls -lh "$PROJECT_ROOT/app/build/outputs/apk/release/" 2>/dev/null || true
+            ls -lh "$PROJECT_ROOT/app/build/outputs/bundle/release/" 2>/dev/null || true
             return 0
         else
-            echo "Real Gradle build failed for $task, falling back to manual"
+            echo "Real Gradle build failed, falling back to manual"
             return 1
         fi
     else
@@ -77,12 +79,14 @@ try_real_gradle() {
     fi
 }
 
-# Try real Gradle first in CI
+# Try real Gradle first in CI, forwarding every task/flag the caller passed
+# (assembleDebug, assembleRelease, bundleRelease, test, custom -D flags, ...)
+if try_real_gradle "$@"; then
+    echo "Build successful via real Gradle!"
+    exit 0
+fi
+
 if [ "$TASK" = "assembleDebug" ] || [ "$TASK" = "assembleRelease" ]; then
-    if try_real_gradle "$TASK"; then
-        echo "Build successful via real Gradle!"
-        exit 0
-    fi
     echo "Falling back to manual aapt2/d8 build (offline compatible, recent Android)..."
 fi
 

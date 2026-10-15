@@ -28,7 +28,8 @@ data class AddLoanUiState(
     val newRepaymentNote: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val isEditMode: Boolean = false
+    val isEditMode: Boolean = false,
+    val createdAt: Long? = null
 )
 
 @HiltViewModel
@@ -43,8 +44,11 @@ class AddLoanViewModel @Inject constructor(
     fun loadLoan(loanId: Long?) {
         if (loanId == null) {
             viewModelScope.launch {
-                val settings = financeRepository.getSettingsSync()
-                _uiState.value = _uiState.value.copy(balanceCurrency = settings?.balanceCurrency ?: "USD", currency = settings?.balanceCurrency ?: "USD")
+                val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
+                _uiState.value = _uiState.value.copy(
+                    balanceCurrency = account?.currency ?: "USD",
+                    currency = account?.currency ?: "USD"
+                )
             }
             return
         }
@@ -53,6 +57,7 @@ class AddLoanViewModel @Inject constructor(
             try {
                 val loan = loanRepository.getLoanDebtById(loanId)
                 val settings = financeRepository.getSettingsSync()
+                val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 val reps = loanRepository.getRepaymentsForLoanSync(loanId)
                 if (loan != null) {
                     _uiState.value = AddLoanUiState(
@@ -64,9 +69,10 @@ class AddLoanViewModel @Inject constructor(
                         dueDate = loan.dueDate,
                         note = loan.note ?: "",
                         isSettled = loan.isSettled,
-                        balanceCurrency = settings?.balanceCurrency ?: "USD",
+                        balanceCurrency = account?.currency ?: "USD",
                         repayments = reps,
-                        isEditMode = true
+                        isEditMode = true,
+                        createdAt = loan.createdAt
                     )
                 }
             } catch (e: Exception) {
@@ -109,7 +115,8 @@ class AddLoanViewModel @Inject constructor(
                     date = s.date,
                     dueDate = s.dueDate,
                     note = s.note.ifBlank { null },
-                    isSettled = s.isSettled
+                    isSettled = s.isSettled,
+                    createdAt = s.createdAt ?: System.currentTimeMillis()
                 )
                 if (s.isEditMode && loanId != null) loanRepository.updateLoanDebt(loan.copy(id = loanId))
                 else loanRepository.insertLoanDebt(loan)

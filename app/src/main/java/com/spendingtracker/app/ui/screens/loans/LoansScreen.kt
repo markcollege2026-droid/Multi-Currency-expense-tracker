@@ -20,7 +20,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoansScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onAddLoan: () -> Unit,
     onEditLoan: (Long) -> Unit,
     viewModel: LoansViewModel = hiltViewModel()
@@ -31,7 +31,11 @@ fun LoansScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Loans & Debts") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -85,6 +89,7 @@ fun LoanItem(item: LoanWithBalance, onEdit: () -> Unit, onDelete: () -> Unit, on
             }
             Text("${CurrencyFormatter.formatSimple(item.loan.amountAsBigDecimal(), item.loan.currencyOriginal)} - Remaining: ${CurrencyFormatter.formatSimple(item.remaining, item.loan.currencyOriginal)}")
             LinearProgressIndicator(progress = { item.progress }, modifier = Modifier.fillMaxWidth())
+            Text("Made: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(item.loan.date))}", style = MaterialTheme.typography.bodySmall)
             Text("Due: ${item.loan.dueDate?.let { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it)) } ?: "No due date"}", style = MaterialTheme.typography.bodySmall)
             Text(item.loan.note ?: "", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

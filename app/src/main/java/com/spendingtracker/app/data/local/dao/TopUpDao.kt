@@ -9,6 +9,9 @@ interface TopUpDao {
     @Query("SELECT * FROM topups ORDER BY date DESC")
     fun getAllTopUps(): Flow<List<TopUp>>
 
+    @Query("SELECT * FROM topups WHERE accountId = :accountId ORDER BY date DESC")
+    fun getTopUpsForAccount(accountId: Long): Flow<List<TopUp>>
+
     @Query("SELECT * FROM topups ORDER BY date DESC")
     suspend fun getAllTopUpsSync(): List<TopUp>
 
@@ -26,4 +29,7 @@ interface TopUpDao {
 
     @Query("DELETE FROM topups")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM topups WHERE accountId = :accountId")
+    suspend fun deleteForAccount(accountId: Long)
 }

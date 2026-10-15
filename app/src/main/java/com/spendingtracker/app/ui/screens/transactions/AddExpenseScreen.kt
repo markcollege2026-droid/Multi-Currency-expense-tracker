@@ -1,12 +1,22 @@
 package com.spendingtracker.app.ui.screens.transactions
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -40,7 +50,13 @@ fun AddExpenseScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                // Scrollable + keyboard-aware so the Save button stays reachable on small screens
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             OutlinedTextField(
@@ -143,7 +159,9 @@ fun AddExpenseScreen(
                 onCategorySelected = { id ->
                     viewModel.onCategoryChanged(id)
                     showCategoryPicker = false
-                }
+                },
+                onDeleteCategory = { viewModel.deleteCategory(it) },
+                onCreateCategory = { name, color -> viewModel.createCategory(name, color) }
             )
         }
     }
@@ -167,6 +185,8 @@ fun CurrencyPickerDialog(
             }.take(100)
         }
     }
+    // Scale the list to the screen so dialogs fit on small devices
+    val listMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.4f).dp.coerceAtMost(340.dp)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -177,7 +197,7 @@ fun CurrencyPickerDialog(
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search") }, modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(8.dp))
-                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.height(340.dp)) {
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = listMaxHeight)) {
                     items(filtered.size) { idx ->
                         val c = filtered[idx]
                         Card(
@@ -206,20 +226,83 @@ fun CurrencyPickerDialog(
 }
 
 @Composable
-fun CategoryPickerDialog(categories: List<com.spendingtracker.app.data.local.entity.Category>, onDismiss: () -> Unit, onCategorySelected: (Long?) -> Unit) {
+fun CategoryPickerDialog(
+    categories: List<com.spendingtracker.app.data.local.entity.Category>,
+    onDismiss: () -> Unit,
+    onCategorySelected: (Long?) -> Unit,
+    onDeleteCategory: ((com.spendingtracker.app.data.local.entity.Category) -> Unit)? = null,
+    onCreateCategory: ((String, Int) -> Unit)? = null
+) {
+    val listMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.35f).dp.coerceAtMost(240.dp)
+    var adding by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    val colorOptions = listOf(0xFF6200EE, 0xFF03DAC5, 0xFFE91E63, 0xFF4CAF50, 0xFF2196F3, 0xFFFF9800)
+    var newColor by remember { mutableStateOf(colorOptions.first()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select category") },
         text = {
-            androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.height(300.dp)) {
-                items(categories.size) { idx ->
-                    val cat = categories[idx]
-                    Button(onClick = { onCategorySelected(cat.id) }, modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                        Text(cat.name)
+            Column {
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = listMaxHeight)) {
+                    item {
+                        OutlinedButton(onClick = { onCategorySelected(null) }, modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                            Text("None (no category)")
+                        }
+                    }
+                    items(categories.size) { idx ->
+                        val cat = categories[idx]
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Button(onClick = { onCategorySelected(cat.id) }, modifier = Modifier.weight(1f).padding(4.dp)) {
+                                Text(cat.name)
+                            }
+                            if (onDeleteCategory != null) {
+                                TextButton(onClick = { onDeleteCategory(cat) }) { Text("\u2715") }
+                            }
+                        }
+                    }
+                }
+                if (onCreateCategory != null) {
+                    if (!adding) {
+                        TextButton(onClick = { adding = true }) { Text("+ New category") }
+                    } else {
+                        OutlinedTextField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            label = { Text("Category name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                            colorOptions.forEach { c ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(c))
+                                        .border(
+                                            width = if (c == newColor) 2.dp else 0.dp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = CircleShape
+                                        )
+                                        .clickable { newColor = c }
+                                )
+                            }
+                        }
+                        Row {
+                            TextButton(onClick = { adding = false; newName = "" }) { Text("Cancel") }
+                            TextButton(onClick = {
+                                val n = newName.trim()
+                                if (n.isNotEmpty()) {
+                                    onCreateCategory(n, newColor.toInt())
+                                    newName = ""
+                                    adding = false
+                                }
+                            }) { Text("Add") }
+                        }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }

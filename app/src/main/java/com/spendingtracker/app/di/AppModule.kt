@@ -1,7 +1,10 @@
 package com.spendingtracker.app.di
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.data.remote.ExchangeRateApi
 import com.spendingtracker.app.util.Constants
@@ -10,15 +13,78 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+
+    /**
+     * v2 -> v3: introduces multiple accounts and recurring payments.
+     * Creates the accounts/recurring_payments tables, links expenses and top-ups
+     * to an account (existing rows become part of the auto-created "Main" account),
+     * and records the active account in app_settings.
+     */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `accounts` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`name` TEXT NOT NULL, " +
+                    "`currency` TEXT NOT NULL, " +
+                    "`startingBalance` TEXT NOT NULL, " +
+                    "`lowBalanceThreshold` TEXT, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+            db.execSQL(
+                "INSERT INTO `accounts` (`id`, `name`, `currency`, `startingBalance`, `lowBalanceThreshold`, `createdAt`) " +
+                    "VALUES (1, 'Main', " +
+                    "COALESCE((SELECT `balanceCurrency` FROM `app_settings` WHERE `id` = 1), 'USD'), " +
+                    "COALESCE((SELECT `startingBalance` FROM `app_settings` WHERE `id` = 1), '0'), " +
+                    "(SELECT `lowBalanceThreshold` FROM `app_settings` WHERE `id` = 1), " +
+                    System.currentTimeMillis() + ")"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `recurring_payments` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`accountId` INTEGER NOT NULL, " +
+                    "`title` TEXT NOT NULL, " +
+                    "`amountOriginal` TEXT NOT NULL, " +
+                    "`currencyOriginal` TEXT NOT NULL, " +
+                    "`categoryId` INTEGER, " +
+                    "`note` TEXT, " +
+                    "`paymentMethod` TEXT, " +
+                    "`frequency` TEXT NOT NULL, " +
+                    "`startDate` INTEGER NOT NULL, " +
+                    "`endDate` INTEGER, " +
+                    "`nextDueAt` INTEGER NOT NULL, " +
+                    "`lastRunAt` INTEGER, " +
+                    "`isActive` INTEGER NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_recurring_payments_accountId` ON `recurring_payments` (`accountId`)"
+            )
+            db.execSQL("ALTER TABLE `expenses` ADD COLUMN `accountId` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_expenses_accountId` ON `expenses` (`accountId`)"
+            )
+            db.execSQL("ALTER TABLE `topups` ADD COLUMN `accountId` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_topups_accountId` ON `topups` (`accountId`)"
+            )
+            db.execSQL(
+                "ALTER TABLE `app_settings` ADD COLUMN `activeAccountId` INTEGER NOT NULL DEFAULT 1"
+            )
+        }
+    }
 
     @Provides
     @Singleton
@@ -28,6 +94,7 @@ object AppModule {
             AppDatabase::class.java,
             Constants.DATABASE_NAME
         )
+            .addMigrations(MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -54,10 +121,28 @@ object AppModule {
     fun provideRepaymentDao(db: AppDatabase) = db.repaymentDao()
 
     @Provides
+    fun provideAccountDao(db: AppDatabase) = db.accountDao()
+
+    @Provides
+    fun provideRecurringPaymentDao(db: AppDatabase) = db.recurringPaymentDao()
+
+    @Provides
     @Singleton
-    fun provideOkHttp(): OkHttpClient {
+    fun provideOkHttp(@ApplicationContext context: Context): OkHttpClient {
         return OkHttpClient.Builder()
-            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+            // Tight timeouts so a slow/hanging rate API can't stall conversions
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            // Small HTTP cache so repeated rate fetches can be served from disk
+            .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
+            .apply {
+                // Log network traffic only in debug builds
+                if ((context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                    addInterceptor(HttpLoggingInterceptor().apply {
+                        level = HttpLoggingInterceptor.Level.BASIC
+                    })
+                }
+            }
             .build()
     }
 

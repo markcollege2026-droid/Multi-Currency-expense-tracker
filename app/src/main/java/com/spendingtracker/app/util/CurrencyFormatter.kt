@@ -6,13 +6,35 @@ import java.util.Currency
 import java.util.Locale
 
 object CurrencyFormatter {
+
+    // NumberFormat is relatively expensive to create and is not thread-safe;
+    // cache one instance per (currency, locale) per thread for smooth list scrolling.
+    private val formatterCache = ThreadLocal<MutableMap<String, NumberFormat>>()
+
+    private fun cachedFormatter(currencyCode: String, locale: Locale): NumberFormat? {
+        return try {
+            val key = "$currencyCode|${locale.toLanguageTag()}"
+            val cache = formatterCache.get()
+                ?: mutableMapOf<String, NumberFormat>().also { formatterCache.set(it) }
+            cache.getOrPut(key) {
+                val currency = Currency.getInstance(currencyCode)
+                NumberFormat.getCurrencyInstance(locale).apply { this.currency = currency }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun format(amount: BigDecimal, currencyCode: String, locale: Locale = Locale.getDefault()): String {
         return try {
-            val currency = Currency.getInstance(currencyCode)
-            val formatter = NumberFormat.getCurrencyInstance(locale)
-            formatter.currency = currency
-            // Ensure BigDecimal is used
-            formatter.format(amount)
+            val formatter = cachedFormatter(currencyCode, locale)
+            if (formatter != null) {
+                formatter.format(amount)
+            } else {
+                // Fallback
+                val symbol = CurrencyProvider.getSymbol(currencyCode)
+                "$symbol${amount.toPlainString()}"
+            }
         } catch (e: Exception) {
             // Fallback
             val symbol = CurrencyProvider.getSymbol(currencyCode)

@@ -31,6 +31,10 @@ class ExchangeRateRepository @Inject constructor(
         return exchangeRateDao.getRatesForBase(base)
     }
 
+    suspend fun getAllRatesSync(): List<ExchangeRate> = exchangeRateDao.getAllRatesSync()
+
+    suspend fun clearRates() = exchangeRateDao.deleteAll()
+
     suspend fun refreshRates(baseCurrency: String): Result<Long> {
         return try {
             val response = api.getLatestRates(baseCurrency)
@@ -61,21 +65,39 @@ class ExchangeRateRepository @Inject constructor(
 
     suspend fun getConversionRate(fromCurrency: String, toCurrency: String): BigDecimal? {
         if (fromCurrency == toCurrency) return BigDecimal.ONE
-        // Try direct: from -> to
-        // But our cached rates are base -> target where base is balanceCurrency.
-        // So if toCurrency is balanceCurrency, we need rate from balance to from, then inverse.
-        // Simplified: if we have base=toCurrency and target=fromCurrency, rate = 1 / storedRate
-        val direct = exchangeRateDao.getRate(fromCurrency, toCurrency)
-        if (direct != null) {
-            return try { BigDecimal(direct.rate) } catch (e: Exception) { null }
+        // Load the (small) rate table once and look for a conversion path:
+        // 1) direct: from -> to
+        // 2) inverse: to -> from
+        // 3) cross-rate through any pivot currency we have a quote for,
+        //    e.g. EUR -> USD -> ILS when only USD-based rates are cached.
+        val table = try {
+            exchangeRateDao.getAllRatesSync()
+                .mapNotNull { r ->
+                    val rate = try { BigDecimal(r.rate) } catch (e: Exception) { null }
+                    if (rate != null && rate.compareTo(BigDecimal.ZERO) != 0) {
+                        Triple(r.baseCurrency, r.targetCurrency, rate)
+                    } else null
+                }
+        } catch (e: Exception) {
+            emptyList()
         }
-        val inverse = exchangeRateDao.getRate(toCurrency, fromCurrency)
-        if (inverse != null) {
-            return try {
-                val r = BigDecimal(inverse.rate)
-                if (r.compareTo(BigDecimal.ZERO) == 0) null
-                else BigDecimal.ONE.divide(r, 10, java.math.RoundingMode.HALF_EVEN)
-            } catch (e: Exception) { null }
+
+        fun leg(from: String, to: String): BigDecimal? {
+            table.firstOrNull { it.first == from && it.second == to }?.let { return it.third }
+            table.firstOrNull { it.first == to && it.second == from }?.let {
+                return BigDecimal.ONE.divide(it.third, 10, java.math.RoundingMode.HALF_EVEN)
+            }
+            return null
+        }
+
+        leg(fromCurrency, toCurrency)?.let { return it }
+
+        val currencies = table.flatMap { listOf(it.first, it.second) }.distinct()
+        for (pivot in currencies) {
+            if (pivot == fromCurrency || pivot == toCurrency) continue
+            val first = leg(fromCurrency, pivot) ?: continue
+            val second = leg(pivot, toCurrency) ?: continue
+            return first.multiply(second).setScale(10, java.math.RoundingMode.HALF_EVEN).stripTrailingZeros()
         }
         return null
     }

@@ -22,4 +22,5 @@ sealed class Screen(val route: String) {
             return if (loanId != null) "add_loan?loanId=$loanId" else "add_loan"
         }
     }
+    object Recurring : Screen("recurring")
 }

@@ -10,22 +10,32 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
+import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showCurrencyPicker by remember { mutableStateOf(false) }
+    var showAddAccount by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<Account?>(null) }
+    var deleteTarget by remember { mutableStateOf<Account?>(null) }
+    var addAccountName by remember { mutableStateOf("") }
+    var addAccountCurrency by remember { mutableStateOf("USD") }
+    var addAccountBalance by remember { mutableStateOf("") }
+    var showAddAccountCurrencyPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -44,7 +54,11 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    }
+                }
             )
         }
     ) { padding ->
@@ -52,6 +66,37 @@ fun SettingsScreen(
             if (uiState.isLoading) {
                 CircularProgressIndicator()
             } else {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Accounts", style = MaterialTheme.typography.titleMedium)
+                        Text("Balances, expenses and top-ups are tracked per account. Debts/loans are shared across all accounts.", style = MaterialTheme.typography.bodySmall)
+                        uiState.accounts.forEach { account ->
+                            val isActive = account.id == uiState.activeAccountId
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        account.name + if (isActive) "  (active)" else "",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "Start: ${CurrencyFormatter.formatSimple(account.startingBalanceAsBigDecimal(), account.currency)}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                if (!isActive) {
+                                    TextButton(onClick = { viewModel.switchAccount(account) }) { Text("Switch") }
+                                }
+                                TextButton(onClick = { renameTarget = account }) { Text("Rename") }
+                                TextButton(
+                                    onClick = { deleteTarget = account },
+                                    enabled = uiState.accounts.size > 1
+                                ) { Text("Delete") }
+                            }
+                        }
+                        Button(onClick = { showAddAccount = true }, modifier = Modifier.fillMaxWidth()) { Text("Add account") }
+                    }
+                }
+
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Balance", style = MaterialTheme.typography.titleMedium)
@@ -168,6 +213,79 @@ fun SettingsScreen(
                 balanceCurrency = uiState.settings?.balanceCurrency ?: "USD",
                 onDismiss = { showCurrencyPicker = false },
                 onCurrencySelected = { code -> showCurrencyPicker = false; viewModel.requestChangeCurrency(code) }
+            )
+        }
+
+        if (showAddAccount) {
+            AlertDialog(
+                onDismissRequest = { showAddAccount = false },
+                title = { Text("New account") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = addAccountName,
+                            onValueChange = { addAccountName = it },
+                            label = { Text("Account name") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = addAccountBalance,
+                            onValueChange = { addAccountBalance = it },
+                            label = { Text("Starting balance (optional)") },
+                            singleLine = true
+                        )
+                        OutlinedButton(onClick = { showAddAccountCurrencyPicker = true }) {
+                            Text("Currency: $addAccountCurrency")
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.addAccount(addAccountName, addAccountCurrency, addAccountBalance)
+                        addAccountName = ""
+                        addAccountBalance = ""
+                        showAddAccount = false
+                    }) { Text("Create") }
+                },
+                dismissButton = { TextButton(onClick = { showAddAccount = false }) { Text("Cancel") } }
+            )
+        }
+
+        renameTarget?.let { target ->
+            var name by remember(target) { mutableStateOf(target.name) }
+            AlertDialog(
+                onDismissRequest = { renameTarget = null },
+                title = { Text("Rename account") },
+                text = {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Name") })
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.renameAccount(target, name); renameTarget = null }) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
+            )
+        }
+
+        deleteTarget?.let { target ->
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text("Delete account?") },
+                text = {
+                    Text("Deletes \"${target.name}\" together with its expenses and top-ups. This cannot be undone. Debts/loans are kept.")
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.deleteAccount(target); deleteTarget = null }) { Text("Delete") }
+                },
+                dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }
+            )
+        }
+
+        if (showAddAccountCurrencyPicker) {
+            CurrencyPickerDialog(
+                orderedCurrencies = uiState.orderedCurrencies,
+                balanceCurrency = uiState.settings?.balanceCurrency ?: "USD",
+                onDismiss = { showAddAccountCurrencyPicker = false },
+                onCurrencySelected = { code -> addAccountCurrency = code; showAddAccountCurrencyPicker = false }
             )
         }
 

@@ -9,6 +9,9 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY date DESC")
     fun getAllExpenses(): Flow<List<Expense>>
 
+    @Query("SELECT * FROM expenses WHERE accountId = :accountId ORDER BY date DESC")
+    fun getExpensesForAccount(accountId: Long): Flow<List<Expense>>
+
     @Query("SELECT * FROM expenses ORDER BY date DESC")
     suspend fun getAllExpensesSync(): List<Expense>
 
@@ -32,6 +35,12 @@ interface ExpenseDao {
 
     @Query("DELETE FROM expenses")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM expenses WHERE accountId = :accountId")
+    suspend fun deleteForAccount(accountId: Long)
+
+    @Query("UPDATE expenses SET categoryId = NULL WHERE categoryId = :categoryId")
+    suspend fun clearCategoryFromExpenses(categoryId: Long)
 
     @Query("SELECT SUM(CAST(amountConverted AS REAL)) FROM expenses")
     suspend fun getTotalConverted(): Double?

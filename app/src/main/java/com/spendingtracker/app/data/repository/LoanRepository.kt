@@ -27,6 +27,7 @@ class LoanRepository @Inject constructor(
 
     fun getRepaymentsForLoan(loanId: Long): Flow<List<Repayment>> = repaymentDao.getRepaymentsForLoan(loanId)
     suspend fun getRepaymentsForLoanSync(loanId: Long): List<Repayment> = repaymentDao.getRepaymentsForLoanSync(loanId)
+    suspend fun getAllRepaymentsSync(): List<Repayment> = repaymentDao.getAllRepaymentsSync()
 
     suspend fun insertRepayment(repayment: Repayment): Long = repaymentDao.insertRepayment(repayment)
     suspend fun deleteRepayment(repayment: Repayment) = repaymentDao.deleteRepayment(repayment)

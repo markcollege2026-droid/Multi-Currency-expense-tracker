@@ -22,7 +22,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onEditExpense: (Long) -> Unit,
     onEditTopUp: (Long) -> Unit,
     onAddExpense: () -> Unit,
@@ -36,7 +36,9 @@ fun TransactionsScreen(
             TopAppBar(
                 title = { Text("Transactions") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    }
                 }
             )
         },
@@ -82,10 +84,13 @@ fun TransactionsScreen(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Group by day
-                val grouped = (uiState.filteredExpenses.map { it.date to it } + uiState.filteredTopUps.map { it.date to it })
-                    .sortedByDescending { it.first }
-                    .groupBy { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it.first)) }
+                // Group by day (memoized - recomputation with date formatting is expensive on big lists)
+                val grouped = remember(uiState.filteredExpenses, uiState.filteredTopUps) {
+                    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    (uiState.filteredExpenses.map { it.date to it } + uiState.filteredTopUps.map { it.date to it })
+                        .sortedByDescending { it.first }
+                        .groupBy { dateFormat.format(Date(it.first)) }
+                }
 
                 if (grouped.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -8,8 +8,10 @@ import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.util.CurrencyProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -31,7 +33,9 @@ data class AddExpenseUiState(
     val rateUsed: BigDecimal? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val isEditMode: Boolean = false
+    val isEditMode: Boolean = false,
+    val createdAt: Long? = null,
+    val accountId: Long? = null
 )
 
 @HiltViewModel
@@ -42,6 +46,10 @@ class AddExpenseViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(AddExpenseUiState())
     val uiState: StateFlow<AddExpenseUiState> = _uiState
+
+    // Only the latest conversion may write its result, otherwise fast typing can
+    // race and overwrite newer input with stale state.
+    private var conversionJob: Job? = null
 
     private fun computeOrdered(settings: com.spendingtracker.app.data.local.entity.AppSettings?): List<CurrencyProvider.CurrencyInfo> {
         return CurrencyProvider.getOrderedCurrencies(
@@ -56,14 +64,16 @@ class AddExpenseViewModel @Inject constructor(
     fun loadExpense(expenseId: Long?) {
         if (expenseId == null) {
             viewModelScope.launch {
+                val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 val settings = financeRepository.getSettingsSync()
                 val cats = financeRepository.getAllCategoriesSync()
                 val ordered = computeOrdered(settings)
                 _uiState.value = _uiState.value.copy(
-                    balanceCurrency = settings?.balanceCurrency ?: "USD",
+                    balanceCurrency = account?.currency ?: "USD",
                     categories = cats,
-                    currency = settings?.balanceCurrency ?: "USD",
-                    orderedCurrencies = ordered
+                    currency = account?.currency ?: "USD",
+                    orderedCurrencies = ordered,
+                    accountId = account?.id
                 )
             }
             return
@@ -89,7 +99,9 @@ class AddExpenseViewModel @Inject constructor(
                         orderedCurrencies = ordered,
                         convertedAmount = expense.convertedAsBigDecimal(),
                         rateUsed = expense.rateAsBigDecimal(),
-                        isEditMode = true
+                        isEditMode = true,
+                        createdAt = expense.createdAt,
+                        accountId = expense.accountId
                     )
                 }
             } catch (e: Exception) {
@@ -117,6 +129,33 @@ class AddExpenseViewModel @Inject constructor(
         }
     }
     fun onCategoryChanged(id: Long?) { _uiState.value = _uiState.value.copy(categoryId = id) }
+
+    /** Creates a custom category and selects it for the current expense. */
+    fun createCategory(name: String, color: Int) {
+        viewModelScope.launch {
+            val trimmed = name.trim()
+            if (trimmed.isBlank()) return@launch
+            val id = financeRepository.insertCategory(
+                Category(name = trimmed, iconName = "category", color = color)
+            )
+            val cats = financeRepository.getAllCategoriesSync()
+            _uiState.update { it.copy(categories = cats, categoryId = id) }
+        }
+    }
+
+    /** Deletes a custom category (expenses using it are kept, without category). */
+    fun deleteCategory(category: Category) {
+        viewModelScope.launch {
+            financeRepository.deleteCategory(category)
+            val cats = financeRepository.getAllCategoriesSync()
+            _uiState.update {
+                it.copy(
+                    categories = cats,
+                    categoryId = if (it.categoryId == category.id) null else it.categoryId
+                )
+            }
+        }
+    }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun onPaymentMethodChanged(v: String) { _uiState.value = _uiState.value.copy(paymentMethod = v) }
     fun onManualRateChanged(v: String) { _uiState.value = _uiState.value.copy(manualRate = v); calculateConversion() }
@@ -124,15 +163,16 @@ class AddExpenseViewModel @Inject constructor(
     fun onDateChanged(v: Long) { _uiState.value = _uiState.value.copy(date = v) }
 
     private fun calculateConversion() {
-        viewModelScope.launch {
+        conversionJob?.cancel()
+        conversionJob = viewModelScope.launch {
             val state = _uiState.value
             val amount = try { BigDecimal(state.amount) } catch (e: Exception) { null }
             if (amount == null || state.currency.isBlank()) {
-                _uiState.value = state.copy(convertedAmount = null, rateUsed = null)
+                _uiState.update { it.copy(convertedAmount = null, rateUsed = null) }
                 return@launch
             }
             if (state.currency == state.balanceCurrency) {
-                _uiState.value = state.copy(convertedAmount = amount, rateUsed = BigDecimal.ONE)
+                _uiState.update { it.copy(convertedAmount = amount, rateUsed = BigDecimal.ONE) }
                 return@launch
             }
             val rate = if (state.useManualRate) {
@@ -142,9 +182,10 @@ class AddExpenseViewModel @Inject constructor(
             }
             if (rate != null) {
                 val converted = amount.multiply(rate).setScale(2, RoundingMode.HALF_EVEN)
-                _uiState.value = state.copy(convertedAmount = converted, rateUsed = rate)
+                // Update only conversion fields so concurrently typed input is never reverted
+                _uiState.update { it.copy(convertedAmount = converted, rateUsed = rate) }
             } else {
-                _uiState.value = state.copy(convertedAmount = null, rateUsed = null)
+                _uiState.update { it.copy(convertedAmount = null, rateUsed = null) }
             }
         }
     }
@@ -179,6 +220,7 @@ class AddExpenseViewModel @Inject constructor(
 
                 val expense = Expense(
                     id = expenseId ?: 0,
+                    accountId = state.accountId ?: financeRepository.getActiveAccountId(),
                     amountOriginal = amountOriginal.toPlainString(),
                     currencyOriginal = state.currency,
                     amountConverted = converted.toPlainString(),
@@ -188,7 +230,7 @@ class AddExpenseViewModel @Inject constructor(
                     date = state.date,
                     note = state.note.ifBlank { null },
                     paymentMethod = state.paymentMethod.ifBlank { null },
-                    createdAt = System.currentTimeMillis(),
+                    createdAt = state.createdAt ?: System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis()
                 )
                 if (state.isEditMode && expenseId != null) {
