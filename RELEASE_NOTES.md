@@ -27,3 +27,15 @@ The existing release key is already committed in the historical repository. It i
 Additional cleanup: fixed account renaming (update instead of conflicting insert), made low-balance thresholds apply to the active account rather than obsolete global settings, removed an unused floating-point SQL balance aggregate, and replaced the old wrapper's stub-APK/test-success fallback with the genuine Gradle wrapper. Cash income appears alongside other income in transaction history.
 
 Backup restore validates account hierarchy, currency ownership, numeric amounts and payment references before committing. An unreadable database now shows a non-destructive error instead of misleading first-launch setup. CI serializes schema-generating compiler tasks to avoid debug/release schema export races.
+
+
+## Verified release
+- GitHub Actions: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/actions/runs/38716103327
+- **53 tests passed; 0 failures/errors/skips**, including 12 real Room repository/backup/migration tests and 11 multi-balance calculation tests.
+- `lintDebug`, debug APK, signed/minified release APK and release AAB all passed.
+- Actual APK checks against v1.7 passed: identical application ID and signing certificate, increased version code, minSdk 26.
+- Release APK: 2,158,079 bytes; SHA-256 `7d419eb6e495ae2aa1993fe777bfb8d8ab928a879934c55ae9e9142f60ec0b18`.
+- Release: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.8.0
+- Source review: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/pull/11
+
+The app binaries were built from commit `ff52b938c31f1f7b06e7e687022124fb07152e6e`. The subsequent branch record adds the identical Room-generated schema, verification documentation and a checksum-filename correction; it does not change Android application source. No physical-device or emulator installation/UI test was run in this sandbox.

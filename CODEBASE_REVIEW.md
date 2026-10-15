@@ -30,7 +30,7 @@ Changes are deliberately concentrated on financial correctness and upgrade safet
 - Earliest checked-in schema fixture upgraded 1→2→3→4, preserving income/expenses/settings and validating Room's final schema.
 - Existing currency conversion, balance, loan and recurring-date tests remain in the suite.
 
-Build/test reports are GitHub Actions artifacts. See the verified build links on the pull request and release. These tests do not replace physical-device upgrade testing of every historical APK; the earliest schema file is a simplified historical fixture.
+The release build passed **53 tests with zero failures, errors or skips**, lint and APK/AAB compilation. The actual APK application ID, signing certificate, increasing versionCode and minSdk were checked against v1.7. Build/test reports are GitHub Actions artifacts. See the verified build links on the pull request and release. These tests do not replace physical-device upgrade testing of every historical APK; the earliest schema file is a simplified historical fixture.
 
 ## Deliberate limitations / follow-ups
 - WorkManager is best-effort, not an exact-time scheduler; force-stopped apps cannot run until Android permits execution. Enabling autopay does not retroactively pay dates before configuration; current-month due payments catch up when checked.

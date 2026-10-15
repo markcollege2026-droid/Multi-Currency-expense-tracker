@@ -23,4 +23,4 @@ assert int(re.search(r"sdkVersion:'(\d+)'", new).group(1)) == 26
 print('Upgrade checks passed: matching application ID and signer; versionCode increases; Android 8+ retained.')
 PY
 "$tools/apksigner" verify --verbose --print-certs "$apk"
-sha256sum "$apk" > app/build/outputs/apk/release/SHA256SUMS.txt
+(cd app/build/outputs/apk/release && sha256sum app-release.apk > SHA256SUMS.txt)
