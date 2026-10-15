@@ -31,3 +31,12 @@ Same application ID and release signing key. Version code **7**, Android **8+** 
 Unit tests cover encryption round-trip/Unicode, random salt/nonce, wrong passwords, tampering, truncation, unsupported versions and weak-password rejection. Room/Robolectric tests save actual JSON and encrypted files, restore account balances, verify wrong-password/no-data-loss behavior, and reject empty or invalid backups. GitHub Actions gates APK/AAB publication on the full test suite, lint and compatibility checks against v1.8.0.
 
 Android's interactive file-picker/provider UI still requires physical-device or emulator smoke testing; local file tests do not simulate every cloud provider or interrupted device write.
+
+## Verified release
+- **64 tests passed, with zero failures/errors/skips**, including 17 Room-backed repository/file-backup tests and 6 encryption tests.
+- Lint, debug APK, signed release APK, and AAB compilation passed in GitHub Actions.
+- Actual APK signing/application-ID/version/minSdk checks against v1.8.0 passed.
+- Build: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/actions/runs/38720929602
+- Release: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.8.1
+- APK SHA-256: `sha256:14283c118154fc040353e28a36c5a464a5a2c5893b2e82bd76e102536f16cce3`
+- Android application source built from commit `76fa0ea73a0172876fc0addfd34011f0c01dc705`; subsequent documentation-only updates do not change the APK.
