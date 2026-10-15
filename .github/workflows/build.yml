@@ -5,6 +5,9 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+concurrency:
+  group: build-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -32,6 +35,13 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --stacktrace 2>&1 | tee -a build.log
+      - name: Publish verification metadata
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/build_report.py
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input build-report.json --jq .html_url
       - name: Report build failure on commit
         if: failure()
         env:

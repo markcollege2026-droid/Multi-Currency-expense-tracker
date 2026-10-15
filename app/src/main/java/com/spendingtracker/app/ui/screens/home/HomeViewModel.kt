@@ -89,7 +89,6 @@ class HomeViewModel @Inject constructor(
                 val appSettings = settings ?: AppSettings()
                 val accountId = account?.id
                 val expenses = if (accountId == null) emptyList() else allExpenses.filter { it.accountId == accountId }
-                val topUps = if (accountId == null) emptyList() else allTopUps.filter { it.accountId == accountId }
 
                 val starting = account?.startingBalanceAsBigDecimal() ?: BigDecimal.ZERO
                 val mainBalance = balances[accountId] ?: BigDecimal.ZERO

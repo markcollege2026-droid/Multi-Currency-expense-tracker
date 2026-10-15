@@ -43,14 +43,16 @@ class TransactionsViewModel @Inject constructor(
                 financeRepository.getAllExpenses(),
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
-                financeRepository.observeActiveAccount(),
+                combine(financeRepository.observeActiveAccount(), financeRepository.observeBalanceAccounts()) { active, all -> active to all },
                 financeRepository.observeCardPayments()
-            ) { expenses, topUps, categories, account, payments ->
+            ) { expenses, topUps, categories, wallet, payments ->
+                val (account, accounts) = wallet
+                val incomeAccountIds = accounts.filter { it.id == account?.id || it.parentAccountId == account?.id }.map { it.id }.toSet()
                 val accountId = account?.id
                 _uiState.value.copy(
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
-                    allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId == accountId },
+                    allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId in incomeAccountIds },
                     categories = categories,
                     balanceCurrency = account?.currency ?: "USD",
                     isLoading = false
@@ -72,7 +74,7 @@ class TransactionsViewModel @Inject constructor(
             }
             if (state.selectedCategoryId != null && expense.categoryId != state.selectedCategoryId) return@filter false
             if (state.selectedCurrency != null && expense.currencyOriginal != state.selectedCurrency) return@filter false
-            if (state.selectedType == "TOPUP") return@filter false
+            if (state.selectedType != null && state.selectedType != "EXPENSE") return@filter false
             if (state.dateRangeStart != null && expense.date < state.dateRangeStart) return@filter false
             if (state.dateRangeEnd != null && expense.date > state.dateRangeEnd) return@filter false
             true
@@ -85,7 +87,7 @@ class TransactionsViewModel @Inject constructor(
                 val q = state.searchQuery.lowercase()
                 if (!(topUp.note?.lowercase()?.contains(q) == true)) return@filter false
             }
-            if (state.selectedType == "EXPENSE") return@filter false
+            if (state.selectedType != null && state.selectedType != "TOPUP") return@filter false
             if (state.dateRangeStart != null && topUp.date < state.dateRangeStart) return@filter false
             if (state.dateRangeEnd != null && topUp.date > state.dateRangeEnd) return@filter false
             true

@@ -87,6 +87,41 @@ class FinanceRepositoryTest {
         } catch (_: IllegalStateException) { }
         money("1000", mainId); money("-250", cardId)
     }
+    private fun backups(): com.spendingtracker.app.util.ExportImportManager {
+        val api = java.lang.reflect.Proxy.newProxyInstance(
+            com.spendingtracker.app.data.remote.ExchangeRateApi::class.java.classLoader,
+            arrayOf(com.spendingtracker.app.data.remote.ExchangeRateApi::class.java)
+        ) { _, _, _ -> error("Backup tests must never call the network") } as com.spendingtracker.app.data.remote.ExchangeRateApi
+        val rates = ExchangeRateRepository(db.exchangeRateDao(), api)
+        return com.spendingtracker.app.util.ExportImportManager(repository, LoanRepository(db.loanDebtDao(), db.repaymentDao()),
+            rates, RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates))
+    }
+    @Test fun backupRoundTripKeepsCashRoutingAutopayAndPayments() = runBlocking {
+        repository.insertExpense(expense(cashId, "30"))
+        repository.configureAutopay(repository.getAccountById(cardId)!!.copy(autopayEnabled = true, autopayDay = 20))
+        repository.payCard(cardId, BigDecimal("50"))
+        val exported = backups().exportAll()
+        assertTrue(backups().importAll(exported).isSuccess)
+        money("70", cashId); money("950", mainId); money("-200", cardId)
+        assertEquals(cashId, repository.getAllExpensesSync().single().balanceAccountId)
+        assertTrue(repository.getAccountById(cardId)!!.autopayEnabled)
+        assertEquals(1, repository.getCardPayments().size)
+    }
+    @Test fun invalidImportRollsBackEvenAfterErase() = runBlocking {
+        val exported = backups().exportAll()
+        // Duplicate account IDs fail after the replace-all transaction has started.
+        val invalid = exported.replace("\"id\": $cashId", "\"id\": $mainId")
+        assertTrue(backups().importAll(invalid).isFailure)
+        money("1000", mainId); money("100", cashId); money("-250", cardId)
+    }
+    @Test fun csvUsesActualCurrencyAndEscapesNotes() = runBlocking {
+        repository.insertExpense(expense(cashId, "5").copy(note = "Food, \"market\""))
+        repository.insertTopUp(TopUp(accountId = cashId, amount = "10", date = 1, note = null))
+        val csv = backups().exportTransactionsCsv()
+        assertTrue(csv.contains("\"Food, \"\"market\"\"\""))
+        assertTrue(csv.contains("\"INCOME\""))
+        assertTrue(csv.contains("\"10\",\"ILS\""))
+    }
     @Test fun migrationThreeToFourPreservesLedgerAndPassesRoomValidation() = runBlocking {
         val context: Context = RuntimeEnvironment.getApplication()
         val name = "migration-test.db"

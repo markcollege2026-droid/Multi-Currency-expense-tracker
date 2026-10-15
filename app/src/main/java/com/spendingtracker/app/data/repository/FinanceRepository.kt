@@ -45,7 +45,7 @@ class FinanceRepository @Inject constructor(
     suspend fun getAccountById(id: Long): Account? = accountDao.getAccountById(id)
     suspend fun insertAccount(account: Account): Long = accountDao.insertAccount(account)
     suspend fun updateAccount(account: Account) = accountDao.updateAccount(account)
-    suspend fun getAccountCount(): Int = accountDao.getCount()
+    suspend fun getAccountCount(): Int = accountDao.getAllAccountsSync().count { it.type == "MAIN" }
 
     /** The account currently selected in settings (falls back to the first account). */
     fun observeActiveAccount(): Flow<Account?> =
@@ -56,8 +56,8 @@ class FinanceRepository @Inject constructor(
 
     suspend fun getActiveAccountId(): Long {
         val fromSettings = settingsDao.getSettingsSync()?.activeAccountId
-        if (fromSettings != null && accountDao.getAccountById(fromSettings) != null) return fromSettings
-        return accountDao.getAllAccountsSync().firstOrNull()?.id ?: 1L
+        if (fromSettings != null && accountDao.getAccountById(fromSettings)?.type == "MAIN") return fromSettings
+        return accountDao.getAllAccountsSync().firstOrNull { it.type == "MAIN" }?.id ?: 1L
     }
 
     /**
@@ -151,8 +151,18 @@ class FinanceRepository @Inject constructor(
     suspend fun deleteExpense(expense: Expense) = expenseDao.deleteExpense(expense)
     suspend fun getExpenseById(id: Long): Expense? = expenseDao.getExpenseById(id)
 
-    suspend fun insertTopUp(topUp: TopUp): Long = topUpDao.insertTopUp(topUp)
-    suspend fun updateTopUp(topUp: TopUp) = topUpDao.updateTopUp(topUp)
+    suspend fun insertTopUp(topUp: TopUp): Long = database.withTransaction {
+        validateIncome(topUp)
+        topUpDao.insertTopUp(topUp)
+    }
+    suspend fun updateTopUp(topUp: TopUp) = database.withTransaction {
+        validateIncome(topUp)
+        topUpDao.updateTopUp(topUp)
+    }
+    private suspend fun validateIncome(topUp: TopUp) {
+        require(topUp.amountAsBigDecimal() > BigDecimal.ZERO) { "Income must be positive" }
+        require(accountDao.getAccountById(topUp.accountId)?.type in listOf("MAIN", "CASH")) { "Income requires a main or cash account" }
+    }
     suspend fun deleteTopUp(topUp: TopUp) = topUpDao.deleteTopUp(topUp)
     suspend fun getTopUpById(id: Long): TopUp? = topUpDao.getTopUpById(id)
 
@@ -220,7 +230,9 @@ class FinanceRepository @Inject constructor(
         require(card.type == "CREDIT_CARD" && card.autopayDay in 1..31)
         require(card.autopayMode in listOf("FULL_BALANCE", "FIXED_AMOUNT"))
         require(card.autopayMode != "FIXED_AMOUNT" || BigDecimal(card.autopayFixedAmount ?: "0") > BigDecimal.ZERO) { "Fixed payment must be positive" }
-        accountDao.updateAccount(card.copy(autopayStartDate = card.autopayStartDate ?: LocalDate.now().toString()))
+        val saved = accountDao.getAccountById(card.id) ?: error("Card not found")
+        require(saved.type == "CREDIT_CARD" && saved.parentAccountId == card.parentAccountId && saved.currency == card.currency)
+        accountDao.updateAccount(card.copy(autopayStartDate = if (card.autopayEnabled && !saved.autopayEnabled && card.autopayStartDate == null) LocalDate.now().toString() else card.autopayStartDate ?: LocalDate.now().toString()))
     }
 
     suspend fun payCard(cardId: Long, amount: BigDecimal, allowOverpayment: Boolean = false, period: String? = null): CreditCardPayment = database.withTransaction {

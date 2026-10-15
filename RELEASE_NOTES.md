@@ -23,3 +23,5 @@ The existing **2 → 3** migration remains. A **1 → 2** migration handles earl
 Same application ID (`com.spendingtracker.app`), existing release signing key, versionCode **6** (previously 5), minSdk **26** (Android 8+), targetSdk **35**. Install **app-release.apk over a previous release-signed APK** without uninstalling. Debug-signed installations need the matching debug build; release/debug signatures are not interchangeable. Android will reject upgrades signed by a different key.
 
 The existing release key is already committed in the historical repository. It is retained for upgrade compatibility, not a security recommendation; removing it from this change cannot revoke historical exposure. Plan a signing-key migration separately if needed.
+
+Additional cleanup: fixed account renaming (update instead of conflicting insert), made low-balance thresholds apply to the active account rather than obsolete global settings, removed an unused floating-point SQL balance aggregate, and replaced the old wrapper's stub-APK/test-success fallback with the genuine Gradle wrapper. Cash income appears alongside other income in transaction history.

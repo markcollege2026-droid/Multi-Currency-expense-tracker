@@ -26,12 +26,6 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    /**
-     * v2 -> v3: introduces multiple accounts and recurring payments.
-     * Creates the accounts/recurring_payments tables, links expenses and top-ups
-     * to an account (existing rows become part of the auto-created "Main" account),
-     * and records the active account in app_settings.
-     */
     // Early schema exports used top_ups and a required category FK. Rebuild without losing rows.
     val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -47,12 +41,17 @@ object AppModule {
             for (column in listOf("currencySortMode", "customCurrencyOrder", "favoriteCurrencies", "recentCurrencies")) {
                 if (column !in columns) db.execSQL("ALTER TABLE app_settings ADD COLUMN $column TEXT" + if (column == "currencySortMode") " NOT NULL DEFAULT 'ALPHABETICAL'" else "")
             }
-            // Match the entity's lack of SQL default for this historical field.
             db.execSQL("DELETE FROM exchange_rates WHERE id NOT IN (SELECT MAX(id) FROM exchange_rates GROUP BY baseCurrency, targetCurrency)")
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_exchange_rates_baseCurrency_targetCurrency ON exchange_rates(baseCurrency, targetCurrency)")
         }
     }
 
+    /**
+     * v2 -> v3: introduces multiple accounts and recurring payments.
+     * Creates the accounts/recurring_payments tables, links expenses and top-ups
+     * to an account (existing rows become part of the auto-created "Main" account),
+     * and records the active account in app_settings.
+     */
     val MIGRATION_2_3 = object : Migration(2, 3) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(

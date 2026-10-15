@@ -461,21 +461,25 @@ class ExportImportManager @Inject constructor(
     }
 
     suspend fun exportTransactionsCsv(): String {
-        val expenses = financeRepository.getAllExpensesSync()
-        val topUps = financeRepository.getAllTopUpsSync()
-        val sb = StringBuilder()
-        sb.appendLine("type,id,amount_original,currency_original,amount_converted,currency_converted,rate,categoryId,date,note,paymentMethod,account_id")
-        expenses.forEach {
-            sb.appendLine("EXPENSE,${it.id},${it.amountOriginal},${it.currencyOriginal},${it.amountConverted},${it.currencyConverted},${it.exchangeRateUsed},${it.categoryId},${it.date},\"${it.note?.replace("\"", "\"\"")}\",${it.paymentMethod},${it.accountId}")
-        }
-        topUps.forEach {
-            sb.appendLine("TOPUP,${it.id},${it.amount},${it.amount},${it.amount},${it.amount},1,,${it.date},\"${it.note?.replace("\"", "\"\"")}\",,${it.accountId}")
-        }
         val accounts = financeRepository.getAllAccountsSync().associateBy { it.id }
+        val output = StringBuilder()
+        fun row(vararg values: Any?) {
+            output.appendLine(values.joinToString(",") { value -> "\"${(value?.toString() ?: "").replace("\"", "\"\"")}\"" })
+        }
+        row("type", "id", "amount_original", "currency_original", "amount_converted", "currency_converted", "rate", "categoryId", "date", "note", "paymentMethod", "account_id", "balance_account_id", "status")
+        financeRepository.getAllExpensesSync().forEach {
+            row("EXPENSE", it.id, it.amountOriginal, it.currencyOriginal, it.amountConverted, it.currencyConverted,
+                it.exchangeRateUsed, it.categoryId, it.date, it.note, it.paymentMethod, it.accountId, it.balanceAccountId ?: it.accountId, "COMPLETED")
+        }
+        financeRepository.getAllTopUpsSync().forEach {
+            val currency = accounts[it.accountId]?.currency ?: ""
+            row("INCOME", it.id, it.amount, currency, it.amount, currency, "1", null, it.date, it.note, accounts[it.accountId]?.type, it.accountId, it.accountId, "COMPLETED")
+        }
         financeRepository.getCardPayments().forEach {
             val currency = accounts[it.sourceAccountId]?.currency ?: ""
-            sb.appendLine("CARD_PAYMENT,${it.id},${it.amount},$currency,${it.amount},$currency,1,,${it.date},\"Credit card payment ${it.status}\",MAIN,${it.sourceAccountId}")
+            row("CARD_PAYMENT", it.id, it.amount, currency, it.amount, currency, "1", null, it.date,
+                "Credit card payment", "MAIN", it.sourceAccountId, it.cardId, it.status)
         }
-        return sb.toString()
+        return output.toString()
     }
 }
