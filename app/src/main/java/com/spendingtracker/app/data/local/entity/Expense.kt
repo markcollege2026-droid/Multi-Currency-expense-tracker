@@ -25,7 +25,8 @@ data class Expense(
     val note: String?,
     val paymentMethod: String?,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val balanceAccountId: Long? = null
 ) {
     fun originalAsBigDecimal(): BigDecimal = BigDecimal(amountOriginal)
     fun convertedAsBigDecimal(): BigDecimal = BigDecimal(amountConverted)

@@ -108,7 +108,7 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Balance remaining", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Main/debit balance", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                                 IconButton(onClick = { showAdjustBalance = true }) {
                                     Icon(Icons.Default.Edit, contentDescription = "Adjust balance", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                                 }
@@ -142,6 +142,8 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                item { BalanceAccountsPanel(uiState, viewModel) }
 
                 // Quick stats
                 item {

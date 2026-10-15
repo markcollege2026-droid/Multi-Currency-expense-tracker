@@ -1,160 +1,45 @@
 name: Release APKs
-
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name for release (e.g. v1.0)'
-        required: false
-        default: 'v1.0'
-
+        description: Release tag
+        required: true
+        default: v1.8.0
+permissions:
+  contents: write
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Verify and compile
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --stacktrace
+      - name: Verify APK signature and upgrade identifiers
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk | head -5
+      - uses: softprops/action-gh-release@v2
         with:
-          gradle-version: 8.9
-          cache-disabled: false
-
-      - name: Setup Android SDK (Android 15 compatible)
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --install "build-tools;35.0.0" "build-tools;34.0.0" "platforms;android-35" "platforms;android-34" "platform-tools" || true
-          sdkmanager --list_installed | grep -E "build-tools|platforms" || true
-          yes | sdkmanager --licenses || true
-
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties && cat local.properties
-
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew && ls -lh gradle/wrapper/
-
-      - name: Build Debug APK
-        run: |
-          set -o pipefail
-          ./gradlew assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee build.log
-          ls -lh app/build/outputs/apk/debug/ || true
-          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
-          echo "Debug APK size: $SIZE"
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: APK too small, expected full app >1MB"
-            exit 1
-          fi
-
-      - name: Build Release APK + Play AAB (R8 minified)
-        run: |
-          set -o pipefail
-          ./gradlew assembleRelease bundleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee -a build.log
-          ls -lh app/build/outputs/apk/release/ || true
-          ls -lh app/build/outputs/bundle/release/ || true
-          ls -lh app/build/outputs/mapping/release/ || true
-          SIZE=$(stat -c%s app/build/outputs/apk/release/app-release.apk 2>/dev/null || echo 0)
-          echo "Release APK size: $SIZE"
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: release APK too small, expected full app >1MB"
-            exit 1
-          fi
-          if [ ! -f app/build/outputs/bundle/release/app-release.aab ]; then
-            echo "ERROR: app-release.aab missing"
-            exit 1
-          fi
-
-      - name: Create Issue with Build Log on Failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tail -n 500 build.log > failure.log 2>/dev/null || true
-          gh issue create --title "Release Build Failed - Run ${{ github.run_id }} (${{ github.ref_name }})" --body-file failure.log --label "bug" || true
-          echo "=== BUILD LOG LAST 200 LINES ==="
-          tail -n 200 build.log 2>/dev/null || true
-
-      - name: Upload Build Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-build-logs
-          path: build.log
-          if-no-files-found: warn
-
-      - name: Copy to apk folder
-        run: |
-          mkdir -p apk
-          cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk
-          ls -lh apk/
-
-      - name: Create Release with Full App APKs + Play AAB
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }}
-          name: Spending Tracker ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }} - Full App
-          body: |
-            Offline-first Spending Tracker + Multi-Currency & Commodity Converter + Loans & Debts - FULL APP (v1.3.0)
-
-            **New in this release:**
-            - **Converter Tab**:
-              - Dedicated **Converter** tab in the bottom navigation bar powered by the built-in conversion API (`open.er-api.com`) plus commodities/metals support.
-              - Watchlist of selected **currencies** (155+ world currencies with flags) and **commodities/metals** (`XAU` Gold, `XAG` Silver, `XPT` Platinum, `XPD` Palladium, `WTI` Crude Oil, `BRENT` Brent Oil, `NG` Natural Gas, `XCU` Copper, `BTC` Bitcoin, `ETH` Ethereum).
-              - **Top Item as Conversion Basis**: the top item in the list is highlighted in blue and acts as the base currency for converting every other currency and commodity in the list. Tap any item in the list to promote it to the top as the new base.
-              - **Long-Press Amount Selector**: long-press on the top currency card to select a preset amount (`1`, `5`, `10`, `25`, `50`, `100`, `250`, `500`, `1000`, `5000`) or enter/calculate a custom amount with live conversion preview; all items below immediately display the converted value and 24h % change badge.
-              - **Charts Option**: switch to the **Charts** view inside the Converter tab (or tap any currency's change badge) for an interactive historical rate chart (`1W`, `1M`, `3M`, `6M`, `1Y`) with touch/drag scrubbing, period High/Low/Average stats, pair swap (`⇄`), and watchlist comparison.
-            - Navigation stability, multiple accounts, recurring payments, loan due dates, and custom categories.
-
-            **Full App Features (Real Gradle Build):**
-            - Compose + Material 3 dynamic color
-            - Room DB offline-first (9 entities)
-            - Hilt DI, Navigation, ViewModels
-            - Balance = starting + topups - converted expenses (BigDecimal)
-            - Multi-currency with cached rates from open.er-api.com
-            - Loans & Debts separate from balance with repayments, progress, overdue
-            - Dashboard with balance card, stats, trend, quick-add FAB
-            - Transactions grouped by day with search/filters
-            - Settings with accounts management, export/import JSON/CSV, erase, theme, threshold
-            - WorkManager notifications + daily recurring payments
-
-            **Performance:**
-            - R8 code + resource shrinking enabled for release
-            - Strong-skipping Compose compiler
-            - Baseline-profile ready (profileinstaller)
-
-            **Compatibility:**
-            - minSdk 26 (Android 8), targetSdk 35 (Android 15)
-            - v2+v3 signing for Android 14/15+
-
-            **Artifacts:**
-            - app-debug.apk (full app, debug)
-            - app-release.apk (full app, release signed with release.keystore)
-            - app-release.aab (Play Store bundle - upload this to Google Play Console)
-            - mapping/ (R8 crash deobfuscation mapping)
-
-            Install APK via adb or file manager. For Google Play, upload the AAB.
+          tag_name: ${{ inputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Spending Tracker ${{ inputs.tag }} — Multiple Balances
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/bundle/release/app-release.aab
             app/build/outputs/mapping/release/mapping.txt
-            release.keystore
-            README.md
-            KEYSTORE.md
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: false
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-reports
+          path: app/build/reports/

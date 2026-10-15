@@ -27,7 +27,7 @@ import javax.inject.Singleton
  */
 @Serializable
 data class ExportData(
-    val schemaVersion: Int = 3,
+    val schemaVersion: Int = 4,
     val settings: ExportSettings? = null,
     val categories: List<ExportCategory> = emptyList(),
     val expenses: List<ExportExpense> = emptyList(),
@@ -36,7 +36,8 @@ data class ExportData(
     val loanDebts: List<ExportLoanDebt> = emptyList(),
     val repayments: List<ExportRepayment> = emptyList(),
     val accounts: List<ExportAccount> = emptyList(),
-    val recurringPayments: List<ExportRecurringPayment> = emptyList()
+    val recurringPayments: List<ExportRecurringPayment> = emptyList(),
+    val creditCardPayments: List<com.spendingtracker.app.data.local.entity.CreditCardPayment> = emptyList()
 )
 
 @Serializable
@@ -79,7 +80,8 @@ data class ExportExpense(
     val paymentMethod: String?,
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
-    val accountId: Long = 1
+    val accountId: Long = 1,
+    val balanceAccountId: Long? = null
 )
 
 @Serializable
@@ -131,7 +133,15 @@ data class ExportAccount(
     val currency: String,
     val startingBalance: String,
     val lowBalanceThreshold: String? = null,
-    val createdAt: Long = 0
+    val createdAt: Long = 0,
+    val type: String = "MAIN",
+    val parentAccountId: Long? = null,
+    val creditLimit: String? = null,
+    val autopayEnabled: Boolean = false,
+    val autopayDay: Int = 1,
+    val autopayMode: String = "FULL_BALANCE",
+    val autopayFixedAmount: String? = null,
+    val autopayStartDate: String? = null
 )
 
 @Serializable
@@ -181,6 +191,7 @@ class ExportImportManager @Inject constructor(
         val recurring = recurringRepository.getAllSync()
 
         val export = ExportData(
+            creditCardPayments = financeRepository.getCardPayments(),
             settings = settings?.let {
                 ExportSettings(
                     balanceCurrency = it.balanceCurrency,
@@ -214,7 +225,8 @@ class ExportImportManager @Inject constructor(
                     paymentMethod = it.paymentMethod,
                     createdAt = it.createdAt,
                     updatedAt = it.updatedAt,
-                    accountId = it.accountId
+                    accountId = it.accountId,
+                    balanceAccountId = it.balanceAccountId
                 )
             },
             topUps = topUps.map {
@@ -246,7 +258,10 @@ class ExportImportManager @Inject constructor(
                     currency = it.currency,
                     startingBalance = it.startingBalance,
                     lowBalanceThreshold = it.lowBalanceThreshold,
-                    createdAt = it.createdAt
+                    createdAt = it.createdAt,
+                    type = it.type, parentAccountId = it.parentAccountId, creditLimit = it.creditLimit,
+                    autopayEnabled = it.autopayEnabled, autopayDay = it.autopayDay, autopayMode = it.autopayMode,
+                    autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate
                 )
             },
             recurringPayments = recurring.map {
@@ -281,6 +296,8 @@ class ExportImportManager @Inject constructor(
     suspend fun importAll(jsonString: String): Result<Unit> {
         return try {
             val data = json.decodeFromString<ExportData>(jsonString)
+            require(data.schemaVersion in 1..4) { "Unsupported backup version" }
+            financeRepository.atomic {
             financeRepository.eraseAll()
             loanRepository.eraseAll()
 
@@ -306,7 +323,10 @@ class ExportImportManager @Inject constructor(
                         currency = it.currency,
                         startingBalance = it.startingBalance,
                         lowBalanceThreshold = it.lowBalanceThreshold,
-                        createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt
+                        createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt,
+                        type = it.type, parentAccountId = it.parentAccountId, creditLimit = it.creditLimit,
+                        autopayEnabled = it.autopayEnabled, autopayDay = it.autopayDay, autopayMode = it.autopayMode,
+                        autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate
                     )
                 )
             }
@@ -338,7 +358,7 @@ class ExportImportManager @Inject constructor(
                 )
             }
             data.expenses.forEach {
-                financeRepository.insertExpense(
+                financeRepository.restoreExpense(
                     Expense(
                         id = it.id,
                         accountId = it.accountId.takeIf { id -> id in validAccountIds }
@@ -353,7 +373,8 @@ class ExportImportManager @Inject constructor(
                         note = it.note,
                         paymentMethod = it.paymentMethod,
                         createdAt = it.createdAt,
-                        updatedAt = it.updatedAt
+                        updatedAt = it.updatedAt,
+                        balanceAccountId = it.balanceAccountId
                     )
                 )
             }
@@ -431,6 +452,8 @@ class ExportImportManager @Inject constructor(
                 )
             }
 
+            data.creditCardPayments.forEach { financeRepository.restoreCardPayment(it) }
+            } // Transaction rolls back the entire replace-all import on any failure.
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -447,6 +470,11 @@ class ExportImportManager @Inject constructor(
         }
         topUps.forEach {
             sb.appendLine("TOPUP,${it.id},${it.amount},${it.amount},${it.amount},${it.amount},1,,${it.date},\"${it.note?.replace("\"", "\"\"")}\",,${it.accountId}")
+        }
+        val accounts = financeRepository.getAllAccountsSync().associateBy { it.id }
+        financeRepository.getCardPayments().forEach {
+            val currency = accounts[it.sourceAccountId]?.currency ?: ""
+            sb.appendLine("CARD_PAYMENT,${it.id},${it.amount},$currency,${it.amount},$currency,1,,${it.date},\"Credit card payment ${it.status}\",MAIN,${it.sourceAccountId}")
         }
         return sb.toString()
     }

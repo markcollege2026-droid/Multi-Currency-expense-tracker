@@ -14,6 +14,7 @@ import javax.inject.Inject
 
 data class TransactionsUiState(
     val allExpenses: List<Expense> = emptyList(),
+    val cardPayments: List<com.spendingtracker.app.data.local.entity.CreditCardPayment> = emptyList(),
     val allTopUps: List<TopUp> = emptyList(),
     val categories: List<Category> = emptyList(),
     val filteredExpenses: List<Expense> = emptyList(),
@@ -42,10 +43,12 @@ class TransactionsViewModel @Inject constructor(
                 financeRepository.getAllExpenses(),
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
-                financeRepository.observeActiveAccount()
-            ) { expenses, topUps, categories, account ->
+                financeRepository.observeActiveAccount(),
+                financeRepository.observeCardPayments()
+            ) { expenses, topUps, categories, account, payments ->
                 val accountId = account?.id
                 _uiState.value.copy(
+                    cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
                     allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId == accountId },
                     categories = categories,

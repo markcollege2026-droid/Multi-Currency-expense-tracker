@@ -1,5 +1,7 @@
 package com.spendingtracker.app.ui.screens.home
 
+import com.spendingtracker.app.domain.AccountBalances
+import com.spendingtracker.app.data.local.entity.CreditCardPayment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.spendingtracker.app.data.local.entity.Account
@@ -39,7 +41,12 @@ data class HomeUiState(
     val isLowBalance: Boolean = false,
     val isNegativeBalance: Boolean = false,
     val accounts: List<Account> = emptyList(),
-    val activeAccount: Account? = null
+    val activeAccount: Account? = null,
+    val balanceAccounts: List<Account> = emptyList(),
+    val accountBalances: Map<Long, BigDecimal> = emptyMap(),
+    val totalAvailable: BigDecimal = BigDecimal.ZERO,
+    val cardPayments: List<CreditCardPayment> = emptyList(),
+    val message: String? = null
 )
 
 @HiltViewModel
@@ -60,15 +67,15 @@ class HomeViewModel @Inject constructor(
     init {
         // Post any recurring payments that came due (also runs daily via WorkManager)
         viewModelScope.launch {
-            try { recurringRepository.processDuePayments() } catch (e: Exception) { /* next run retries */ }
+            try { recurringRepository.processDuePayments(); runAutopay() } catch (e: Exception) { /* next run retries */ }
         }
 
         viewModelScope.launch {
             financeRepository.ensureDefaultCategories()
             val accountAndList = combine(
                 financeRepository.observeActiveAccount(),
-                financeRepository.getAllAccounts()
-            ) { active, all -> active to all }
+                combine(financeRepository.observeBalanceAccounts(), financeRepository.observeCardPayments()) { accounts, payments -> accounts to payments }
+            ) { active, ledger -> active to ledger }
 
             combine(
                 accountAndList,
@@ -76,27 +83,26 @@ class HomeViewModel @Inject constructor(
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
                 financeRepository.getSettings()
-            ) { (account, accounts), allExpenses, allTopUps, categories, settings ->
+            ) { (account, ledger), allExpenses, allTopUps, categories, settings ->
+                val (accounts, payments) = ledger
+                val balances = AccountBalances.calculate(accounts, allExpenses, allTopUps, payments)
                 val appSettings = settings ?: AppSettings()
                 val accountId = account?.id
                 val expenses = if (accountId == null) emptyList() else allExpenses.filter { it.accountId == accountId }
                 val topUps = if (accountId == null) emptyList() else allTopUps.filter { it.accountId == accountId }
 
                 val starting = account?.startingBalanceAsBigDecimal() ?: BigDecimal.ZERO
-                val topUpAmounts = topUps.map { try { BigDecimal(it.amount) } catch (e: Exception) { BigDecimal.ZERO } }
-                val expenseConverted = expenses.map { try { BigDecimal(it.amountConverted) } catch (e: Exception) { BigDecimal.ZERO } }
-
-                val balanceResult = balanceCalculator.calculate(starting, topUpAmounts, expenseConverted)
+                val mainBalance = balances[accountId] ?: BigDecimal.ZERO
 
                 val threshold = account?.thresholdAsBigDecimal()
-                val isLow = balanceCalculator.isLowBalance(balanceResult.balance, threshold)
-                val isNegative = balanceCalculator.isNegative(balanceResult.balance)
+                val isLow = balanceCalculator.isLowBalance(mainBalance, threshold)
+                val isNegative = balanceCalculator.isNegative(mainBalance)
                 val balanceCurrency = account?.currency ?: "USD"
 
                 if (isLow && !lowBalanceNotified) {
                     lowBalanceNotified = true
                     notificationHelper.showLowBalanceNotification(
-                        CurrencyFormatter.formatSimple(balanceResult.balance, balanceCurrency),
+                        CurrencyFormatter.formatSimple(mainBalance, balanceCurrency),
                         threshold?.let { CurrencyFormatter.formatSimple(it, balanceCurrency) } ?: ""
                     )
                 } else if (!isLow) {
@@ -145,7 +151,7 @@ class HomeViewModel @Inject constructor(
                 } ?: true
 
                 HomeUiState(
-                    balance = balanceResult.balance,
+                    balance = mainBalance,
                     balanceCurrency = balanceCurrency,
                     startingBalance = starting,
                     totalSpentWeek = spentWeek,
@@ -160,8 +166,13 @@ class HomeViewModel @Inject constructor(
                     lowBalanceThreshold = threshold,
                     isLowBalance = isLow,
                     isNegativeBalance = isNegative,
-                    accounts = accounts,
-                    activeAccount = account
+                    accounts = accounts.filter { it.type == "MAIN" },
+                    activeAccount = account,
+                    balanceAccounts = accounts.filter { it.parentAccountId == accountId },
+                    accountBalances = balances,
+                    totalAvailable = accounts.filter { it.id == accountId || it.parentAccountId == accountId }.fold(BigDecimal.ZERO) { sum, a -> sum + (balances[a.id] ?: BigDecimal.ZERO) },
+                    cardPayments = payments.filter { it.sourceAccountId == accountId },
+                    message = _uiState.value.message
                 )
             }
                 // Heavy aggregation (BigDecimal math, grouping, trend) runs off the main thread.
@@ -181,6 +192,37 @@ class HomeViewModel @Inject constructor(
             if (shouldRefresh) {
                 refreshRates(base)
             }
+        }
+    }
+
+    private suspend fun runAutopay() {
+        financeRepository.processAutopay().filter { it.status == "FAILED_INSUFFICIENT_FUNDS" }.forEach {
+            notificationHelper.showAutopayFailure(it.cardId.toInt())
+        }
+    }
+
+    fun createBalanceAccount(name: String, type: String, opening: String) = action {
+        financeRepository.createBalanceAccount(financeRepository.getActiveAccountId(), name, type, BigDecimal(opening))
+    }
+    fun fundCash(cashId: Long, amount: String) = action {
+        val value = BigDecimal(amount)
+        require(value > BigDecimal.ZERO) { "Amount must be positive" }
+        financeRepository.insertTopUp(TopUp(accountId = cashId, amount = value.toPlainString(), date = System.currentTimeMillis(), note = "Cash income"))
+    }
+    fun payCard(cardId: Long, amount: String, overpayment: Boolean) = action {
+        val result = financeRepository.payCard(cardId, BigDecimal(amount), overpayment)
+        if (result.status != "COMPLETED") {
+            notificationHelper.showAutopayFailure(cardId.toInt())
+            error("Payment failed: insufficient main/debit funds")
+        }
+        _uiState.update { it.copy(message = "Credit card payment completed") }
+    }
+    fun configureAutopay(card: Account) = action { financeRepository.configureAutopay(card); runAutopay() }
+    fun dismissPayment(payment: CreditCardPayment) = action { financeRepository.dismissPayment(payment) }
+    fun clearMessage() { _uiState.update { it.copy(message = null) } }
+    private fun action(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try { block() } catch (e: Exception) { _uiState.update { it.copy(message = e.message ?: "Unable to complete operation") } }
         }
     }
 

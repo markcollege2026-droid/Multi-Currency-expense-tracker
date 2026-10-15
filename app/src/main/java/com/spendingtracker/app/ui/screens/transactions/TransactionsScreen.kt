@@ -85,9 +85,10 @@ fun TransactionsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Group by day (memoized - recomputation with date formatting is expensive on big lists)
-                val grouped = remember(uiState.filteredExpenses, uiState.filteredTopUps) {
+                val grouped = remember(uiState.filteredExpenses, uiState.filteredTopUps, uiState.cardPayments, uiState.selectedType, uiState.searchQuery) {
                     val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                    (uiState.filteredExpenses.map { it.date to it } + uiState.filteredTopUps.map { it.date to it })
+                    (uiState.filteredExpenses.map { it.date to it } + uiState.filteredTopUps.map { it.date to it } +
+                        uiState.cardPayments.filter { uiState.selectedType == null && (uiState.searchQuery.isBlank() || "credit card payment ${it.status}".contains(uiState.searchQuery, ignoreCase = true)) }.map { it.date to it })
                         .sortedByDescending { it.first }
                         .groupBy { dateFormat.format(Date(it.first)) }
                 }
@@ -104,6 +105,15 @@ fun TransactionsScreen(
                             }
                             items(items) { (_, item) ->
                                 when (item) {
+                                    is com.spendingtracker.app.data.local.entity.CreditCardPayment -> {
+                                        Card(Modifier.fillMaxWidth()) {
+                                            Column(Modifier.padding(12.dp)) {
+                                                Text("Credit card payment · ${CurrencyFormatter.formatSimple(java.math.BigDecimal(item.amount), uiState.balanceCurrency)}", fontWeight = FontWeight.Bold)
+                                                Text(item.status.replace('_', ' '))
+                                                Text("Main/debit → card #${item.cardId}")
+                                            }
+                                        }
+                                    }
                                     is Expense -> {
                                         Card(modifier = Modifier.fillMaxWidth(), onClick = { onEditExpense(item.id) }) {
                                             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
