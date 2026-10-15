@@ -4,7 +4,57 @@ object CurrencyProvider {
     data class CurrencyInfo(
         val code: String,
         val name: String,
-        val symbol: String
+        val symbol: String,
+        val flag: String = computeFlag(code),
+        val isCommodity: Boolean = false
+    )
+
+    private val specialFlags = mapOf(
+        "EUR" to "🇪🇺",
+        "ANG" to "🇨🇼",
+        "XAF" to "🌍",
+        "XCD" to "🌎",
+        "XDR" to "🌐",
+        "XOF" to "🌍",
+        "XPF" to "🏝️",
+        "XAU" to "🥇",
+        "XAG" to "🥈",
+        "XPT" to "💍",
+        "XPD" to "⚙️",
+        "WTI" to "🛢️",
+        "BRENT" to "🛢️",
+        "NG" to "🔥",
+        "XCU" to "🧱",
+        "BTC" to "₿",
+        "ETH" to "💎"
+    )
+
+    private fun computeFlag(code: String): String {
+        val upper = code.uppercase()
+        specialFlags[upper]?.let { return it }
+        if (upper.length >= 2) {
+            val c0 = upper[0]
+            val c1 = upper[1]
+            if (c0 in 'A'..'Z' && c1 in 'A'..'Z') {
+                val first = String(Character.toChars(0x1F1E6 + (c0 - 'A')))
+                val second = String(Character.toChars(0x1F1E6 + (c1 - 'A')))
+                return first + second
+            }
+        }
+        return "🌐"
+    }
+
+    val allCommodities = listOf(
+        CurrencyInfo("XAU", "Gold (Troy Ounce)", "oz", "🥇", isCommodity = true),
+        CurrencyInfo("XAG", "Silver (Troy Ounce)", "oz", "🥈", isCommodity = true),
+        CurrencyInfo("XPT", "Platinum (Troy Ounce)", "oz", "💍", isCommodity = true),
+        CurrencyInfo("XPD", "Palladium (Troy Ounce)", "oz", "⚙️", isCommodity = true),
+        CurrencyInfo("WTI", "Crude Oil WTI (Barrel)", "bbl", "🛢️", isCommodity = true),
+        CurrencyInfo("BRENT", "Brent Crude Oil (Barrel)", "bbl", "🛢️", isCommodity = true),
+        CurrencyInfo("NG", "Natural Gas (MMBtu)", "MMBtu", "🔥", isCommodity = true),
+        CurrencyInfo("XCU", "Copper (Pound)", "lb", "🧱", isCommodity = true),
+        CurrencyInfo("BTC", "Bitcoin", "₿", "₿", isCommodity = true),
+        CurrencyInfo("ETH", "Ethereum", "Ξ", "💎", isCommodity = true)
     )
 
     val allCurrencies = listOf(
@@ -165,14 +215,42 @@ object CurrencyProvider {
         CurrencyInfo("ZMW", "Zambian Kwacha", "ZK")
     )
 
+    val allCurrenciesAndCommodities: List<CurrencyInfo> = allCurrencies + allCommodities
+
+    fun getInfo(code: String): CurrencyInfo {
+        return allCurrenciesAndCommodities.find { it.code == code }
+            ?: CurrencyInfo(code, code, code, computeFlag(code), false)
+    }
+
+    fun getFlag(code: String): String {
+        return getInfo(code).flag
+    }
+
+    fun isCommodity(code: String): Boolean {
+        return allCommodities.any { it.code == code }
+    }
+
     fun getSymbol(code: String): String {
-        return allCurrencies.find { it.code == code }?.symbol ?: code
+        return allCurrenciesAndCommodities.find { it.code == code }?.symbol ?: code
     }
 
     fun search(query: String): List<CurrencyInfo> {
         if (query.isBlank()) return allCurrencies
         val q = query.lowercase()
         return allCurrencies.filter {
+            it.code.lowercase().contains(q) || it.name.lowercase().contains(q)
+        }
+    }
+
+    fun searchAll(query: String, filter: String = "ALL"): List<CurrencyInfo> {
+        val base = when (filter) {
+            "CURRENCIES" -> allCurrencies
+            "COMMODITIES" -> allCommodities
+            else -> allCurrenciesAndCommodities
+        }
+        if (query.isBlank()) return base
+        val q = query.lowercase()
+        return base.filter {
             it.code.lowercase().contains(q) || it.name.lowercase().contains(q)
         }
     }

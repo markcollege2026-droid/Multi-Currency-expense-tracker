@@ -131,3 +131,28 @@ jobs:
           name: release-mapping
           path: app/build/outputs/mapping/release/
           if-no-files-found: warn
+
+      - name: Publish Release APK (v1.7)
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.7
+          name: Spending Tracker v1.7 - Converter & Charts Full App
+          body: |
+            Offline-first Spending Tracker + Multi-Currency & Commodity Converter + Loans & Debts - FULL APP (v1.3.0)
+
+            **New in this release (v1.7 / v1.3.0):**
+            - **Converter Tab**:
+              - Dedicated **Converter** tab in the bottom navigation bar powered by the built-in conversion API (`open.er-api.com`) plus commodities/metals support.
+              - Watchlist of selected **currencies** (155+ world currencies with flags) and **commodities/metals** (`XAU` Gold, `XAG` Silver, `XPT` Platinum, `XPD` Palladium, `WTI` Crude Oil, `BRENT` Brent Oil, `NG` Natural Gas, `XCU` Copper, `BTC` Bitcoin, `ETH` Ethereum).
+              - **Top Item as Conversion Basis**: the top item in the list is highlighted in blue and acts as the base currency for converting every other currency and commodity in the list. Tap any item in the list to promote it to the top as the new base.
+              - **Long-Press Amount Selector**: long-press on the top currency card to select a preset amount (`1`, `5`, `10`, `25`, `50`, `100`, `250`, `500`, `1000`, `5000`) or enter/calculate a custom amount with live conversion preview; all items below immediately display the converted value and 24h % change badge.
+              - **Charts Option**: switch to the **Charts** view inside the Converter tab (or tap any currency's change badge) for an interactive historical rate chart (`1W`, `1M`, `3M`, `6M`, `1Y`) with touch/drag scrubbing, period High/Low/Average stats, pair swap (`⇄`), and watchlist comparison.
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/mapping/release/mapping.txt
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false

@@ -9,6 +9,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import com.spendingtracker.app.ui.navigation.Screen
+import com.spendingtracker.app.ui.screens.converter.ConverterScreen
 import com.spendingtracker.app.ui.screens.home.HomeScreen
 import com.spendingtracker.app.ui.screens.loans.LoansScreen
 import com.spendingtracker.app.ui.screens.settings.SettingsScreen
@@ -43,6 +44,7 @@ fun MainScaffold(
     val items = listOf(
         BottomNavItem("Home", Screen.Home.route, "🏠"),
         BottomNavItem("Transactions", Screen.Transactions.route, "📋"),
+        BottomNavItem("Converter", Screen.Converter.route, "💱"),
         BottomNavItem("Loans", Screen.Loans.route, "💳"),
         BottomNavItem("Settings", Screen.Settings.route, "⚙️")
     )
@@ -89,6 +91,9 @@ fun MainScaffold(
                         onAddExpense = onNavigateToAddExpense,
                         onAddTopUp = onNavigateToAddTopUp
                     )
+                }
+                Screen.Converter.route -> stateHolder.SaveableStateProvider(Screen.Converter.route) {
+                    ConverterScreen()
                 }
                 Screen.Loans.route -> stateHolder.SaveableStateProvider(Screen.Loans.route) {
                     LoansScreen(
