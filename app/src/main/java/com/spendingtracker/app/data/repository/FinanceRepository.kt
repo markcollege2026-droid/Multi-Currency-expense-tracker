@@ -197,6 +197,41 @@ class FinanceRepository @Inject constructor(
     suspend fun <T> atomic(block: suspend () -> T): T = database.withTransaction { block() }
     suspend fun restoreExpense(expense: Expense): Long = expenseDao.insertExpense(expense)
 
+    /** Called before committing a restore; malformed references or money roll back the whole import. */
+    suspend fun validateRestoredLedger() {
+        val accounts = accountDao.getAllAccountsSync()
+        val byId = accounts.associateBy { it.id }
+        require(accounts.any { it.type == "MAIN" }) { "Backup must contain a main account" }
+        for (account in accounts) {
+            BigDecimal(account.startingBalance)
+            account.lowBalanceThreshold?.let { require(BigDecimal(it) >= BigDecimal.ZERO) }
+            require(account.type in listOf("MAIN", "CASH", "CREDIT_CARD"))
+            if (account.type == "MAIN") require(account.parentAccountId == null)
+            else {
+                val parent = byId[account.parentAccountId] ?: error("Missing balance parent")
+                require(parent.type == "MAIN" && parent.currency == account.currency) { "Invalid balance parent/currency" }
+            }
+            if (account.type == "CASH") require(accounts.count { it.type == "CASH" && it.parentAccountId == account.parentAccountId } == 1)
+            require(account.autopayDay in 1..31 && account.autopayMode in listOf("FULL_BALANCE", "FIXED_AMOUNT"))
+            if (account.autopayEnabled && account.autopayMode == "FIXED_AMOUNT") require(BigDecimal(account.autopayFixedAmount ?: "0") > BigDecimal.ZERO)
+            account.autopayStartDate?.let { LocalDate.parse(it) }
+        }
+        for (expense in expenseDao.getAllExpensesSync()) {
+            val owner = byId[expense.accountId] ?: error("Missing expense owner")
+            val target = byId[expense.balanceAccountId ?: expense.accountId] ?: error("Missing payment account")
+            require(owner.type == "MAIN" && (target.id == owner.id || target.parentAccountId == owner.id)) { "Invalid expense account" }
+            require(target.currency == expense.currencyConverted)
+            require(expense.originalAsBigDecimal() > BigDecimal.ZERO && expense.convertedAsBigDecimal() >= BigDecimal.ZERO && expense.rateAsBigDecimal() > BigDecimal.ZERO)
+        }
+        topUpDao.getAllTopUpsSync().forEach { validateIncome(it) }
+        for (payment in paymentDao.getAll()) {
+            val card = byId[payment.cardId] ?: error("Missing card")
+            require(card.type == "CREDIT_CARD" && card.parentAccountId == payment.sourceAccountId && byId[payment.sourceAccountId]?.type == "MAIN") { "Invalid payment accounts" }
+            require(payment.status in listOf("COMPLETED", "FAILED_INSUFFICIENT_FUNDS") && BigDecimal(payment.amount) >= BigDecimal.ZERO)
+            payment.autopayPeriod?.let { YearMonth.parse(it) }
+        }
+    }
+
     fun observeBalanceAccounts(): Flow<List<Account>> = accountDao.getAllAccounts()
     fun observeCardPayments(): Flow<List<CreditCardPayment>> = paymentDao.observeAll()
     suspend fun getCardPayments(): List<CreditCardPayment> = paymentDao.getAll()

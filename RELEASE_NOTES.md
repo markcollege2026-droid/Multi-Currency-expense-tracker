@@ -25,3 +25,5 @@ Same application ID (`com.spendingtracker.app`), existing release signing key, v
 The existing release key is already committed in the historical repository. It is retained for upgrade compatibility, not a security recommendation; removing it from this change cannot revoke historical exposure. Plan a signing-key migration separately if needed.
 
 Additional cleanup: fixed account renaming (update instead of conflicting insert), made low-balance thresholds apply to the active account rather than obsolete global settings, removed an unused floating-point SQL balance aggregate, and replaced the old wrapper's stub-APK/test-success fallback with the genuine Gradle wrapper. Cash income appears alongside other income in transaction history.
+
+Backup restore validates account hierarchy, currency ownership, numeric amounts and payment references before committing. An unreadable database now shows a non-destructive error instead of misleading first-launch setup. CI serializes schema-generating compiler tasks to avoid debug/release schema export races.

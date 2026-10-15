@@ -2,7 +2,26 @@
 
 Offline-first personal finance app with multi-currency expense tracking and loan/debt management.
 
-## Features
+## Current release: 1.8.0 — multiple balances
+
+See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).
+
+Each existing account is a main/debit ledger with an optional cash sub-account and any number of credit cards. Home → **Set up cash balance / Add credit card** sets opening amounts; these do not transfer funds from main. **Add cash income** records external cash income. The expense form selects the exact payment account. Main/debit remains the default for income and expenses.
+
+All balances are derived by `AccountBalances` from immutable amounts and payment records:
+
+- Main = opening + main income − main expenses − completed card payments.
+- Cash = opening + cash income − cash expenses.
+- Card signed balance = opening signed balance − card expenses + completed payments (debt is negative).
+- Total available = main + cash + signed card balances.
+
+Card payments are separate history entries and do not inflate category spending. Autopay is a **local ledger operation, not a bank transfer**, checked hourly by WorkManager and when Home opens; Android may defer execution. Failed attempts leave balances unchanged and provide retry/partial-payment/ignore controls. Fixed autopay is capped at debt; manual overpayment and cash overdraft require explicit consent.
+
+Historical payment labels are not reinterpreted during migration, so existing balances stay unchanged. JSON backup format 4 includes the new data and still accepts older backups. Existing ledger currencies are fixed: create another account instead of rewriting mixed-currency history.
+
+GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.7. An explicitly marked `[release]` push publishes v1.8.0 only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
+
+## Features (earlier releases)
 
 ### New in v1.2
 - **Multiple accounts** on one device (e.g. Personal / Work / Family), each with its own currency, starting balance and low-balance threshold. Expenses and top-ups are tracked per account; switch the active account from the Home screen or Settings. **Loans & debts stay shared across all accounts.**
@@ -65,7 +84,7 @@ Offline-first personal finance app with multi-currency expense tracking and loan
 - **Storage**: Room (SQLite) offline-first
 - **Networking**: Retrofit/OkHttp for exchange rates only
 - **Other**: WorkManager for notifications, kotlinx-serialization
-- **minSdk 26, targetSdk 34, Gradle Kotlin DSL**
+- **minSdk 26, targetSdk 35, Gradle Kotlin DSL**
 
 ## Architecture Overview
 
@@ -152,7 +171,7 @@ Example transaction list shows both:
 - JDK 17 (Temurin 17.0.20.1+1 recommended)
 - Android SDK with:
   - build-tools 34.0.0 or 36.1.0 (contains aapt2, d8, zipalign, apksigner)
-  - platforms android-34 (compileSdk 34)
+  - platforms android-34 (compileSdk 35)
   - platform-tools (adb)
 - Gradle 8.9 (or use included gradlew)
 

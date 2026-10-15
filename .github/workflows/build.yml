@@ -35,7 +35,7 @@ jobs:
       - name: Test and compile signed APKs
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --stacktrace 2>&1 | tee -a build.log
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
       - name: Publish verification metadata
         if: github.event_name != 'pull_request'
         env:

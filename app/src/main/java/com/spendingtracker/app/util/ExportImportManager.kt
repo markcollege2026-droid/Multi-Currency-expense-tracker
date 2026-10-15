@@ -297,162 +297,164 @@ class ExportImportManager @Inject constructor(
         return try {
             val data = json.decodeFromString<ExportData>(jsonString)
             require(data.schemaVersion in 1..4) { "Unsupported backup version" }
+            require(data.accounts.all { it.id > 0 }) { "Invalid backup account ID" }
             financeRepository.atomic {
-            financeRepository.eraseAll()
-            loanRepository.eraseAll()
+                financeRepository.eraseAll()
+                loanRepository.eraseAll()
 
-            // Accounts: use exported ones, or synthesize a default account for legacy exports.
-            val accountsToInsert = if (data.accounts.isNotEmpty()) {
-                data.accounts
-            } else {
-                listOf(
-                    ExportAccount(
-                        id = 1,
-                        name = "Main",
-                        currency = data.settings?.balanceCurrency ?: "USD",
-                        startingBalance = data.settings?.startingBalance ?: "0",
-                        lowBalanceThreshold = data.settings?.lowBalanceThreshold
+                // Accounts: use exported ones, or synthesize a default account for legacy exports.
+                val accountsToInsert = if (data.accounts.isNotEmpty()) {
+                    data.accounts
+                } else {
+                    listOf(
+                        ExportAccount(
+                            id = 1,
+                            name = "Main",
+                            currency = data.settings?.balanceCurrency ?: "USD",
+                            startingBalance = data.settings?.startingBalance ?: "0",
+                            lowBalanceThreshold = data.settings?.lowBalanceThreshold
+                        )
                     )
-                )
-            }
-            accountsToInsert.forEach {
-                financeRepository.insertAccount(
-                    Account(
-                        id = it.id,
-                        name = it.name,
-                        currency = it.currency,
-                        startingBalance = it.startingBalance,
-                        lowBalanceThreshold = it.lowBalanceThreshold,
-                        createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt,
-                        type = it.type, parentAccountId = it.parentAccountId, creditLimit = it.creditLimit,
-                        autopayEnabled = it.autopayEnabled, autopayDay = it.autopayDay, autopayMode = it.autopayMode,
-                        autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate
+                }
+                accountsToInsert.forEach {
+                    financeRepository.insertAccount(
+                        Account(
+                            id = it.id,
+                            name = it.name,
+                            currency = it.currency,
+                            startingBalance = it.startingBalance,
+                            lowBalanceThreshold = it.lowBalanceThreshold,
+                            createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt,
+                            type = it.type, parentAccountId = it.parentAccountId, creditLimit = it.creditLimit,
+                            autopayEnabled = it.autopayEnabled, autopayDay = it.autopayDay, autopayMode = it.autopayMode,
+                            autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate
+                        )
                     )
-                )
-            }
-            val fallbackAccountId = accountsToInsert.first().id
-            val validAccountIds = accountsToInsert.map { it.id }.toSet()
+                }
+                val fallbackAccountId = accountsToInsert.first().id
+                val validAccountIds = accountsToInsert.map { it.id }.toSet()
 
-            val s = data.settings
-            financeRepository.saveSettings(
-                AppSettings(
-                    balanceCurrency = s?.balanceCurrency ?: accountsToInsert.first().currency,
-                    startingBalance = s?.startingBalance ?: accountsToInsert.first().startingBalance,
-                    lowBalanceThreshold = s?.lowBalanceThreshold,
-                    theme = s?.theme ?: "SYSTEM",
-                    defaultCategoryId = s?.defaultCategoryId,
-                    lastRatesUpdate = s?.lastRatesUpdate,
-                    isSetupComplete = s?.isSetupComplete ?: true,
-                    currencySortMode = s?.currencySortMode ?: "ALPHABETICAL",
-                    customCurrencyOrder = s?.customCurrencyOrder,
-                    favoriteCurrencies = s?.favoriteCurrencies,
-                    recentCurrencies = s?.recentCurrencies,
-                    activeAccountId = s?.activeAccountId?.takeIf { it in validAccountIds }
-                        ?: fallbackAccountId
+                val s = data.settings
+                financeRepository.saveSettings(
+                    AppSettings(
+                        balanceCurrency = s?.balanceCurrency ?: accountsToInsert.first().currency,
+                        startingBalance = s?.startingBalance ?: accountsToInsert.first().startingBalance,
+                        lowBalanceThreshold = s?.lowBalanceThreshold,
+                        theme = s?.theme ?: "SYSTEM",
+                        defaultCategoryId = s?.defaultCategoryId,
+                        lastRatesUpdate = s?.lastRatesUpdate,
+                        isSetupComplete = s?.isSetupComplete ?: true,
+                        currencySortMode = s?.currencySortMode ?: "ALPHABETICAL",
+                        customCurrencyOrder = s?.customCurrencyOrder,
+                        favoriteCurrencies = s?.favoriteCurrencies,
+                        recentCurrencies = s?.recentCurrencies,
+                        activeAccountId = s?.activeAccountId?.takeIf { it in validAccountIds }
+                            ?: fallbackAccountId
+                    )
                 )
-            )
 
-            data.categories.forEach {
-                financeRepository.insertCategory(
-                    Category(it.id, it.name, it.iconName, it.color, it.isDefault, it.createdAt)
-                )
-            }
-            data.expenses.forEach {
-                financeRepository.restoreExpense(
-                    Expense(
-                        id = it.id,
-                        accountId = it.accountId.takeIf { id -> id in validAccountIds }
-                            ?: fallbackAccountId,
-                        amountOriginal = it.amountOriginal,
-                        currencyOriginal = it.currencyOriginal,
-                        amountConverted = it.amountConverted,
-                        currencyConverted = it.currencyConverted,
-                        exchangeRateUsed = it.exchangeRateUsed,
-                        categoryId = it.categoryId,
-                        date = it.date,
-                        note = it.note,
-                        paymentMethod = it.paymentMethod,
-                        createdAt = it.createdAt,
-                        updatedAt = it.updatedAt,
-                        balanceAccountId = it.balanceAccountId
+                data.categories.forEach {
+                    financeRepository.insertCategory(
+                        Category(it.id, it.name, it.iconName, it.color, it.isDefault, it.createdAt)
                     )
-                )
-            }
-            data.topUps.forEach {
-                financeRepository.insertTopUp(
-                    TopUp(
-                        id = it.id,
-                        accountId = it.accountId.takeIf { id -> id in validAccountIds }
-                            ?: fallbackAccountId,
-                        amount = it.amount,
-                        date = it.date,
-                        note = it.note,
-                        createdAt = it.createdAt
+                }
+                data.expenses.forEach {
+                    financeRepository.restoreExpense(
+                        Expense(
+                            id = it.id,
+                            accountId = it.accountId.takeIf { id -> id in validAccountIds }
+                                ?: fallbackAccountId,
+                            amountOriginal = it.amountOriginal,
+                            currencyOriginal = it.currencyOriginal,
+                            amountConverted = it.amountConverted,
+                            currencyConverted = it.currencyConverted,
+                            exchangeRateUsed = it.exchangeRateUsed,
+                            categoryId = it.categoryId,
+                            date = it.date,
+                            note = it.note,
+                            paymentMethod = it.paymentMethod,
+                            createdAt = it.createdAt,
+                            updatedAt = it.updatedAt,
+                            balanceAccountId = it.balanceAccountId
+                        )
                     )
-                )
-            }
-            data.exchangeRates.forEach {
-                rateRepository.insertRate(
-                    ExchangeRate(
-                        baseCurrency = it.baseCurrency,
-                        targetCurrency = it.targetCurrency,
-                        rate = it.rate,
-                        timestamp = it.timestamp
+                }
+                data.topUps.forEach {
+                    financeRepository.insertTopUp(
+                        TopUp(
+                            id = it.id,
+                            accountId = it.accountId.takeIf { id -> id in validAccountIds }
+                                ?: fallbackAccountId,
+                            amount = it.amount,
+                            date = it.date,
+                            note = it.note,
+                            createdAt = it.createdAt
+                        )
                     )
-                )
-            }
-            data.loanDebts.forEach {
-                loanRepository.insertLoanDebt(
-                    LoanDebt(
-                        id = it.id,
-                        type = it.type,
-                        personName = it.personName,
-                        amountOriginal = it.amountOriginal,
-                        currencyOriginal = it.currencyOriginal,
-                        date = it.date,
-                        dueDate = it.dueDate,
-                        note = it.note,
-                        isSettled = it.isSettled,
-                        createdAt = it.createdAt
+                }
+                data.exchangeRates.forEach {
+                    rateRepository.insertRate(
+                        ExchangeRate(
+                            baseCurrency = it.baseCurrency,
+                            targetCurrency = it.targetCurrency,
+                            rate = it.rate,
+                            timestamp = it.timestamp
+                        )
                     )
-                )
-            }
-            data.repayments.forEach {
-                loanRepository.insertRepayment(
-                    Repayment(
-                        id = it.id,
-                        loanDebtId = it.loanDebtId,
-                        amount = it.amount,
-                        date = it.date,
-                        note = it.note,
-                        createdAt = it.createdAt
+                }
+                data.loanDebts.forEach {
+                    loanRepository.insertLoanDebt(
+                        LoanDebt(
+                            id = it.id,
+                            type = it.type,
+                            personName = it.personName,
+                            amountOriginal = it.amountOriginal,
+                            currencyOriginal = it.currencyOriginal,
+                            date = it.date,
+                            dueDate = it.dueDate,
+                            note = it.note,
+                            isSettled = it.isSettled,
+                            createdAt = it.createdAt
+                        )
                     )
-                )
-            }
-            data.recurringPayments.forEach {
-                recurringRepository.insert(
-                    RecurringPayment(
-                        id = it.id,
-                        accountId = it.accountId.takeIf { id -> id in validAccountIds }
-                            ?: fallbackAccountId,
-                        title = it.title,
-                        amountOriginal = it.amountOriginal,
-                        currencyOriginal = it.currencyOriginal,
-                        categoryId = it.categoryId,
-                        note = it.note,
-                        paymentMethod = it.paymentMethod,
-                        frequency = it.frequency,
-                        startDate = it.startDate,
-                        endDate = it.endDate,
-                        nextDueAt = it.nextDueAt,
-                        lastRunAt = it.lastRunAt,
-                        isActive = it.isActive,
-                        createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt
+                }
+                data.repayments.forEach {
+                    loanRepository.insertRepayment(
+                        Repayment(
+                            id = it.id,
+                            loanDebtId = it.loanDebtId,
+                            amount = it.amount,
+                            date = it.date,
+                            note = it.note,
+                            createdAt = it.createdAt
+                        )
                     )
-                )
-            }
+                }
+                data.recurringPayments.forEach {
+                    recurringRepository.insert(
+                        RecurringPayment(
+                            id = it.id,
+                            accountId = it.accountId.takeIf { id -> id in validAccountIds }
+                                ?: fallbackAccountId,
+                            title = it.title,
+                            amountOriginal = it.amountOriginal,
+                            currencyOriginal = it.currencyOriginal,
+                            categoryId = it.categoryId,
+                            note = it.note,
+                            paymentMethod = it.paymentMethod,
+                            frequency = it.frequency,
+                            startDate = it.startDate,
+                            endDate = it.endDate,
+                            nextDueAt = it.nextDueAt,
+                            lastRunAt = it.lastRunAt,
+                            isActive = it.isActive,
+                            createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt
+                        )
+                    )
+                }
 
-            data.creditCardPayments.forEach { financeRepository.restoreCardPayment(it) }
+                data.creditCardPayments.forEach { financeRepository.restoreCardPayment(it) }
+                financeRepository.validateRestoredLedger()
             } // Transaction rolls back the entire replace-all import on any failure.
             Result.success(Unit)
         } catch (e: Exception) {

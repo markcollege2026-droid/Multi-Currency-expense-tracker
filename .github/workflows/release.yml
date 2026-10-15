@@ -31,7 +31,7 @@ jobs:
       - name: Verify and compile
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --stacktrace 2>&1 | tee -a build.log
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
       - name: Report build failure on commit
         if: failure()
         env:
