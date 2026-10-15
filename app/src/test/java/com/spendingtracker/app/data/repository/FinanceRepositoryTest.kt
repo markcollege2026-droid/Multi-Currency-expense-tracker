@@ -122,6 +122,31 @@ class FinanceRepositoryTest {
         assertTrue(csv.contains("\"INCOME\""))
         assertTrue(csv.contains("\"10\",\"ILS\""))
     }
+    @Test fun migrationOneThroughFourPreservesLegacyData() = runBlocking {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val name = "legacy-migration.db"
+        context.deleteDatabase(name)
+        val legacy = context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null)
+        val source = requireNotNull(javaClass.classLoader!!.getResourceAsStream("schema-1.json")).bufferedReader().use { it.readText() }
+        val entities = org.json.JSONObject(source).getJSONObject("database").getJSONArray("entities")
+        for (index in 0 until entities.length()) {
+            val entity = entities.getJSONObject(index)
+            legacy.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+        }
+        legacy.execSQL("INSERT INTO app_settings VALUES(1,'ILS','500','50','SYSTEM',NULL,NULL,1)")
+        legacy.execSQL("INSERT INTO categories VALUES(1,'Food','restaurant',0,1,1)")
+        legacy.execSQL("INSERT INTO expenses VALUES(1,'50','ILS','50','ILS','1',1,1,'legacy note','Cash',1,1)")
+        legacy.execSQL("INSERT INTO top_ups VALUES(1,'20',1,'income',1)")
+        legacy.version = 1
+        legacy.close()
+        val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
+            .addMigrations(AppModule.MIGRATION_1_2, AppModule.MIGRATION_2_3, AppModule.MIGRATION_3_4).build()
+        try {
+            val migrated = repositoryFor(upgraded)
+            assertEquals("legacy note", migrated.getExpenseById(1)!!.note)
+            assertEquals(0, BigDecimal("470").compareTo(migrated.balances().getValue(1)))
+        } finally { upgraded.close(); context.deleteDatabase(name) }
+    }
     @Test fun migrationThreeToFourPreservesLedgerAndPassesRoomValidation() = runBlocking {
         val context: Context = RuntimeEnvironment.getApplication()
         val name = "migration-test.db"

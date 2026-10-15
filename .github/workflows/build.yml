@@ -6,12 +6,13 @@ on:
     branches: [main]
   workflow_dispatch:
 concurrency:
-  group: build-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: build-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 permissions:
   contents: write
 jobs:
   verify-and-build:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'arena/')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +43,25 @@ jobs:
         run: |
           python3 .github/scripts/build_report.py
           gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input build-report.json --jq .html_url
+      - name: Check upgrade compatibility against v1.7
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/verify_upgrade.sh
+      - name: Publish requested release
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.8.0
+          target_commitish: ${{ github.sha }}
+          name: Spending Tracker v1.8.0 — Multiple Balances
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/SHA256SUMS.txt
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/mapping/release/mapping.txt
       - name: Report build failure on commit
         if: failure()
         env:
