@@ -39,4 +39,20 @@ class CurrencyConverterTest {
         val rate = converter.calculateRate(original, converted)
         assertEquals(BigDecimal("4.02"), rate.setScale(2, java.math.RoundingMode.HALF_EVEN))
     }
+
+    @Test
+    fun testCommoditiesAndFlagsAvailable() {
+        val gold = com.spendingtracker.app.util.CurrencyProvider.getInfo("XAU")
+        assertTrue(gold.isCommodity)
+        assertEquals("Gold (Troy Ounce)", gold.name)
+
+        val usd = com.spendingtracker.app.util.CurrencyProvider.getInfo("USD")
+        assertFalse(usd.isCommodity)
+        assertEquals("🇺🇸", usd.flag)
+
+        val commodities = com.spendingtracker.app.util.CurrencyProvider.searchAll("", "COMMODITIES")
+        assertTrue(commodities.any { it.code == "XAU" })
+        assertTrue(commodities.any { it.code == "XAG" })
+        assertTrue(commodities.any { it.code == "WTI" })
+    }
 }

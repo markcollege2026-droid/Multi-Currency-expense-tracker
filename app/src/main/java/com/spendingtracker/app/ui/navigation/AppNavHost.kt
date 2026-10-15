@@ -61,6 +61,7 @@ fun AppNavHost(
         // never get stranded on a tab screen without the bottom navigation.
         composable(Screen.Home.route) { RedirectHomeToMain(navController, Screen.Home.route) }
         composable(Screen.Transactions.route) { RedirectHomeToMain(navController, Screen.Transactions.route) }
+        composable(Screen.Converter.route) { RedirectHomeToMain(navController, Screen.Converter.route) }
         composable(Screen.Loans.route) { RedirectHomeToMain(navController, Screen.Loans.route) }
         composable(Screen.Settings.route) { RedirectHomeToMain(navController, Screen.Settings.route) }
         composable(
