@@ -1,158 +1,87 @@
 name: Build APKs
-
 on:
   push:
-    branches: [ "main", "arena/**" ]
+    branches: [main, 'arena/**']
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
   workflow_dispatch:
-
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+permissions:
+  contents: write
 jobs:
-  build-full-app:
-    name: Build Full App (Real Gradle - Full Features - Android 8-15)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
+  verify-and-build:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'arena/')
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
-          cache-disabled: false
-
-      - name: Setup Android SDK for Full App (API 34 & 35)
+      - name: Install Android SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --install "build-tools;35.0.0" "build-tools;34.0.0" "platforms;android-35" "platforms;android-34" "platform-tools" || true
-          sdkmanager --list_installed | grep -E "build-tools|platforms" || true
-          yes | sdkmanager --licenses || true
-
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties && cat local.properties
-
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew && ls -lh gradle/wrapper/
-
-      - name: Build Full App Debug (Real Gradle - Full Compose/Room/Hilt)
-        id: build_debug
+          echo "ANDROID_HOME=$ANDROID_HOME JAVA_HOME=$JAVA_HOME PATH=$PATH" | tee build.log
+          command -v sdkmanager || true
+          ls /usr/local/lib/android/sdk/cmdline-tools/ || true
+          if command -v sdkmanager >/dev/null; then
+            sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 2>&1 | tee -a build.log
+          fi
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Test and compile signed APKs
         run: |
           set -o pipefail
-          echo "=== Building FULL APP via Real Gradle (not demo) ==="
-          ./gradlew assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee build.log
-          echo "=== Build finished ==="
-          ls -lh app/build/outputs/apk/debug/ || true
-          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
-          echo "APK size: $SIZE"
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: APK too small, expected full app >1MB"
-            exit 1
-          fi
-
-      - name: Build Full App Release (APK + AAB for Play, R8 minified)
-        if: success()
-        run: |
-          set -o pipefail
-          ./gradlew assembleRelease bundleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m" 2>&1 | tee -a build.log
-          ls -lh app/build/outputs/apk/release/ || true
-          ls -lh app/build/outputs/bundle/release/ || true
-          ls -lh app/build/outputs/mapping/release/ || true
-          SIZE=$(stat -c%s app/build/outputs/apk/release/app-release.apk 2>/dev/null || echo 0)
-          echo "Release APK size: $SIZE"
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: release APK too small, expected full app >1MB"
-            exit 1
-          fi
-
-      - name: Create Issue with Build Log on Failure
-        if: failure()
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
+      - name: Publish verification metadata
+        if: github.event_name != 'pull_request'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Build failed, creating issue with log..."
-          tail -n 500 build.log > failure.log || true
-          echo "=== Attempting to create issue with build failure ==="
-          gh issue create --title "Full App Build Failed - Run ${{ github.run_id }}" --body-file failure.log --label "bug" || true
-          echo "=== Also trying to upload log as artifact ==="
-          # Also try to cat log so it's visible in Actions UI
-          echo "=== BUILD LOG LAST 500 LINES ==="
-          tail -n 500 build.log || true
-          echo "=== ERRORS ==="
-          grep -i -A3 -B3 "error\|FAILED" build.log | tail -n 200 || true
-
-      - name: Upload Build Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-full-app
-          path: |
-            build.log
-            app/build/outputs/logs/
-            app/build/reports/
-          if-no-files-found: warn
-
-      - name: Copy APKs to apk/ folder
-        if: success()
-        run: |
-          mkdir -p apk
-          cp app/build/outputs/apk/debug/app-debug.apk apk/app-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk apk/app-release.apk
-          ls -lh apk/
-
-      - name: Upload Full App APKs
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-app-apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
-
-      - name: Upload Play App Bundle (AAB)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: play-app-bundle
-          path: app/build/outputs/bundle/release/app-release.aab
-
-      - name: Upload R8 mapping (crash deobfuscation)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-mapping
-          path: app/build/outputs/mapping/release/
-          if-no-files-found: warn
-
-      - name: Publish Release APK (v1.7)
-        if: success()
+          python3 .github/scripts/build_report.py
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input build-report.json --jq .html_url
+      - name: Check upgrade compatibility against v1.8.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/verify_upgrade.sh
+      - name: Publish requested release
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.7
-          name: Spending Tracker v1.7 - Converter & Charts Full App
-          body: |
-            Offline-first Spending Tracker + Multi-Currency & Commodity Converter + Loans & Debts - FULL APP (v1.3.0)
-
-            **New in this release (v1.7 / v1.3.0):**
-            - **Converter Tab**:
-              - Dedicated **Converter** tab in the bottom navigation bar powered by the built-in conversion API (`open.er-api.com`) plus commodities/metals support.
-              - Watchlist of selected **currencies** (155+ world currencies with flags) and **commodities/metals** (`XAU` Gold, `XAG` Silver, `XPT` Platinum, `XPD` Palladium, `WTI` Crude Oil, `BRENT` Brent Oil, `NG` Natural Gas, `XCU` Copper, `BTC` Bitcoin, `ETH` Ethereum).
-              - **Top Item as Conversion Basis**: the top item in the list is highlighted in blue and acts as the base currency for converting every other currency and commodity in the list. Tap any item in the list to promote it to the top as the new base.
-              - **Long-Press Amount Selector**: long-press on the top currency card to select a preset amount (`1`, `5`, `10`, `25`, `50`, `100`, `250`, `500`, `1000`, `5000`) or enter/calculate a custom amount with live conversion preview; all items below immediately display the converted value and 24h % change badge.
-              - **Charts Option**: switch to the **Charts** view inside the Converter tab (or tap any currency's change badge) for an interactive historical rate chart (`1W`, `1M`, `3M`, `6M`, `1Y`) with touch/drag scrubbing, period High/Low/Average stats, pair swap (`⇄`), and watchlist comparison.
+          tag_name: v1.8.1
+          target_commitish: ${{ github.sha }}
+          name: Spending Tracker v1.8.1 — File Backups & Encryption
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/SHA256SUMS.txt
             app/build/outputs/bundle/release/app-release.aab
             app/build/outputs/mapping/release/mapping.txt
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: false
+      - name: Report build failure on commit
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f build.log ]; then gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(tail -c 45000 build.log)"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spending-tracker-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/mapping/release/mapping.txt
+            app/schemas/**
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-and-lint-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/

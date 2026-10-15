@@ -27,6 +27,10 @@ class SpendingTrackerApp : Application(), Configuration.Provider {
         notificationHelper.createChannels()
         scheduleLoanReminders()
         scheduleRecurringPayments()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "credit_card_autopay", ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<com.spendingtracker.app.worker.CardAutopayWorker>(1, TimeUnit.HOURS).build()
+        )
     }
 
     private fun scheduleLoanReminders() {

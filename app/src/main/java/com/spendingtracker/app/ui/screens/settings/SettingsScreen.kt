@@ -38,18 +38,6 @@ fun SettingsScreen(
     var showAddAccountCurrencyPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            try {
-                val input = context.contentResolver.openInputStream(uri)
-                val json = input?.bufferedReader()?.readText()
-                if (json != null) viewModel.importJson(json)
-            } catch (e: Exception) {
-                // ignore
-            }
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -163,7 +151,7 @@ fun SettingsScreen(
                         Text("Data", style = MaterialTheme.typography.titleMedium)
                         Button(onClick = viewModel::exportJson, modifier = Modifier.fillMaxWidth()) { Text("Export all as JSON") }
                         Button(onClick = viewModel::exportCsv, modifier = Modifier.fillMaxWidth()) { Text("Export transactions as CSV") }
-                        Button(onClick = { importLauncher.launch("application/json") }, modifier = Modifier.fillMaxWidth()) { Text("Import JSON") }
+                        BackupControls(uiState, viewModel)
 
                         uiState.exportJson?.let { json ->
                             val sendIntent = Intent().apply {
@@ -185,7 +173,7 @@ fun SettingsScreen(
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = viewModel::requestErase, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) {
+                        Button(enabled = !uiState.backupBusy, onClick = viewModel::requestErase, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) {
                             Text("Erase all data")
                         }
                     }

@@ -17,13 +17,15 @@ import com.spendingtracker.app.data.local.entity.*
         LoanDebt::class,
         Repayment::class,
         Account::class,
-        RecurringPayment::class
+        RecurringPayment::class,
+        CreditCardPayment::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun creditCardPaymentDao(): CreditCardPaymentDao
     abstract fun categoryDao(): CategoryDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun topUpDao(): TopUpDao

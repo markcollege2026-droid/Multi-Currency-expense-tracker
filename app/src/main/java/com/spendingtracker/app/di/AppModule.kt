@@ -26,6 +26,26 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
+    // Early schema exports used top_ups and a required category FK. Rebuild without losing rows.
+    val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            fun hasTable(name: String): Boolean = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='$name'").use { it.moveToFirst() }
+            if (hasTable("top_ups") && !hasTable("topups")) db.execSQL("ALTER TABLE top_ups RENAME TO topups")
+            db.execSQL("CREATE TABLE expenses_new (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, amountOriginal TEXT NOT NULL, currencyOriginal TEXT NOT NULL, amountConverted TEXT NOT NULL, currencyConverted TEXT NOT NULL, exchangeRateUsed TEXT NOT NULL, categoryId INTEGER, date INTEGER NOT NULL, note TEXT, paymentMethod TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)")
+            db.execSQL("INSERT INTO expenses_new SELECT id, amountOriginal, currencyOriginal, amountConverted, currencyConverted, exchangeRateUsed, categoryId, date, note, paymentMethod, createdAt, updatedAt FROM expenses")
+            db.execSQL("DROP TABLE expenses")
+            db.execSQL("ALTER TABLE expenses_new RENAME TO expenses")
+            val columns = db.query("PRAGMA table_info(app_settings)").use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name"))) }
+            }
+            for (column in listOf("currencySortMode", "customCurrencyOrder", "favoriteCurrencies", "recentCurrencies")) {
+                if (column !in columns) db.execSQL("ALTER TABLE app_settings ADD COLUMN $column TEXT" + if (column == "currencySortMode") " NOT NULL DEFAULT 'ALPHABETICAL'" else "")
+            }
+            db.execSQL("DELETE FROM exchange_rates WHERE id NOT IN (SELECT MAX(id) FROM exchange_rates GROUP BY baseCurrency, targetCurrency)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_exchange_rates_baseCurrency_targetCurrency ON exchange_rates(baseCurrency, targetCurrency)")
+        }
+    }
+
     /**
      * v2 -> v3: introduces multiple accounts and recurring payments.
      * Creates the accounts/recurring_payments tables, links expenses and top-ups
@@ -86,6 +106,25 @@ object AppModule {
         }
     }
 
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE accounts ADD COLUMN type TEXT NOT NULL DEFAULT 'MAIN'")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN parentAccountId INTEGER")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN creditLimit TEXT")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN autopayEnabled INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN autopayDay INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN autopayMode TEXT NOT NULL DEFAULT 'FULL_BALANCE'")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN autopayFixedAmount TEXT")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN autopayStartDate TEXT")
+            db.execSQL("ALTER TABLE expenses ADD COLUMN balanceAccountId INTEGER")
+            db.execSQL("CREATE TABLE credit_card_payments (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, cardId INTEGER NOT NULL, sourceAccountId INTEGER NOT NULL, amount TEXT NOT NULL, date INTEGER NOT NULL, status TEXT NOT NULL, autopayPeriod TEXT, dismissed INTEGER NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX index_credit_card_payments_cardId_autopayPeriod ON credit_card_payments(cardId, autopayPeriod)")
+        }
+    }
+
+    @Provides
+    fun provideCreditCardPaymentDao(db: AppDatabase) = db.creditCardPaymentDao()
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -94,8 +133,7 @@ object AppModule {
             AppDatabase::class.java,
             Constants.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_2_3)
-            .fallbackToDestructiveMigration()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
     }
 

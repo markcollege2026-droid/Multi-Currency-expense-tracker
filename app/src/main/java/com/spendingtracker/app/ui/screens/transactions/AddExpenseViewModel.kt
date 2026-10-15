@@ -35,7 +35,10 @@ data class AddExpenseUiState(
     val error: String? = null,
     val isEditMode: Boolean = false,
     val createdAt: Long? = null,
-    val accountId: Long? = null
+    val accountId: Long? = null,
+    val balanceAccountId: Long? = null,
+    val paymentAccounts: List<com.spendingtracker.app.data.local.entity.Account> = emptyList(),
+    val allowOverdraft: Boolean = false
 )
 
 @HiltViewModel
@@ -73,7 +76,8 @@ class AddExpenseViewModel @Inject constructor(
                     categories = cats,
                     currency = account?.currency ?: "USD",
                     orderedCurrencies = ordered,
-                    accountId = account?.id
+                    accountId = account?.id,
+                    paymentAccounts = financeRepository.getAllAccountsSync().filter { it.id == account?.id || it.parentAccountId == account?.id }
                 )
             }
             return
@@ -95,13 +99,15 @@ class AddExpenseViewModel @Inject constructor(
                         paymentMethod = expense.paymentMethod ?: "",
                         manualRate = expense.exchangeRateUsed,
                         categories = cats,
-                        balanceCurrency = settings?.balanceCurrency ?: expense.currencyConverted,
+                        balanceCurrency = expense.currencyConverted,
                         orderedCurrencies = ordered,
                         convertedAmount = expense.convertedAsBigDecimal(),
                         rateUsed = expense.rateAsBigDecimal(),
                         isEditMode = true,
                         createdAt = expense.createdAt,
-                        accountId = expense.accountId
+                        accountId = expense.accountId,
+                        balanceAccountId = expense.balanceAccountId,
+                        paymentAccounts = financeRepository.getAllAccountsSync().filter { it.id == expense.accountId || it.parentAccountId == expense.accountId }
                     )
                 }
             } catch (e: Exception) {
@@ -157,7 +163,11 @@ class AddExpenseViewModel @Inject constructor(
         }
     }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
-    fun onPaymentMethodChanged(v: String) { _uiState.value = _uiState.value.copy(paymentMethod = v) }
+    fun selectPaymentAccount(id: Long) {
+        val account = _uiState.value.paymentAccounts.first { it.id == id }
+        _uiState.update { it.copy(balanceAccountId = id, paymentMethod = account.type) }
+    }
+    fun allowOverdraft(value: Boolean) { _uiState.update { it.copy(allowOverdraft = value) } }
     fun onManualRateChanged(v: String) { _uiState.value = _uiState.value.copy(manualRate = v); calculateConversion() }
     fun onUseManualRateChanged(v: Boolean) { _uiState.value = _uiState.value.copy(useManualRate = v); calculateConversion() }
     fun onDateChanged(v: Long) { _uiState.value = _uiState.value.copy(date = v) }
@@ -216,6 +226,7 @@ class AddExpenseViewModel @Inject constructor(
                             return@launch
                         }
                 }
+                require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
                 val converted = amountOriginal.multiply(rate).setScale(6, RoundingMode.HALF_EVEN)
 
                 val expense = Expense(
@@ -231,12 +242,13 @@ class AddExpenseViewModel @Inject constructor(
                     note = state.note.ifBlank { null },
                     paymentMethod = state.paymentMethod.ifBlank { null },
                     createdAt = state.createdAt ?: System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = System.currentTimeMillis(),
+                    balanceAccountId = state.balanceAccountId
                 )
                 if (state.isEditMode && expenseId != null) {
-                    financeRepository.updateExpense(expense.copy(id = expenseId))
+                    financeRepository.updateExpense(expense.copy(id = expenseId), state.allowOverdraft)
                 } else {
-                    financeRepository.insertExpense(expense)
+                    financeRepository.insertExpense(expense, state.allowOverdraft)
                 }
                 _uiState.value = state.copy(isLoading = false)
                 onSaved()

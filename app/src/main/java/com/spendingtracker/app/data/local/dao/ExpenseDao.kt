@@ -42,9 +42,6 @@ interface ExpenseDao {
     @Query("UPDATE expenses SET categoryId = NULL WHERE categoryId = :categoryId")
     suspend fun clearCategoryFromExpenses(categoryId: Long)
 
-    @Query("SELECT SUM(CAST(amountConverted AS REAL)) FROM expenses")
-    suspend fun getTotalConverted(): Double?
-
     @Query("SELECT * FROM expenses WHERE date >= :since ORDER BY date DESC")
     suspend fun getExpensesSince(since: Long): List<Expense>
 }
