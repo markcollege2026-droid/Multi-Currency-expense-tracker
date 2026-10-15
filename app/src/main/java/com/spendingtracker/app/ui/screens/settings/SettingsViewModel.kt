@@ -86,7 +86,7 @@ class SettingsViewModel @Inject constructor(
 
                 _uiState.value = _uiState.value.copy(
                     settings = settings,
-                    lowBalanceThreshold = settings?.lowBalanceThreshold ?: "",
+                    lowBalanceThreshold = financeRepository.getAccountById(settings?.activeAccountId ?: 1)?.lowBalanceThreshold ?: "",
                     theme = settings?.theme ?: "SYSTEM",
                     currencySortMode = sortMode,
                     customOrder = customOrder,
@@ -142,7 +142,7 @@ class SettingsViewModel @Inject constructor(
         val trimmed = newName.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            financeRepository.insertAccount(account.copy(name = trimmed))
+            financeRepository.updateAccount(account.copy(name = trimmed))
         }
     }
 
@@ -169,7 +169,7 @@ class SettingsViewModel @Inject constructor(
             val current = financeRepository.getSettingsSync() ?: return@launch
             val threshold = _uiState.value.lowBalanceThreshold
             if (threshold.isBlank()) {
-                financeRepository.saveSettings(current.copy(lowBalanceThreshold = null))
+                financeRepository.getAccountById(financeRepository.getActiveAccountId())?.let { financeRepository.updateAccount(it.copy(lowBalanceThreshold = null)) }
                 _uiState.value = _uiState.value.copy(message = "Threshold cleared")
             } else {
                 try {
@@ -178,7 +178,7 @@ class SettingsViewModel @Inject constructor(
                         _uiState.value = _uiState.value.copy(error = "Threshold cannot be negative")
                         return@launch
                     }
-                    financeRepository.saveSettings(current.copy(lowBalanceThreshold = bd.toPlainString()))
+                    financeRepository.getAccountById(financeRepository.getActiveAccountId())?.let { financeRepository.updateAccount(it.copy(lowBalanceThreshold = bd.toPlainString())) }
                     _uiState.value = _uiState.value.copy(message = "Threshold saved")
                 } catch (e: Exception) {
                     _uiState.value = _uiState.value.copy(error = "Invalid threshold")
