@@ -108,28 +108,16 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }}
           name: Spending Tracker ${{ github.event.inputs.tag || github.ref_name || 'v1.0' }} - Full App
           body: |
-            Offline-first Spending Tracker + Loans & Debts - FULL APP (v1.2.1)
+            Offline-first Spending Tracker + Multi-Currency & Commodity Converter + Loans & Debts - FULL APP (v1.3.0)
 
             **New in this release:**
-            - Navigation stability fix: the bottom navigation can no longer get
-              stuck (e.g. Home button landing on Settings). Tabs are
-              state-based with no back stacks to corrupt; system back always
-              returns to Home first; stale screens from old app versions
-              redirect to the main screen automatically.
-            - Multiple accounts per device (own currency, starting balance,
-              low-balance threshold); switch accounts from Home. Expenses and
-              top-ups are tracked per account. Loans & debts stay SHARED
-              across accounts.
-            - Recurring payments (daily/weekly/monthly/yearly) with chosen
-              due dates, start/end dates, pause/resume. Due payments post
-              automatically as expenses, converted at execution time; missed
-              occurrences are caught up, missing rates retry (never guessed).
-            - Loans: pick any due date (date picker), and see the date each
-              loan/debt was made.
-            - Custom categories: create (with color) and delete in the
-              category picker.
-            - Export/import JSON covers accounts + recurring payments; old
-              export files still import.
+            - **Converter Tab**:
+              - Dedicated **Converter** tab in the bottom navigation bar powered by the built-in conversion API (`open.er-api.com`) plus commodities/metals support.
+              - Watchlist of selected **currencies** (155+ world currencies with flags) and **commodities/metals** (`XAU` Gold, `XAG` Silver, `XPT` Platinum, `XPD` Palladium, `WTI` Crude Oil, `BRENT` Brent Oil, `NG` Natural Gas, `XCU` Copper, `BTC` Bitcoin, `ETH` Ethereum).
+              - **Top Item as Conversion Basis**: the top item in the list is highlighted in blue and acts as the base currency for converting every other currency and commodity in the list. Tap any item in the list to promote it to the top as the new base.
+              - **Long-Press Amount Selector**: long-press on the top currency card to select a preset amount (`1`, `5`, `10`, `25`, `50`, `100`, `250`, `500`, `1000`, `5000`) or enter/calculate a custom amount with live conversion preview; all items below immediately display the converted value and 24h % change badge.
+              - **Charts Option**: switch to the **Charts** view inside the Converter tab (or tap any currency's change badge) for an interactive historical rate chart (`1W`, `1M`, `3M`, `6M`, `1Y`) with touch/drag scrubbing, period High/Low/Average stats, pair swap (`⇄`), and watchlist comparison.
+            - Navigation stability, multiple accounts, recurring payments, loan due dates, and custom categories.
 
             **Full App Features (Real Gradle Build):**
             - Compose + Material 3 dynamic color
