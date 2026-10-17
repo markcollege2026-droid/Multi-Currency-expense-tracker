@@ -67,6 +67,20 @@ class NotificationHelper @Inject constructor(
         }
     }
 
+    fun showAutopayFailure(cardId: Int) {
+        if (!hasPermission()) return
+        val intent = android.content.Intent(context, com.spendingtracker.app.MainActivity::class.java)
+        val pending = android.app.PendingIntent.getActivity(context, cardId, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, Constants.NOTIFICATION_CHANNEL_BALANCE)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Credit card payment failed")
+            .setContentText("Insufficient main/debit funds. Open Home to retry, pay partially, or ignore.")
+            .setContentIntent(pending).setAutoCancel(true).build()
+        try { NotificationManagerCompat.from(context).notify(20000 + cardId, notification) }
+        catch (_: SecurityException) { /* In-app alert remains available without permission. */ }
+    }
+
     private fun hasPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.checkSelfPermission(

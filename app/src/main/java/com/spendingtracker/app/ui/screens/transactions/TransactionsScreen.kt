@@ -1,6 +1,8 @@
 package com.spendingtracker.app.ui.screens.transactions
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -77,17 +79,19 @@ fun TransactionsScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = uiState.selectedType == null, onClick = { viewModel.onTypeSelected(null) }, label = { Text("All") })
                     FilterChip(selected = uiState.selectedType == "EXPENSE", onClick = { viewModel.onTypeSelected("EXPENSE") }, label = { Text("Expenses") })
                     FilterChip(selected = uiState.selectedType == "TOPUP", onClick = { viewModel.onTypeSelected("TOPUP") }, label = { Text("Top-ups") })
+                    FilterChip(selected = uiState.selectedType == "CARD_PAYMENT", onClick = { viewModel.onTypeSelected("CARD_PAYMENT") }, label = { Text("Card payments") })
                 }
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Group by day (memoized - recomputation with date formatting is expensive on big lists)
-                val grouped = remember(uiState.filteredExpenses, uiState.filteredTopUps) {
+                val grouped = remember(uiState.filteredExpenses, uiState.filteredTopUps, uiState.cardPayments, uiState.selectedType, uiState.searchQuery, uiState.selectedCategoryId, uiState.selectedCurrency) {
                     val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                    (uiState.filteredExpenses.map { it.date to it } + uiState.filteredTopUps.map { it.date to it })
+                    (uiState.filteredExpenses.map { it.date to it } + uiState.filteredTopUps.map { it.date to it } +
+                        uiState.cardPayments.filter { (uiState.selectedType == null || uiState.selectedType == "CARD_PAYMENT") && uiState.selectedCategoryId == null && (uiState.selectedCurrency == null || uiState.selectedCurrency == uiState.balanceCurrency) && (uiState.searchQuery.isBlank() || "credit card payment ${it.status}".contains(uiState.searchQuery, ignoreCase = true)) }.map { it.date to it })
                         .sortedByDescending { it.first }
                         .groupBy { dateFormat.format(Date(it.first)) }
                 }
@@ -104,6 +108,15 @@ fun TransactionsScreen(
                             }
                             items(items) { (_, item) ->
                                 when (item) {
+                                    is com.spendingtracker.app.data.local.entity.CreditCardPayment -> {
+                                        Card(Modifier.fillMaxWidth()) {
+                                            Column(Modifier.padding(12.dp)) {
+                                                Text("Credit card payment · ${CurrencyFormatter.formatSimple(java.math.BigDecimal(item.amount), uiState.balanceCurrency)}", fontWeight = FontWeight.Bold)
+                                                Text(item.status.replace('_', ' '))
+                                                Text("Main/debit → card #${item.cardId}")
+                                            }
+                                        }
+                                    }
                                     is Expense -> {
                                         Card(modifier = Modifier.fillMaxWidth(), onClick = { onEditExpense(item.id) }) {
                                             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

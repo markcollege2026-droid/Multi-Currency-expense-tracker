@@ -117,12 +117,21 @@ fun AddExpenseScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(
-                value = uiState.paymentMethod,
-                onValueChange = viewModel::onPaymentMethodChanged,
-                label = { Text("Payment method (optional)") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Text("Payment account")
+            uiState.paymentAccounts.forEach { account ->
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    RadioButton(selected = (uiState.balanceAccountId ?: uiState.accountId) == account.id,
+                        onClick = { viewModel.selectPaymentAccount(account.id) })
+                    Text("${account.name} (${account.type.replace('_', ' ')})")
+                }
+            }
+            if (uiState.paymentAccounts.none { it.type == "CASH" }) Text("Create cash or credit cards on Home to use them here.")
+            if (uiState.paymentAccounts.any { it.id == uiState.balanceAccountId && it.type == "CASH" }) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(checked = uiState.allowOverdraft, onCheckedChange = viewModel::allowOverdraft)
+                    Text("Explicitly allow cash overdraft")
+                }
+            }
 
             Text("Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(uiState.date))}")
 
