@@ -56,14 +56,15 @@ fun AddExpenseScreen(
                 // Scrollable + keyboard-aware so the Save button stays reachable on small screens
                 .verticalScroll(rememberScrollState())
                 .imePadding()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             OutlinedTextField(
                 value = uiState.amount,
                 onValueChange = viewModel::onAmountChanged,
                 label = { Text("Amount") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
 

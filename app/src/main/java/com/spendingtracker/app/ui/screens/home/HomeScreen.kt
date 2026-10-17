@@ -92,8 +92,8 @@ fun HomeScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Balance Card with adjust option
                 item {
@@ -102,7 +102,7 @@ fun HomeScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                     ) {
-                        Column(modifier = Modifier.padding(24.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -116,7 +116,7 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 CurrencyFormatter.format(uiState.balance, uiState.balanceCurrency),
-                                fontSize = 36.sp,
+                                fontSize = 28.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (uiState.isNegativeBalance) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimaryContainer
                             )
