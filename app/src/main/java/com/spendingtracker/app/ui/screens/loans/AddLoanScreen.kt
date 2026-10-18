@@ -68,7 +68,7 @@ fun AddLoanScreen(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .imePadding()
-                        .padding(horizontal = if (compact) 6.dp else 16.dp, vertical = 4.dp)
+                        .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp)
                 ) {
                     uiState.error?.let {
                         Text(
@@ -118,12 +118,12 @@ fun AddLoanScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
-                start = if (compact) 6.dp else 16.dp,
-                end = if (compact) 6.dp else 16.dp,
+                start = if (compact) 11.dp else 16.dp,
+                end = if (compact) 11.dp else 16.dp,
                 top = 4.dp,
                 bottom = 10.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 10.dp)
+            verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 10.dp)
         ) {
             item(key = "type") {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -19,8 +19,13 @@ original Material layout.
 ## What changed
 
 ### Layout and typography
-- Compact breakpoints, dimensions (`6dp` gutters, `34dp` top bar, `42dp` tab bar,
-  `30dp` icon buttons) and a smaller Material type scale (9–15sp labels/titles).
+- Compact breakpoints. Screens use dimensions halfway between the original Material
+  sizes and the first, very tight F21 pass: `11dp` gutters, `45dp` top bar, `57dp`
+  tab bar, `37dp` icon buttons, with a mid-size type scale (10–18.5sp labels/titles
+  and 13sp body text).
+- The **Converter and Charts tabs keep the original tight sizing** (`6dp` gutters,
+  `34dp` bar, compact 9–15sp type) because that layout was approved as-is; it is
+  pinned explicitly with `TightDimens` + `LocalTightUi`.
 - Home: balance + weekly/monthly totals, adjust-balance action, quick expense /
   money buttons, collapsible accounts panel (total available always visible),
   recent transactions, top categories, 7-day trend, recurring/loans shortcuts.
@@ -32,6 +37,8 @@ original Material layout.
   use the compact controls; primary actions are pinned in a bottom bar with
   `imePadding()` so the keyboard cannot hide them.
 - Every dialog has a 94% screen-height cap, a scrollable body and pinned buttons.
+- Dialogs are roomier outside the converter (`12dp` side margin, `14dp` inner
+  padding) and keep the original tight metrics inside it.
 
 ### Physical-key navigation
 - Amber focus ring (`QinFocusIndication`) replaces the ripple as `LocalIndication`,
@@ -64,7 +71,7 @@ original Material layout.
 All results below come from the GitHub Actions **Build APKs** workflow
 (`./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease`):
 
-- Code commit `6f1eb12` (run 39148397985) — **success**: 88 JUnit tests, lint,
+- Code commit `PENDING` (run `PENDING`) — **success**: 88 JUnit tests, lint,
   debug APK, signed release APK, AAB and the v1.8.0 upgrade/signature check.
   Artifact `spending-tracker-apks` (21.6 MB) contains both installable APKs.
 
@@ -90,9 +97,9 @@ New tests:
   verified action was needed for the primary flows.
 - Density (240 vs 320dpi) is not confirmed for every variant. The UI is designed
   for the narrower 240dp case, so it stays usable at 320dp.
-- Some dense controls are 28–36dp tall (pills/chips) instead of Material's 48dp
-  touch target to fit 320dp of height. Physical-key focus makes them reachable;
-  touch targets in forms remain 48dp.
+- Some dense controls are 34–36dp tall (pills/chips) instead of Material's 48dp
+  touch target; the converter's are 28–30dp. Physical-key focus makes them
+  reachable and form fields/buttons keep larger targets.
 - Charts keep their original drawing code; on very narrow widths labels may be
   dense. They remain scrollable/legible but were not redesigned.
 

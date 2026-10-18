@@ -23,7 +23,7 @@ import com.spendingtracker.app.ui.compact.QinFocusColor
 import com.spendingtracker.app.ui.compact.QinFocusIndication
 import com.spendingtracker.app.ui.compact.QinLayout
 import com.spendingtracker.app.ui.compact.RegularDimens
-import com.spendingtracker.app.ui.compact.compactTypography
+import com.spendingtracker.app.ui.compact.relaxedCompactTypography
 import com.spendingtracker.app.util.DeviceInput
 
 private val DarkColorScheme = darkColorScheme(
@@ -75,7 +75,7 @@ fun SpendingTrackerTheme(
         )
     }
 
-    val typography = remember(compact) { if (compact) compactTypography() else Typography }
+    val typography = remember(compact) { if (compact) relaxedCompactTypography() else Typography }
 
     val view = LocalView.current
     if (!view.isInEditMode) {

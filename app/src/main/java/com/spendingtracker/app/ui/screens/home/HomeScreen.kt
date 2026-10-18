@@ -59,7 +59,7 @@ fun HomeScreen(
                         AppPill(
                             text = uiState.activeAccount?.name ?: "Account",
                             onClick = { accountMenuExpanded = true },
-                            modifier = Modifier.widthIn(max = if (compact) 68.dp else 110.dp),
+                            modifier = Modifier.widthIn(max = if (compact) 88.dp else 110.dp),
                             contentDescription = "Switch account"
                         )
                         DropdownMenu(
@@ -208,7 +208,7 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                                .padding(horizontal = 7.dp, vertical = 4.dp),
+                                .padding(horizontal = 9.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             AppDot(
@@ -320,8 +320,8 @@ private fun BalanceSummaryCard(
             }
             Text(
                 text = CurrencyFormatter.format(balance, currency),
-                fontSize = if (compact) 22.sp else 25.sp,
-                lineHeight = if (compact) 25.sp else 28.sp,
+                fontSize = if (compact) 24.sp else 25.sp,
+                lineHeight = if (compact) 27.sp else 28.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 softWrap = false,
@@ -428,7 +428,7 @@ fun ExpenseItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 7.dp, vertical = 5.dp),
+                .padding(horizontal = 9.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -477,7 +477,7 @@ fun QuickAddBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (compact) 10.dp else 20.dp)
+                .padding(horizontal = if (compact) 15.dp else 20.dp)
                 .padding(bottom = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {

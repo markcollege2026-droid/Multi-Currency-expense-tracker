@@ -47,6 +47,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.repository.HistoricalRateSeries
 import com.spendingtracker.app.ui.compact.LocalAppDimens
+import com.spendingtracker.app.ui.compact.LocalTightUi
+import com.spendingtracker.app.ui.compact.TightDimens
+import com.spendingtracker.app.ui.compact.compactTypography
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppButton
 import com.spendingtracker.app.ui.components.AppDialog
@@ -71,9 +74,31 @@ private val PositiveGreenText = Color(0xFF1E8E3E)
 private val NegativeRedBg = Color(0xFFFCE8E6)
 private val NegativeRedText = Color(0xFFD93025)
 
+/**
+ * The converter keeps the original tight compact spacing and type scale: that
+ * layout was reviewed and approved for the 480x640 panel, so it is explicitly
+ * pinned here instead of following the roomier compact defaults used elsewhere.
+ */
+@Composable
+fun ConverterScreen(viewModel: ConverterViewModel = hiltViewModel()) {
+    if (LocalCompactUi.current) {
+        val tightType = remember { compactTypography() }
+        CompositionLocalProvider(
+            LocalAppDimens provides TightDimens,
+            LocalTightUi provides true
+        ) {
+            MaterialTheme(typography = tightType) {
+                ConverterScreenBody(viewModel)
+            }
+        }
+    } else {
+        ConverterScreenBody(viewModel)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ConverterScreen(
+private fun ConverterScreenBody(
     viewModel: ConverterViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()

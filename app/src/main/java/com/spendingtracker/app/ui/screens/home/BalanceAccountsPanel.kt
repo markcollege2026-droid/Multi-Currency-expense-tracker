@@ -56,7 +56,7 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
                         indication = LocalIndication.current,
                         onClick = { expanded = !expanded }
                     )
-                    .padding(vertical = 1.dp),
+                    .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {

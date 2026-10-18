@@ -131,7 +131,7 @@ private fun RecurringItem(
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
             )
             .clickable(onClick = onEdit)
-            .padding(horizontal = if (compact) 7.dp else 12.dp, vertical = if (compact) 4.dp else 10.dp),
+            .padding(horizontal = if (compact) 9.dp else 12.dp, vertical = if (compact) 6.dp else 10.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

@@ -208,7 +208,7 @@ private fun ExpenseRow(
             .clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             .clickable(onClick = onEdit)
-            .padding(start = if (compact) 7.dp else 12.dp, top = 3.dp, bottom = 3.dp, end = 0.dp),
+            .padding(start = if (compact) 9.dp else 12.dp, top = 4.dp, bottom = 4.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -266,7 +266,7 @@ private fun TopUpRow(
             .clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))
             .clickable(onClick = onEdit)
-            .padding(start = if (compact) 7.dp else 12.dp, top = 3.dp, bottom = 3.dp, end = 0.dp),
+            .padding(start = if (compact) 9.dp else 12.dp, top = 4.dp, bottom = 4.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AppDot(color = MaterialTheme.colorScheme.primary, sizeDp = 6)

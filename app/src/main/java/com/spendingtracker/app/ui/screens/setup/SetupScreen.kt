@@ -47,7 +47,7 @@ fun SetupScreen(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .imePadding()
-                        .padding(horizontal = if (compact) 6.dp else 16.dp, vertical = 4.dp),
+                        .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     uiState.error?.let {
@@ -79,7 +79,7 @@ fun SetupScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
             contentPadding = PaddingValues(
                 start = dims.screenPadding,
                 end = dims.screenPadding,

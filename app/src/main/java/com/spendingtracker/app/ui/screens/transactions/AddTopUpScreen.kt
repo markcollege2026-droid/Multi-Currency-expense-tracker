@@ -58,7 +58,7 @@ fun AddTopUpScreen(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .imePadding()
-                        .padding(horizontal = if (compact) 6.dp else 16.dp, vertical = 4.dp)
+                        .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp)
                 ) {
                     uiState.error?.let {
                         Text(
@@ -108,8 +108,8 @@ fun AddTopUpScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = if (compact) 6.dp else 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 10.dp)
+                .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 10.dp)
         ) {
             Text(
                 text = "Balance operations use ${uiState.balanceCurrency} only",

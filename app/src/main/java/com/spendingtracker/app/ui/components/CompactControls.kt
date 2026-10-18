@@ -54,6 +54,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.compact.LocalTightUi
 import com.spendingtracker.app.ui.compact.QinFocusColor
 import com.spendingtracker.app.ui.compact.drawQinFocusRing
 import com.spendingtracker.app.util.KeypadInput
@@ -150,6 +151,7 @@ fun AppButton(
     content: @Composable RowScope.() -> Unit
 ) {
     val compact = LocalCompactUi.current
+    val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     Box(
@@ -165,7 +167,10 @@ fun AppButton(
             shape = shape,
             colors = colors,
             contentPadding = contentPadding ?: if (compact) {
-                PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                PaddingValues(
+                    horizontal = if (tight) 8.dp else 12.dp,
+                    vertical = if (tight) 2.dp else 5.dp
+                )
             } else {
                 ButtonDefaults.ContentPadding
             },
@@ -184,6 +189,7 @@ fun AppOutlinedButton(
     content: @Composable RowScope.() -> Unit
 ) {
     val compact = LocalCompactUi.current
+    val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     Box(
@@ -197,7 +203,10 @@ fun AppOutlinedButton(
             modifier = Modifier.fillMaxWidth(),
             enabled = enabled,
             contentPadding = contentPadding ?: if (compact) {
-                PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                PaddingValues(
+                    horizontal = if (tight) 8.dp else 12.dp,
+                    vertical = if (tight) 2.dp else 5.dp
+                )
             } else {
                 ButtonDefaults.ContentPadding
             },
@@ -244,10 +253,11 @@ fun AppFilterChip(
     // Not a Material FilterChip: its 48dp interactive-size padding is too tall
     // for a 320dp-high window. The focus ring keeps it discoverable on D-pad.
     val compact = LocalCompactUi.current
+    val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
-            .heightIn(min = if (compact) 30.dp else 40.dp)
+            .heightIn(min = if (compact) (if (tight) 30.dp else 36.dp) else 40.dp)
             .clip(RoundedCornerShape(50))
             .background(
                 if (selected) MaterialTheme.colorScheme.secondaryContainer
@@ -260,12 +270,15 @@ fun AppFilterChip(
                 role = Role.Button,
                 onClick = onClick
             )
-            .padding(horizontal = if (compact) 7.dp else 12.dp, vertical = 3.dp),
+            .padding(
+                horizontal = if (compact) (if (tight) 7.dp else 10.dp) else 12.dp,
+                vertical = if (compact) (if (tight) 3.dp else 5.dp) else 6.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
-            style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+            style = if (compact) (if (tight) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge) else MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
             else if (selected) MaterialTheme.colorScheme.onSecondaryContainer
@@ -286,10 +299,11 @@ fun AppPill(
     contentDescription: String? = null
 ) {
     val compact = LocalCompactUi.current
+    val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .heightIn(min = if (compact) 28.dp else 36.dp)
+            .heightIn(min = if (compact) (if (tight) 28.dp else 34.dp) else 36.dp)
             .clip(RoundedCornerShape(50))
             .background(
                 if (selected) MaterialTheme.colorScheme.primaryContainer
@@ -306,7 +320,10 @@ fun AppPill(
                     Modifier.semantics { this.contentDescription = contentDescription }
                 } else Modifier
             )
-            .padding(horizontal = 7.dp, vertical = 4.dp),
+            .padding(
+                horizontal = if (compact) (if (tight) 7.dp else 10.dp) else 7.dp,
+                vertical = if (compact) (if (tight) 4.dp else 5.dp) else 4.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -372,6 +389,7 @@ fun AppTextField(
         return
     }
 
+    val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     val borderColor = when {
@@ -389,7 +407,7 @@ fun AppTextField(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(if (tight) 2.dp else 3.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -410,9 +428,9 @@ fun AppTextField(
             modifier = Modifier
                 .fillMaxWidth()
                 .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
-                .heightIn(min = 32.dp)
+                .heightIn(min = if (tight) 32.dp else 38.dp)
                 .border(if (focused) 2.dp else 1.dp, borderColor, RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .padding(horizontal = if (tight) 8.dp else 10.dp, vertical = if (tight) 6.dp else 8.dp)
                 .pointerInput(Unit) {
                     // Do not consume the tap: BasicTextField still needs it to place the
                     // cursor. A tap always raises the IME, which keeps touchscreen entry
@@ -569,6 +587,7 @@ fun AppDialog(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val compact = LocalCompactUi.current
+    val tight = LocalTightUi.current
     val screenHeight = LocalConfiguration.current.screenHeightDp
     val maxScreenHeight = (screenHeight * 0.94f).dp
     val maxContentHeight = (screenHeight * contentMaxHeightFraction).dp
@@ -579,22 +598,22 @@ fun AppDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (compact) 5.dp else 24.dp, vertical = 10.dp)
+                .padding(horizontal = if (compact) (if (tight) 5.dp else 12.dp) else 24.dp, vertical = 10.dp)
                 .widthIn(max = 440.dp)
                 .heightIn(max = maxScreenHeight)
                 .imePadding(),
-            shape = RoundedCornerShape(if (compact) 10.dp else 16.dp),
+            shape = RoundedCornerShape(if (compact) (if (tight) 10.dp else 14.dp) else 16.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 4.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(if (compact) 8.dp else 20.dp)
+                    .padding(if (compact) (if (tight) 8.dp else 14.dp) else 20.dp)
             ) {
                 Text(
                     text = title,
-                    style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                    style = if (compact) (if (tight) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium) else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -609,7 +628,7 @@ fun AppDialog(
                     } else {
                         Modifier.fillMaxWidth()
                     },
-                    verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) (if (tight) 5.dp else 8.dp) else 10.dp),
                     content = content
                 )
                 if (onConfirm != null || dismissLabel.isNotEmpty()) {

@@ -36,9 +36,23 @@ class QinLayoutTest {
         assertTrue(CompactDimens.topBarHeight < RegularDimens.topBarHeight)
         assertTrue(CompactDimens.navBarHeight < RegularDimens.navBarHeight)
         assertTrue(CompactDimens.iconButtonSize < RegularDimens.iconButtonSize)
-        assertEquals(6.dp, CompactDimens.screenPadding)
-        assertEquals(34.dp, CompactDimens.topBarHeight)
-        assertEquals(42.dp, CompactDimens.navBarHeight)
+        assertEquals(11.dp, CompactDimens.screenPadding)
+        assertEquals(45.dp, CompactDimens.topBarHeight)
+        assertEquals(57.dp, CompactDimens.navBarHeight)
+    }
+
+    @Test
+    fun compactDimensSitBetweenTightAndRegular() {
+        // The converter keeps TightDimens; the rest of the app uses the midpoint.
+        assertTrue(TightDimens.screenPadding < CompactDimens.screenPadding)
+        assertTrue(CompactDimens.screenPadding < RegularDimens.screenPadding)
+        assertTrue(TightDimens.topBarHeight < CompactDimens.topBarHeight)
+        assertTrue(CompactDimens.topBarHeight < RegularDimens.topBarHeight)
+        assertTrue(TightDimens.navBarHeight < CompactDimens.navBarHeight)
+        assertTrue(CompactDimens.navBarHeight < RegularDimens.navBarHeight)
+        assertEquals(6.dp, TightDimens.screenPadding)
+        assertEquals(34.dp, TightDimens.topBarHeight)
+        assertEquals(42.dp, TightDimens.navBarHeight)
     }
 
     @Test
@@ -48,5 +62,20 @@ class QinLayoutTest {
         assertEquals(13.sp, type.bodyLarge.fontSize)
         assertEquals(9.sp, type.labelSmall.fontSize)
         assertEquals(15.sp, type.titleLarge.fontSize)
+    }
+
+    @Test
+    fun relaxedCompactTypeSitsBetweenTightAndRegular() {
+        val tight = compactTypography()
+        val relaxed = relaxedCompactTypography()
+        val regular = androidx.compose.material3.Typography()
+        assertEquals(13.sp, relaxed.bodyMedium.fontSize)
+        assertEquals(14.5.sp, relaxed.bodyLarge.fontSize)
+        assertEquals(10.sp, relaxed.labelSmall.fontSize)
+        assertEquals(18.5.sp, relaxed.titleLarge.fontSize)
+        assertTrue(tight.bodyMedium.fontSize.value < relaxed.bodyMedium.fontSize.value)
+        assertTrue(relaxed.bodyMedium.fontSize.value < regular.bodyMedium.fontSize.value)
+        assertTrue(tight.titleLarge.fontSize.value < relaxed.titleLarge.fontSize.value)
+        assertTrue(relaxed.titleLarge.fontSize.value < regular.titleLarge.fontSize.value)
     }
 }

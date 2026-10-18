@@ -161,7 +161,7 @@ fun AddExpenseContent(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .imePadding()
-                        .padding(horizontal = if (LocalCompactUi.current) 6.dp else 16.dp, vertical = 4.dp)
+                        .padding(horizontal = if (LocalCompactUi.current) 11.dp else 16.dp, vertical = 4.dp)
                 ) {
                     state.error?.let {
                         Text(
@@ -204,8 +204,8 @@ fun AddExpenseContent(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = if (LocalCompactUi.current) 6.dp else 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(if (LocalCompactUi.current) 5.dp else 10.dp)
+                .padding(horizontal = if (LocalCompactUi.current) 11.dp else 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(if (LocalCompactUi.current) 7.dp else 10.dp)
         ) {
             AppTextField(
                 value = state.amount,

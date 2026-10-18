@@ -48,8 +48,24 @@ val RegularDimens = AppDimens(
     iconSize = 22.dp
 )
 
-/** Sized for 240x320dp: 6dp gutters, 34dp app bar and 42dp tab bar. */
+/**
+ * Comfortable compact dimensions: halfway between the original Material sizes and
+ * the first ultra-tight F21 pass. That pass was too small on the 480x640 panel;
+ * the converter keeps [TightDimens] because its layout was approved as-is.
+ */
 val CompactDimens = AppDimens(
+    screenPadding = 11.dp,
+    sectionSpacing = 11.dp,
+    cardPadding = 12.dp,
+    rowSpacing = 6.dp,
+    topBarHeight = 45.dp,
+    navBarHeight = 57.dp,
+    iconButtonSize = 37.dp,
+    iconSize = 19.dp
+)
+
+/** The original 6dp/34dp/42dp sizing, kept only for the converter tab. */
+val TightDimens = AppDimens(
     screenPadding = 6.dp,
     sectionSpacing = 6.dp,
     cardPadding = 8.dp,
@@ -62,6 +78,12 @@ val CompactDimens = AppDimens(
 
 val LocalCompactUi = staticCompositionLocalOf { false }
 val LocalAppDimens = staticCompositionLocalOf { RegularDimens }
+
+/**
+ * True inside the converter, whose original compact spacing was approved as-is.
+ * Everywhere else compact screens use the roomier [CompactDimens] scale.
+ */
+val LocalTightUi = staticCompositionLocalOf { false }
 
 /** True when the device reports a 12-key/QWERTY hardware keyboard or is a known Qin handset. */
 val LocalHardwareKeypad = staticCompositionLocalOf { false }

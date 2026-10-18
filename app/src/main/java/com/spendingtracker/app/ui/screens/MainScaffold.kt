@@ -101,14 +101,14 @@ fun MainScaffold(
                             Icon(
                                 imageVector = item.icon,
                                 contentDescription = null,
-                                modifier = Modifier.size(if (compact) 15.dp else 20.dp),
+                                modifier = Modifier.size(if (compact) 18.dp else 20.dp),
                                 tint = if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = if (compact) item.compactLabel else item.label,
-                                fontSize = if (compact) 8.sp else 10.sp,
-                                lineHeight = if (compact) 10.sp else 12.sp,
+                                fontSize = if (compact) 9.sp else 10.sp,
+                                lineHeight = if (compact) 11.sp else 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
                                 color = if (selected) MaterialTheme.colorScheme.primary
