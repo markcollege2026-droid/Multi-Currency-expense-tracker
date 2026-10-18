@@ -223,9 +223,10 @@ private fun ExpenseRow(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(expense.date)),
                     style = MaterialTheme.typography.labelSmall,
@@ -277,9 +278,10 @@ private fun TopUpRow(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(topUp.date)),
                     style = MaterialTheme.typography.labelSmall,
