@@ -120,7 +120,7 @@ fun MainScaffold(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
             when (selectedTab) {
                 Screen.Home.route -> stateHolder.SaveableStateProvider(Screen.Home.route) {
                     HomeScreen(
