@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,6 +46,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.repository.HistoricalRateSeries
+import com.spendingtracker.app.ui.compact.LocalAppDimens
+import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppButton
+import com.spendingtracker.app.ui.components.AppDialog
+import com.spendingtracker.app.ui.components.AppFilterChip
+import com.spendingtracker.app.ui.components.AppIconButton
+import com.spendingtracker.app.ui.components.AppTextField
+import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -85,36 +94,26 @@ fun ConverterScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Converter",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                },
+            AppTopBar(
+                title = "Converter",
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.refreshRatesFromApi(showFeedback = true) },
-                        enabled = !uiState.isRefreshing
-                    ) {
-                        if (uiState.isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text("↻", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    IconButton(onClick = { showAddDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add currency or commodity"
+                    if (uiState.isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        AppIconButton(
+                            onClick = { viewModel.refreshRatesFromApi(showFeedback = true) },
+                            icon = Icons.Default.Refresh,
+                            contentDescription = "Refresh rates"
                         )
                     }
+                    AppIconButton(
+                        onClick = { showAddDialog = true },
+                        icon = Icons.Default.Add,
+                        contentDescription = "Add currency or commodity"
+                    )
                 }
             )
         }
@@ -204,77 +203,44 @@ fun ConverterScreen(
     actionSheetItemIndex?.let { index ->
         val item = uiState.items.getOrNull(index)
         if (item != null) {
-            AlertDialog(
+            AppDialog(
                 onDismissRequest = { actionSheetItemIndex = null },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(item.info.flag, fontSize = 24.sp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("${item.info.code} — ${item.info.name}")
-                    }
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(
-                            onClick = {
-                                viewModel.promoteToTop(item.info.code)
-                                actionSheetItemIndex = null
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("⬆️ Make Top (Set as Base Currency)", modifier = Modifier.fillMaxWidth())
-                        }
-                        TextButton(
-                            onClick = {
-                                viewModel.openChartForTarget(item.info.code)
-                                actionSheetItemIndex = null
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("📈 View ${uiState.selectedCodes.firstOrNull() ?: "USD"} / ${item.info.code} Chart", modifier = Modifier.fillMaxWidth())
-                        }
-                        if (index > 0) {
-                            TextButton(
-                                onClick = {
-                                    viewModel.moveItem(index, index - 1)
-                                    actionSheetItemIndex = null
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("↑ Move Up", modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                        if (index < uiState.items.lastIndex) {
-                            TextButton(
-                                onClick = {
-                                    viewModel.moveItem(index, index + 1)
-                                    actionSheetItemIndex = null
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("↓ Move Down", modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                        if (uiState.items.size > 2) {
-                            TextButton(
-                                onClick = {
-                                    viewModel.removeFromList(item.info.code)
-                                    actionSheetItemIndex = null
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Text("🗑️ Remove from Converter List", modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { actionSheetItemIndex = null }) {
-                        Text("Close")
+                title = "${item.info.code} — ${item.info.name}",
+                confirmLabel = null,
+                dismissLabel = "Close",
+                onConfirm = null,
+                contentMaxHeightFraction = 0.62f
+            ) {
+                ConverterActionButton("⬆ Make top (set as base)") {
+                    viewModel.promoteToTop(item.info.code)
+                    actionSheetItemIndex = null
+                }
+                ConverterActionButton("📈 View ${uiState.selectedCodes.firstOrNull() ?: "USD"} / ${item.info.code} chart") {
+                    viewModel.openChartForTarget(item.info.code)
+                    actionSheetItemIndex = null
+                }
+                if (index > 0) {
+                    ConverterActionButton("↑ Move up") {
+                        viewModel.moveItem(index, index - 1)
+                        actionSheetItemIndex = null
                     }
                 }
-            )
+                if (index < uiState.items.lastIndex) {
+                    ConverterActionButton("↓ Move down") {
+                        viewModel.moveItem(index, index + 1)
+                        actionSheetItemIndex = null
+                    }
+                }
+                if (uiState.items.size > 2) {
+                    ConverterActionButton(
+                        "🗑 Remove from converter list",
+                        color = MaterialTheme.colorScheme.error
+                    ) {
+                        viewModel.removeFromList(item.info.code)
+                        actionSheetItemIndex = null
+                    }
+                }
+            }
         }
     }
 
@@ -303,39 +269,41 @@ private fun ConverterModeBar(
     selected: ConverterSubTab,
     onSelect: (ConverterSubTab) -> Unit
 ) {
+    val compact = LocalCompactUi.current
+    val dims = LocalAppDimens.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(14.dp),
+            .padding(horizontal = dims.screenPadding, vertical = if (compact) 3.dp else 6.dp),
+        shape = RoundedCornerShape(if (compact) 8.dp else 14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(if (compact) 2.dp else 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)
         ) {
             val tabs = listOf(
-                ConverterSubTab.CONVERTER to "⇄  Converter",
-                ConverterSubTab.CHARTS to "📈  Charts"
+                ConverterSubTab.CONVERTER to if (compact) "Converter" else "⇄  Converter",
+                ConverterSubTab.CHARTS to if (compact) "Charts" else "📈  Charts"
             )
             tabs.forEach { (tab, label) ->
                 val isSelected = selected == tab
                 Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(if (compact) 6.dp else 10.dp))
                         .clickable { onSelect(tab) },
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(if (compact) 6.dp else 10.dp),
                     color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
                     shadowElevation = if (isSelected) 2.dp else 0.dp
                 ) {
                     Text(
                         text = label,
-                        modifier = Modifier.padding(vertical = 10.dp),
+                        modifier = Modifier.padding(vertical = if (compact) 5.dp else 10.dp),
                         textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         color = if (isSelected) ConverterBlue else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -355,26 +323,35 @@ private fun ConverterListContent(
     onOpenChart: (String) -> Unit,
     onOpenAddDialog: () -> Unit
 ) {
+    val compact = LocalCompactUi.current
+    val dims = LocalAppDimens.current
     val topBaseCode = uiState.items.firstOrNull()?.info?.code ?: "USD"
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = PaddingValues(
+            horizontal = dims.screenPadding,
+            vertical = if (compact) 2.dp else 8.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)
     ) {
         item(key = "hint_header") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = 2.dp, vertical = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Long-press top card for amount • Tap any row to make top",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = if (compact) "Hold top card to set amount · tap a row to promote"
+                    else "Long-press top card for amount • Tap any row to make top",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
                 uiState.lastUpdatedMillis?.let { ts ->
                     Text(
@@ -391,13 +368,8 @@ private fun ConverterListContent(
             key = { _, item -> item.info.code }
         ) { index, item ->
             if (index == 0) {
-                // TOP CURRENCY CARD (Basis for conversion - matches screenshot blue outlined card)
-                TopBaseCurrencyCard(
-                    item = item,
-                    onLongPressOrTap = onLongPressTop
-                )
+                TopBaseCurrencyCard(item = item, onLongPressOrTap = onLongPressTop)
             } else {
-                // TARGET CURRENCY / COMMODITY CARD
                 TargetCurrencyCard(
                     item = item,
                     baseCode = topBaseCode,
@@ -413,12 +385,13 @@ private fun ConverterListContent(
                 onClick = onOpenAddDialog,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 16.dp),
-                shape = RoundedCornerShape(14.dp)
+                    .padding(top = if (compact) 1.dp else 4.dp, bottom = if (compact) 6.dp else 16.dp),
+                shape = RoundedCornerShape(if (compact) 8.dp else 14.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = if (compact) 4.dp else 10.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Add Currencies & Commodities")
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(if (compact) 14.dp else 18.dp))
+                Spacer(Modifier.width(if (compact) 4.dp else 8.dp))
+                Text(if (compact) "Add currencies" else "Add Currencies & Commodities")
             }
         }
     }
@@ -430,15 +403,14 @@ private fun TopBaseCurrencyCard(
     item: ConverterListItem,
     onLongPressOrTap: () -> Unit
 ) {
+    val compact = LocalCompactUi.current
+    val corner = if (compact) 10.dp else 18.dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .combinedClickable(
-                onClick = onLongPressOrTap,
-                onLongClick = onLongPressOrTap
-            ),
-        shape = RoundedCornerShape(18.dp),
+            .clip(RoundedCornerShape(corner))
+            .combinedClickable(onClick = onLongPressOrTap, onLongClick = onLongPressOrTap),
+        shape = RoundedCornerShape(corner),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(2.dp, ConverterBlue),
         tonalElevation = 2.dp,
@@ -447,68 +419,61 @@ private fun TopBaseCurrencyCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(
+                    horizontal = if (compact) 8.dp else 16.dp,
+                    vertical = if (compact) 7.dp else 16.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Circular flag / commodity badge
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(if (compact) 28.dp else 46.dp)
                     .clip(CircleShape)
                     .background(ConverterBlue.copy(alpha = 0.10f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = item.info.flag, fontSize = 24.sp)
+                Text(text = item.info.flag, fontSize = if (compact) 15.sp else 24.sp)
             }
-
-            Spacer(Modifier.width(14.dp))
-
+            Spacer(Modifier.width(if (compact) 6.dp else 14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = item.info.code,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     if (item.info.isCommodity) {
-                        Spacer(Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer
-                        ) {
-                            Text(
-                                text = "COMMODITY",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (compact) "◆" else "COMMODITY",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     }
                 }
-                Spacer(Modifier.height(2.dp))
                 Text(
                     text = item.info.name,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-
-            Spacer(Modifier.width(10.dp))
-
-            Column(horizontalAlignment = Alignment.End) {
+            Spacer(Modifier.width(4.dp))
+            Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = if (compact) 96.dp else 160.dp)) {
                 Text(
                     text = formatConverterValue(item.convertedAmount),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = ConverterBlue
+                    color = ConverterBlue,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "Amount (Hold)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = if (compact) "Amount" else "Amount (Hold)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
             }
         }
@@ -524,6 +489,7 @@ private fun TargetCurrencyCard(
     onLongPress: () -> Unit,
     onOpenChart: () -> Unit
 ) {
+    val compact = LocalCompactUi.current
     val isPositive = item.changePercent24h >= 0.0
     val badgeBg = if (isPositive) PositiveGreenBg else NegativeRedBg
     val badgeText = if (isPositive) PositiveGreenText else NegativeRedText
@@ -533,16 +499,14 @@ private fun TargetCurrencyCard(
         if (isPositive) "+" else "",
         item.changePercent24h
     )
+    val corner = if (compact) 8.dp else 16.dp
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(
-                onClick = onTapPromoteToTop,
-                onLongClick = onLongPress
-            ),
-        shape = RoundedCornerShape(16.dp),
+            .clip(RoundedCornerShape(corner))
+            .combinedClickable(onClick = onTapPromoteToTop, onLongClick = onLongPress),
+        shape = RoundedCornerShape(corner),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
         shadowElevation = 1.dp
@@ -550,85 +514,79 @@ private fun TargetCurrencyCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(
+                    horizontal = if (compact) 7.dp else 16.dp,
+                    vertical = if (compact) 6.dp else 14.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Circular flag / commodity icon
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(if (compact) 24.dp else 44.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = item.info.flag, fontSize = 23.sp)
+                Text(text = item.info.flag, fontSize = if (compact) 13.sp else 23.sp)
             }
-
-            Spacer(Modifier.width(14.dp))
-
+            Spacer(Modifier.width(if (compact) 6.dp else 14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = item.info.code,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     if (item.info.isCommodity) {
-                        Spacer(Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Text(
-                                text = item.info.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "◆",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
-                Spacer(Modifier.height(2.dp))
                 Text(
                     text = "1 $baseCode = ${formatConverterValue(item.unitRateFromBase)} ${item.info.code}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (item.info.isCommodity || item.unitRateFromBase < BigDecimal("0.01")) {
                     Text(
                         text = "1 ${item.info.code} = ${formatConverterValue(item.inverseRateToBase)} $baseCode",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
-
-            Spacer(Modifier.width(8.dp))
-
+            Spacer(Modifier.width(4.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = formatConverterValue(item.convertedAmount),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = if (compact) 82.dp else 160.dp)
                 )
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = badgeBg,
-                        modifier = Modifier.clickable { onOpenChart() }
-                    ) {
-                        Text(
-                            text = changeFormatted,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = badgeText,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
+                Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = badgeBg,
+                    modifier = Modifier.clickable { onOpenChart() }
+                ) {
+                    Text(
+                        text = changeFormatted,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = badgeText,
+                        modifier = Modifier.padding(horizontal = if (compact) 5.dp else 8.dp, vertical = 1.dp)
+                    )
                 }
             }
         }
@@ -643,184 +601,142 @@ private fun AmountSelectionDialog(
     onDismiss: () -> Unit,
     onConfirmAmount: (String) -> Unit
 ) {
+    val compact = LocalCompactUi.current
     var amountText by remember { mutableStateOf(initialAmountStr) }
     val presetAmounts = remember {
         listOf("1", "5", "10", "25", "50", "100", "250", "500", "1000", "5000")
     }
     val parsedAmount = amountText.trim().replace(",", "").toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val apply = {
+        onConfirmAmount(amountText.ifBlank { "1" })
+    }
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(topItem.info.flag, fontSize = 24.sp)
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "Set ${topItem.info.code} Amount",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = topItem.info.name,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { value ->
-                        if (value.all { it.isDigit() || it == '.' }) {
-                            amountText = value
-                        }
-                    },
-                    label = { Text("Amount in ${topItem.info.code} (${topItem.info.symbol})") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
-                )
+        title = "Set ${topItem.info.code} amount",
+        confirmLabel = "Apply",
+        dismissLabel = "Cancel",
+        confirmEnabled = parsedAmount > BigDecimal.ZERO,
+        onConfirm = apply,
+        contentMaxHeightFraction = if (compact) 0.62f else 0.58f
+    ) {
+        AppTextField(
+            value = amountText,
+            onValueChange = { value ->
+                val cleaned = value.filter { it.isDigit() || it == '.' || it == '-' }
+                if (cleaned.count { it == '.' } <= 1) amountText = cleaned
+            },
+            label = "Amount in ${topItem.info.code} (${topItem.info.symbol})",
+            keyboardType = KeyboardType.Decimal,
+            allowNegative = false,
+            placeholder = "1"
+        )
 
-                Text(
-                    text = "Quick Select Amount",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // Preset amount grid (2 rows of 5 chips)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    presetAmounts.chunked(5).forEach { rowPresets ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            rowPresets.forEach { preset ->
-                                val isSelected = amountText.trim() == preset
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { amountText = preset },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) ConverterBlue else MaterialTheme.colorScheme.surfaceVariant,
-                                    tonalElevation = 1.dp
-                                ) {
-                                    Text(
-                                        text = preset,
-                                        modifier = Modifier.padding(vertical = 8.dp),
-                                        textAlign = TextAlign.Center,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Quick multiplier / step row
+        // Preset chips; 4 per row keeps them tappable at 240dp wide.
+        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)) {
+            presetAmounts.chunked(if (compact) 5 else 5).forEach { rowPresets ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            val v = (parsedAmount.divide(BigDecimal.TEN, 4, RoundingMode.HALF_EVEN)).stripTrailingZeros()
-                            amountText = v.toPlainString()
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(vertical = 6.dp)
-                    ) { Text("÷10") }
-                    OutlinedButton(
-                        onClick = {
-                            val v = parsedAmount.multiply(BigDecimal.TEN).stripTrailingZeros()
-                            amountText = v.toPlainString()
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(vertical = 6.dp)
-                    ) { Text("×10") }
-                    OutlinedButton(
-                        onClick = {
-                            val v = parsedAmount.add(BigDecimal.TEN).stripTrailingZeros()
-                            amountText = v.toPlainString()
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(vertical = 6.dp)
-                    ) { Text("+10") }
-                    OutlinedButton(
-                        onClick = {
-                            val v = parsedAmount.add(BigDecimal(100)).stripTrailingZeros()
-                            amountText = v.toPlainString()
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(vertical = 6.dp)
-                    ) { Text("+100") }
-                }
-
-                // Live preview of converted values
-                if (previewTargets.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                    rowPresets.forEach { preset ->
+                        val isSelected = amountText.trim() == preset
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(5.dp))
+                                .clickable { amountText = preset },
+                            shape = RoundedCornerShape(5.dp),
+                            color = if (isSelected) ConverterBlue else MaterialTheme.colorScheme.surfaceVariant,
+                            tonalElevation = 1.dp
                         ) {
                             Text(
-                                text = "Live Conversion Preview",
+                                text = preset,
+                                modifier = Modifier.padding(vertical = if (compact) 4.dp else 8.dp),
+                                textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
                             )
-                            previewTargets.forEach { target ->
-                                val previewVal = parsedAmount.multiply(target.unitRateFromBase)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "${target.info.flag} ${target.info.code}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = formatConverterValue(previewVal),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)
+        ) {
+            AppOutlinedButton(
                 onClick = {
-                    val finalStr = amountText.ifBlank { "1" }
-                    onConfirmAmount(finalStr)
-                }
+                    val v = parsedAmount.divide(BigDecimal.TEN, 4, RoundingMode.HALF_EVEN).stripTrailingZeros()
+                    amountText = v.toPlainString()
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+            ) { Text("÷10", maxLines = 1) }
+            AppOutlinedButton(
+                onClick = {
+                    amountText = parsedAmount.multiply(BigDecimal.TEN).stripTrailingZeros().toPlainString()
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+            ) { Text("×10", maxLines = 1) }
+            AppOutlinedButton(
+                onClick = {
+                    amountText = parsedAmount.add(BigDecimal.TEN).stripTrailingZeros().toPlainString()
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+            ) { Text("+10", maxLines = 1) }
+            AppOutlinedButton(
+                onClick = {
+                    amountText = parsedAmount.add(BigDecimal(100)).stripTrailingZeros().toPlainString()
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+            ) { Text("+100", maxLines = 1) }
+        }
+
+        if (previewTargets.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Apply Amount")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Column(
+                    modifier = Modifier.padding(if (compact) 6.dp else 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "Preview",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    previewTargets.take(if (compact) 2 else 3).forEach { target ->
+                        val previewVal = parsedAmount.multiply(target.unitRateFromBase)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${target.info.flag} ${target.info.code}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = formatConverterValue(previewVal),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -1302,124 +1218,120 @@ private fun AddCurrencyOrCommodityDialog(
     onMakeTop: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val compact = LocalCompactUi.current
     var searchQuery by remember { mutableStateOf("") }
     var filterTab by remember { mutableStateOf("ALL") } // ALL, CURRENCIES, COMMODITIES
     val filteredItems = remember(searchQuery, filterTab) {
         CurrencyProvider.searchAll(searchQuery, filterTab)
     }
+    val maxList = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
+        if (compact) 0.46f else 0.5f).dp
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Currencies & Commodities") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(440.dp)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search code, currency, or commodity...") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+        title = "Currencies & commodities",
+        confirmLabel = "Done",
+        dismissLabel = "",
+        onConfirm = onDismiss,
+        contentScrollable = false
+    ) {
+        AppTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = "Search code or name…",
+            label = "Search"
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf(
+                "ALL" to "All",
+                "CURRENCIES" to "Currencies",
+                "COMMODITIES" to "Commodities"
+            ).forEach { (key, label) ->
+                AppFilterChip(
+                    selected = filterTab == key,
+                    onClick = { filterTab = key },
+                    label = label
                 )
-
-                Spacer(Modifier.height(8.dp))
-
+            }
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = maxList),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            itemsIndexed(filteredItems, key = { _, info -> info.code }) { _, info ->
+                val isSelected = info.code in selectedCodes
+                val isTop = selectedCodes.firstOrNull() == info.code
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        "ALL" to "All",
-                        "CURRENCIES" to "Currencies",
-                        "COMMODITIES" to "Commodities"
-                    ).forEach { (key, label) ->
-                        FilterChip(
-                            selected = filterTab == key,
-                            onClick = { filterTab = key },
-                            label = { Text(label) }
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                         )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .clickable { onToggleCode(info.code) }
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    itemsIndexed(filteredItems, key = { _, info -> info.code }) { _, info ->
-                        val isSelected = info.code in selectedCodes
-                        val isTop = selectedCodes.firstOrNull() == info.code
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onToggleCode(info.code) }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(info.flag, fontSize = 22.sp)
-                                Spacer(Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = info.code,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (info.isCommodity) {
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = "• Commodity",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = ConverterBlue
-                                            )
-                                        }
-                                        if (isTop) {
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = "• Top Base",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = PositiveGreenText,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = info.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                TextButton(onClick = { onMakeTop(info.code) }) {
-                                    Text("Make Top", style = MaterialTheme.typography.labelSmall)
-                                }
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = { onToggleCode(info.code) }
+                    Text(info.flag, fontSize = if (compact) 15.sp else 22.sp)
+                    Spacer(Modifier.width(5.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = info.code,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (info.isCommodity) {
+                                Spacer(Modifier.width(4.dp))
+                                Text("◆", style = MaterialTheme.typography.labelSmall, color = ConverterBlue)
+                            }
+                            if (isTop) {
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "TOP",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PositiveGreenText,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
+                        Text(
+                            text = info.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
+                    Text(
+                        text = "Top",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ConverterBlue,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { onMakeTop(info.code) }
+                            .padding(horizontal = 5.dp, vertical = 4.dp)
+                    )
+                    Text(
+                        text = if (isSelected) "✓" else "＋",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) PositiveGreenText else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
                 }
             }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("Done")
-            }
         }
-    )
+    }
 }
 
 @Composable
@@ -1429,70 +1341,65 @@ private fun SingleCurrencyCommodityPickerDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val compact = LocalCompactUi.current
     var searchQuery by remember { mutableStateOf("") }
     val items = remember(searchQuery) { CurrencyProvider.searchAll(searchQuery, "ALL") }
+    val maxList = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
+        if (compact) 0.56f else 0.55f).dp
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(380.dp)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search currency or commodity...") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+        title = title,
+        confirmLabel = null,
+        dismissLabel = "Close",
+        onConfirm = null,
+        contentScrollable = false
+    ) {
+        AppTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = "Search currency or commodity…",
+            label = "Search"
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = maxList),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            itemsIndexed(items, key = { _, info -> info.code }) { _, info ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            if (info.code == currentCode) MaterialTheme.colorScheme.primaryContainer
+                            else Color.Transparent
+                        )
+                        .clickable { onSelect(info.code) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    itemsIndexed(items, key = { _, info -> info.code }) { _, info ->
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (info.code == currentCode)
-                                MaterialTheme.colorScheme.primaryContainer
-                            else Color.Transparent,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onSelect(info.code) }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(info.flag, fontSize = 20.sp)
-                                Spacer(Modifier.width(10.dp))
-                                Text(info.code, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = info.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
+                    Text(info.flag, fontSize = if (compact) 14.sp else 20.sp)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = info.code,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = info.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
         }
-    )
+    }
 }
 
 internal fun formatConverterValue(value: BigDecimal): String {
@@ -1502,5 +1409,36 @@ internal fun formatConverterValue(value: BigDecimal): String {
         absVal < BigDecimal("0.001") -> DecimalFormat("0.000000").format(value)
         absVal < BigDecimal("100") -> DecimalFormat("#,##0.0000").format(value)
         else -> DecimalFormat("#,##0.00").format(value)
+    }
+}
+
+@Composable
+private fun ConverterActionButton(
+    label: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit
+) {
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(5.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+            .clickable(
+                interactionSource = source,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClick = onClick
+            )
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

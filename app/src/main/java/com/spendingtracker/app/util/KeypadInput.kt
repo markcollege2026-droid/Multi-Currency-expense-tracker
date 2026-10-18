@@ -43,18 +43,34 @@ object KeypadInput {
         keyCode: Int,
         allowDecimal: Boolean = true,
         allowNegative: Boolean = false
+    ): String? = when {
+        digitFor(keyCode) != null -> appendChar(current, digitFor(keyCode)!!, allowDecimal, allowNegative)
+        else -> appendChar(current, keyCharFor(keyCode) ?: return null, allowDecimal, allowNegative)
+    }
+
+    fun keyCharFor(keyCode: Int): Char? = when {
+        isDecimalKey(keyCode) -> '.'
+        isMinusKey(keyCode) -> '-'
+        else -> null
+    }
+
+    /** Appends a single typed character while keeping the text parseable. */
+    fun appendChar(
+        current: String,
+        char: Char,
+        allowDecimal: Boolean = true,
+        allowNegative: Boolean = false
     ): String? {
-        val digit = digitFor(keyCode)
-        if (digit != null) {
+        if (char.isDigit()) {
             return when (current) {
-                "" -> digit.toString()
-                "-" -> "-$digit"
-                "0" -> digit.toString()
-                "-0" -> "-$digit"
-                else -> current + digit
+                "" -> char.toString()
+                "-" -> "-$char"
+                "0" -> char.toString()
+                "-0" -> "-$char"
+                else -> current + char
             }
         }
-        if (allowDecimal && isDecimalKey(keyCode)) {
+        if (allowDecimal && char == '.') {
             if (current.contains('.')) return null
             return when (current) {
                 "" -> "0."
@@ -62,7 +78,7 @@ object KeypadInput {
                 else -> "$current."
             }
         }
-        if (allowNegative && isMinusKey(keyCode)) {
+        if (allowNegative && char == '-') {
             if (current.startsWith("-")) return null
             return if (current.isEmpty()) "-" else "-$current"
         }

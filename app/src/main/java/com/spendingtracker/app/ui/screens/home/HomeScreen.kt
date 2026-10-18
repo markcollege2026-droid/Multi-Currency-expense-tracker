@@ -213,7 +213,7 @@ fun HomeScreen(
                         ) {
                             AppDot(
                                 color = try {
-                                    androidx.compose.ui.graphics.Color(category?.color ?: 0xFF888888)
+                                    androidx.compose.ui.graphics.Color(category?.color ?: 0xFF888888.toInt())
                                 } catch (e: Exception) {
                                     androidx.compose.ui.graphics.Color.Gray
                                 }
@@ -298,6 +298,7 @@ private fun BalanceSummaryCard(
     month: BigDecimal,
     onAdjust: () -> Unit
 ) {
+    val compact = LocalCompactUi.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -319,8 +320,8 @@ private fun BalanceSummaryCard(
             }
             Text(
                 text = CurrencyFormatter.format(balance, currency),
-                fontSize = 25.sp,
-                lineHeight = 28.sp,
+                fontSize = if (compact) 22.sp else 25.sp,
+                lineHeight = if (compact) 25.sp else 28.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 softWrap = false,

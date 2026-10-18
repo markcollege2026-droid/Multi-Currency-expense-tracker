@@ -23,10 +23,12 @@ object DeviceInput {
         if (isKnownQinDevice()) return true
         for (id in InputDevice.getDeviceIds()) {
             val device = InputDevice.getDevice(id) ?: continue
+            // Bluetooth/USB keyboards are not phone keypads: ignore anything
+            // marked external so the IME is not suppressed on regular phones.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isExternal) continue
             val sources = device.sources
             val keyboard = sources and InputDevice.SOURCE_KEYBOARD == InputDevice.SOURCE_KEYBOARD
-            if (keyboard && (device.keyboardType == InputDevice.KEYBOARD_QWERTY ||
-                    device.keyboardType == InputDevice.KEYBOARD_12KEY)) {
+            if (keyboard && device.keyboardType != InputDevice.KEYBOARD_TYPE_NONE) {
                 return true
             }
         }

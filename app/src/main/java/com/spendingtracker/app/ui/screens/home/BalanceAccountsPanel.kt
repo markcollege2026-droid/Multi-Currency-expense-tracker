@@ -415,7 +415,7 @@ private fun AutopayDialog(
     var day by remember { mutableStateOf(card.autopayDay.toString()) }
     var mode by remember { mutableStateOf(card.autopayMode) }
     var fixed by remember { mutableStateOf(card.autopayFixedAmount ?: "") }
-    val valid = day.toIntOrNull() in 1..31 &&
+    val valid = (day.toIntOrNull() ?: 0) in 1..31 &&
         (mode != "FIXED_AMOUNT" || fixed.trim().replace(',', '.').toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true)
 
     AppDialog(

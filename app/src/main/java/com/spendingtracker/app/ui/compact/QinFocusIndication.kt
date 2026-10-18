@@ -1,12 +1,10 @@
 package com.spendingtracker.app.ui.compact
 
-import androidx.compose.foundation.Indication
-import androidx.compose.foundation.IndicationInstance
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.InteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -14,8 +12,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * Ripple replacement that adds a high-contrast ring while a control has D-pad focus.
@@ -25,25 +26,49 @@ import androidx.compose.ui.unit.dp
 class QinFocusIndication(
     private val focusColor: Color,
     private val pressedColor: Color
-) : Indication {
+) : IndicationNodeFactory {
 
-    @Composable
-    override fun rememberUpdatedInstance(interactionSource: InteractionSource): IndicationInstance {
-        val focused by interactionSource.collectIsFocusedAsState()
-        val pressed by interactionSource.collectIsPressedAsState()
-        return remember(focused, pressed) {
-            object : IndicationInstance {
-                override fun ContentDrawScope.drawIndication() {
-                    drawContent()
-                    if (pressed) {
-                        drawRect(color = pressedColor)
-                    }
-                    if (focused) {
-                        drawQinFocusRing(focusColor)
-                    }
+    override fun create(interactionSource: InteractionSource): DelegatableNode =
+        FocusRingNode(interactionSource, focusColor, pressedColor)
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is QinFocusIndication) return false
+        return focusColor == other.focusColor && pressedColor == other.pressedColor
+    }
+
+    override fun hashCode(): Int = 31 * focusColor.hashCode() + pressedColor.hashCode()
+}
+
+private class FocusRingNode(
+    private val interactionSource: InteractionSource,
+    private val focusColor: Color,
+    private val pressedColor: Color
+) : Modifier.Node(), DrawModifierNode {
+
+    private var focused = false
+    private var pressed = false
+
+    override fun onAttach() {
+        coroutineScope.launch {
+            interactionSource.interactions.collect { interaction ->
+                when (interaction) {
+                    is FocusInteraction.Focus -> focused = true
+                    is FocusInteraction.Unfocus -> focused = false
+                    is PressInteraction.Press -> pressed = true
+                    is PressInteraction.Release -> pressed = false
+                    is PressInteraction.Cancel -> pressed = false
+                    else -> return@collect
                 }
+                invalidateDraw()
             }
         }
+    }
+
+    override fun ContentDrawScope.draw() {
+        drawContent()
+        if (pressed) drawRect(pressedColor)
+        if (focused) drawQinFocusRing(focusColor)
     }
 }
 

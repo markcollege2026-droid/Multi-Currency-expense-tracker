@@ -1,33 +1,38 @@
 package com.spendingtracker.app.ui.screens.recurring
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.data.local.entity.RecurringPayment
-import com.spendingtracker.app.ui.components.DueDatePickerDialog
+import com.spendingtracker.app.ui.compact.LocalAppDimens
+import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.*
 import com.spendingtracker.app.ui.screens.transactions.CategoryPickerDialog
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecurringScreen(
     onBack: (() -> Unit)? = null,
@@ -35,40 +40,44 @@ fun RecurringScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val dims = LocalAppDimens.current
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Recurring payments") },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                        }
-                    }
+            AppTopBar(
+                title = "Recurring payments",
+                onBack = onBack,
+                actions = {
+                    AppIconButton(
+                        onClick = viewModel::openAdd,
+                        icon = Icons.Default.Add,
+                        contentDescription = "Add recurring payment"
+                    )
                 }
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::openAdd) {
-                Text("+")
-            }
         }
     ) { padding ->
         if (uiState.isLoading) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(
+                    start = dims.screenPadding,
+                    end = dims.screenPadding,
+                    top = 4.dp,
+                    bottom = 12.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
                 if (uiState.payments.isEmpty()) {
-                    item {
+                    item(key = "empty") {
                         Text(
-                            "No recurring payments yet. Tap + to add rent, subscriptions, or any repeating payment. They are posted automatically to ${uiState.account?.name ?: "your account"} on their due dates.",
-                            style = MaterialTheme.typography.bodyMedium
+                            text = "No recurring payments yet. Add rent, subscriptions or any repeating payment. " +
+                                "They post automatically to ${uiState.account?.name ?: "your account"} on their due dates.",
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
@@ -112,37 +121,74 @@ private fun RecurringItem(
     onDelete: () -> Unit,
     onToggleActive: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onEdit,
-        colors = CardDefaults.cardColors(
-            containerColor = if (payment.isActive) MaterialTheme.colorScheme.surfaceVariant
-            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(payment.title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text(
-                    "${CurrencyFormatter.formatSimple(payment.amountAsBigDecimal(), payment.currencyOriginal)} · ${frequencyLabel(payment.frequency)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Text(
-                "Started: ${dateFormat.format(Date(payment.startDate))} · Next: ${if (payment.isActive) dateFormat.format(Date(payment.nextDueAt)) else "paused"}" +
-                    (payment.endDate?.let { " · Until: ${dateFormat.format(Date(it))}" } ?: ""),
-                style = MaterialTheme.typography.bodySmall
+    val compact = LocalCompactUi.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                if (payment.isActive) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
             )
-            payment.note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onToggleActive) {
-                    Text(if (payment.isActive) "Pause" else "Resume")
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete")
-                }
-            }
+            .clickable(onClick = onEdit)
+            .padding(horizontal = if (compact) 7.dp else 12.dp, vertical = if (compact) 4.dp else 10.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = payment.title,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = CurrencyFormatter.formatSimple(
+                    payment.amountAsBigDecimal(),
+                    payment.currencyOriginal
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+        Text(
+            text = frequencyLabel(payment.frequency) + " · next " +
+                (if (payment.isActive) dateFormat.format(Date(payment.nextDueAt)) else "paused") +
+                (payment.endDate?.let { " · until " + dateFormat.format(Date(it)) } ?: ""),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        payment.note?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (payment.isActive) "Pause" else "Resume",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onToggleActive)
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            AppIconButton(
+                onClick = onDelete,
+                icon = Icons.Default.Delete,
+                contentDescription = "Delete recurring payment",
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 }
@@ -155,7 +201,6 @@ fun frequencyLabel(frequency: String): String = when (frequency) {
     else -> frequency
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RecurringEditDialog(
     draft: RecurringDraft,
@@ -170,103 +215,83 @@ private fun RecurringEditDialog(
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    val maxDialogHeight = (LocalConfiguration.current.screenHeightDp * 0.55f).dp
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (draft.id == null) "Add recurring payment" else "Edit recurring payment") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = maxDialogHeight)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = draft.title,
-                    onValueChange = { onDraftChanged(draft.copy(title = it)) },
-                    label = { Text("Title (e.g. Rent, Netflix)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+        title = if (draft.id == null) "Add recurring payment" else "Edit recurring payment",
+        confirmLabel = "Save",
+        onConfirm = onSave,
+        contentMaxHeightFraction = 0.62f
+    ) {
+        AppTextField(
+            value = draft.title,
+            onValueChange = { onDraftChanged(draft.copy(title = it)) },
+            label = "Title (e.g. Rent)",
+            imeAction = ImeAction.Next
+        )
+        AppTextField(
+            value = draft.amount,
+            onValueChange = { onDraftChanged(draft.copy(amount = it)) },
+            label = "Amount",
+            keyboardType = KeyboardType.Decimal,
+            imeAction = ImeAction.Next
+        )
+        AppSelectorRow(
+            label = "Currency",
+            value = draft.currency,
+            onClick = { showCurrencyPicker = true }
+        )
+        AppSelectorRow(
+            label = "Category",
+            value = categories.find { it.id == draft.categoryId }?.name ?: "No category",
+            onClick = { showCategoryPicker = true }
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            RecurringPayment.FREQUENCIES.forEach { freq ->
+                AppFilterChip(
+                    selected = draft.frequency == freq,
+                    onClick = { onDraftChanged(draft.copy(frequency = freq)) },
+                    label = frequencyLabel(freq)
                 )
-                OutlinedTextField(
-                    value = draft.amount,
-                    onValueChange = { onDraftChanged(draft.copy(amount = it)) },
-                    label = { Text("Amount") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = draft.currency,
-                        onValueChange = {},
-                        label = { Text("Currency") },
-                        readOnly = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Button(onClick = { showCurrencyPicker = true }) { Text("Pick") }
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = categories.find { it.id == draft.categoryId }?.name ?: "No category",
-                        onValueChange = {},
-                        label = { Text("Category") },
-                        readOnly = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Button(onClick = { showCategoryPicker = true }) { Text("Pick") }
-                }
-                Text("Frequency", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    RecurringPayment.FREQUENCIES.forEach { freq ->
-                        FilterChip(
-                            selected = draft.frequency == freq,
-                            onClick = { onDraftChanged(draft.copy(frequency = freq)) },
-                            label = { Text(frequencyLabel(freq)) }
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Starts: ${dateFormat.format(Date(draft.startDate))}")
-                    TextButton(onClick = { showStartPicker = true }) { Text("Pick date") }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Ends: ${draft.endDate?.let { dateFormat.format(Date(it)) } ?: "Never"}")
-                    Row {
-                        TextButton(onClick = { showEndPicker = true }) { Text("Pick") }
-                        if (draft.endDate != null) {
-                            TextButton(onClick = { onDraftChanged(draft.copy(endDate = null)) }) { Text("Clear") }
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = draft.note,
-                    onValueChange = { onDraftChanged(draft.copy(note = it)) },
-                    label = { Text("Note (optional)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (error != null) {
-                    Text(error, color = MaterialTheme.colorScheme.error)
-                }
             }
-        },
-        confirmButton = {
-            Button(onClick = onSave) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Starts ${dateFormat.format(Date(draft.startDate))}",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f)
+            )
+            SmallAction("Pick") { showStartPicker = true }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Ends " + (draft.endDate?.let { dateFormat.format(Date(it)) } ?: "never"),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f)
+            )
+            SmallAction("Pick") { showEndPicker = true }
+            if (draft.endDate != null) {
+                SmallAction("Clear") { onDraftChanged(draft.copy(endDate = null)) }
+            }
+        }
+        AppTextField(
+            value = draft.note,
+            onValueChange = { onDraftChanged(draft.copy(note = it)) },
+            label = "Note (optional)",
+            imeAction = ImeAction.Done
+        )
+        if (error != null) {
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2
+            )
+        }
+    }
 
     if (showCurrencyPicker) {
         CurrencyPickerDialog(
@@ -291,14 +316,34 @@ private fun RecurringEditDialog(
         DueDatePickerDialog(
             initialDateMillis = draft.startDate,
             onDismiss = { showStartPicker = false },
-            onConfirm = { millis -> onDraftChanged(draft.copy(startDate = millis)) }
+            onConfirm = { millis ->
+                onDraftChanged(draft.copy(startDate = millis))
+                showStartPicker = false
+            }
         )
     }
     if (showEndPicker) {
         DueDatePickerDialog(
             initialDateMillis = draft.endDate ?: draft.startDate,
             onDismiss = { showEndPicker = false },
-            onConfirm = { millis -> onDraftChanged(draft.copy(endDate = millis)) }
+            onConfirm = { millis ->
+                onDraftChanged(draft.copy(endDate = millis))
+                showEndPicker = false
+            }
         )
     }
+}
+
+@Composable
+private fun SmallAction(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 5.dp)
+    )
 }

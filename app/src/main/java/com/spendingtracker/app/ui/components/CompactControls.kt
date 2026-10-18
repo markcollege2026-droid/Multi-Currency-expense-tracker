@@ -1,6 +1,5 @@
 package com.spendingtracker.app.ui.components
 
-import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +31,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -429,9 +427,9 @@ fun AppTextField(
                             true
                         }
                         keyboardType == KeyboardType.Decimal || keyboardType == KeyboardType.Number -> {
-                            val numeric = KeypadInput.append(
+                            val numeric = KeypadInput.appendChar(
                                 current = value,
-                                keyCode = event.nativeKeyEvent.keyCode,
+                                char = hardwareChar(event.key) ?: return@onPreviewKeyEvent false,
                                 allowDecimal = keyboardType == KeyboardType.Decimal,
                                 allowNegative = allowNegative
                             )
@@ -442,8 +440,7 @@ fun AppTextField(
                                 false
                             }
                         }
-                        event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
-                            event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        event.key == Key.Enter || event.key == Key.NumPadEnter -> {
                             onImeAction?.invoke()
                             keyboard?.hide()
                             focusManager.moveFocus(FocusDirection.Down)
@@ -730,3 +727,20 @@ fun FocusRingBox(focused: Boolean, modifier: Modifier = Modifier, content: @Comp
 
 @Suppress("unused")
 private val compactLabelSize = 9.sp
+
+/** Maps the numeric keys of a phone-style hardware keypad to text characters. */
+private fun hardwareChar(key: Key): Char? = when (key) {
+    Key.Zero, Key.NumPad0 -> '0'
+    Key.One, Key.NumPad1 -> '1'
+    Key.Two, Key.NumPad2 -> '2'
+    Key.Three, Key.NumPad3 -> '3'
+    Key.Four, Key.NumPad4 -> '4'
+    Key.Five, Key.NumPad5 -> '5'
+    Key.Six, Key.NumPad6 -> '6'
+    Key.Seven, Key.NumPad7 -> '7'
+    Key.Eight, Key.NumPad8 -> '8'
+    Key.Nine, Key.NumPad9 -> '9'
+    Key.Period, Key.NumPadDot, Key.Comma, Key.NumPadComma -> '.'
+    Key.Minus, Key.NumPadSubtract -> '-'
+    else -> null
+}
