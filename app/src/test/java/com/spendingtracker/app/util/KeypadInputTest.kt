@@ -70,6 +70,18 @@ class KeypadInputTest {
     }
 
     @Test
+    fun composeKeypadCharactersAppendDirectly() {
+        assertEquals("42", KeypadInput.appendChar("4", '2'))
+        assertEquals("0.", KeypadInput.appendChar("", '.'))
+        assertNull(KeypadInput.appendChar("1.5", '.'))
+        assertEquals("-", KeypadInput.appendChar("", '-', allowNegative = true))
+        assertNull(KeypadInput.appendChar("", '-', allowNegative = false))
+        assertEquals('.', KeypadInput.keyCharFor(KeyEvent.KEYCODE_PERIOD))
+        assertEquals('-', KeypadInput.keyCharFor(KeyEvent.KEYCODE_MINUS))
+        assertNull(KeypadInput.keyCharFor(KeyEvent.KEYCODE_A))
+    }
+
+    @Test
     fun digitAfterMinusKeepsSign() {
         assertEquals("-7", KeypadInput.append("-", KeyEvent.KEYCODE_7))
     }

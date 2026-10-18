@@ -362,7 +362,6 @@ fun AppTextField(
 
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
-    val focusedNow by rememberUpdatedState(focused)
     val borderColor = when {
         isError -> MaterialTheme.colorScheme.error
         focused -> MaterialTheme.colorScheme.primary
@@ -403,11 +402,13 @@ fun AppTextField(
                 .border(if (focused) 2.dp else 1.dp, borderColor, RoundedCornerShape(6.dp))
                 .padding(horizontal = 8.dp, vertical = 6.dp)
                 .pointerInput(Unit) {
-                    // Do not consume the tap: BasicTextField still needs it to place the cursor.
+                    // Do not consume the tap: BasicTextField still needs it to place the
+                    // cursor. A tap always raises the IME, which keeps touchscreen entry
+                    // working when the hardware keypad normally keeps it hidden.
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            if (event.type == PointerEventType.Press && focusedNow) {
+                            if (event.type == PointerEventType.Press) {
                                 keyboard?.show()
                             }
                         }
