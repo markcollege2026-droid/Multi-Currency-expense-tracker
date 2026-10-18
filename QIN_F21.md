@@ -64,8 +64,9 @@ original Material layout.
 All results below come from the GitHub Actions **Build APKs** workflow
 (`./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease`):
 
-- `d37df1a` — success: unit tests, lint, debug APK, signed release APK and AAB.
-- `9dc5ff2` — success (same task set).
+- Code commit `bda1544` (run 39146610846) — **success**: 88 JUnit tests, lint,
+  debug APK, signed release APK, AAB and the v1.8.0 upgrade/signature check.
+  Artifact `spending-tracker-apks` (21.6 MB) contains both installable APKs.
 
 New tests:
 - `KeypadInputTest` — hardware digits, one decimal separator, comma/star
