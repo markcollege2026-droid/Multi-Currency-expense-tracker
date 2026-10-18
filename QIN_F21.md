@@ -74,9 +74,9 @@ New tests:
 - `DeviceInputTest` — Qin model detection.
 - `QinLayoutTest` — 480×640 window sizes use compact layout, regular phones do not,
   compact dimensions/type scale.
-- `CompactKeypadUiTest` (Robolectric + Compose) — compact theme at
-  `w240dp-h320dp`, hardware number keys fill the focused amount field, a second
-  decimal key is rejected.
+- `CompactKeypadUiTest` (Robolectric + Compose) — a `w240dp-h320dp` window resolves
+  to the compact layout. Hardware key dispatch itself is covered by the pure
+  `KeypadInput` tests and still needs on-device verification.
 
 ## Known issues and limitations
 

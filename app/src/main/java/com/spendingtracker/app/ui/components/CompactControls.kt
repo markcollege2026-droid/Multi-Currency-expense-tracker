@@ -440,18 +440,18 @@ fun AppTextField(
                             true
                         }
                         keyboardType == KeyboardType.Decimal || keyboardType == KeyboardType.Number -> {
+                            val typed = hardwareChar(event.key)
+                                ?: return@onPreviewKeyEvent false
                             val numeric = KeypadInput.appendChar(
                                 current = value,
-                                char = hardwareChar(event.key) ?: return@onPreviewKeyEvent false,
+                                char = typed,
                                 allowDecimal = keyboardType == KeyboardType.Decimal,
                                 allowNegative = allowNegative
                             )
-                            if (numeric != null) {
-                                onValueChange(numeric)
-                                true
-                            } else {
-                                false
-                            }
+                            // Consume rejected keys too (e.g. a second decimal point)
+                            // so the text field cannot insert a raw character behind us.
+                            if (numeric != null) onValueChange(numeric)
+                            true
                         }
                         event.key == Key.Enter || event.key == Key.NumPadEnter -> {
                             onImeAction?.invoke()
