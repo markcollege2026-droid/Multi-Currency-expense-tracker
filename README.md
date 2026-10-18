@@ -2,6 +2,15 @@
 
 Offline-first personal finance app with multi-currency expense tracking and loan/debt management.
 
+## Qin F21 Pro build
+
+This branch adds a compact layout for the 480×640 Qin F21 Pro and full physical-key
+navigation: D-pad focus with an amber ring, centre/OK activation, hardware number
+entry in amount fields, and IME handling that keeps Save/Cancel visible. Touch and
+all existing features (accounts, cards, autopay, recurring, loans, converter,
+backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
+build/test results and known limitations.
+
 ## Current release: 1.8.1 — file backups, encryption and multiple balances
 
 See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).

@@ -753,6 +753,9 @@ private fun ConverterChartsContent(
     val targetInfo = remember(uiState.chartTargetCode) { CurrencyProvider.getInfo(uiState.chartTargetCode) }
     val series = uiState.chartSeries
     val points = series?.points ?: emptyList()
+    val compact = LocalCompactUi.current
+    val dims = LocalAppDimens.current
+    val chartHeight = if (compact) 150.dp else 210.dp
 
     val firstRate = points.firstOrNull()?.rate ?: 1.0
     val latestRate = points.lastOrNull()?.rate ?: 1.0
@@ -768,18 +771,18 @@ private fun ConverterChartsContent(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = dims.screenPadding, vertical = if (compact) 2.dp else 8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 12.dp)
     ) {
         // Pair selector card
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(if (compact) 8.dp else 16.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 2.dp,
             shadowElevation = 1.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(if (compact) 6.dp else 14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -808,7 +811,7 @@ private fun ConverterChartsContent(
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
 
                 // Quick target switcher chips from user's converter list
                 Row(
@@ -820,10 +823,10 @@ private fun ConverterChartsContent(
                     uiState.selectedCodes.filter { it != uiState.chartBaseCode }.forEach { code ->
                         val info = CurrencyProvider.getInfo(code)
                         val selected = code == uiState.chartTargetCode
-                        FilterChip(
+                        AppFilterChip(
                             selected = selected,
                             onClick = { onSelectTargetQuick(code) },
-                            label = { Text("${info.flag} ${info.code}") }
+                            label = "${info.flag} ${info.code}"
                         )
                     }
                 }
@@ -838,7 +841,7 @@ private fun ConverterChartsContent(
             shadowElevation = 2.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(if (compact) 7.dp else 16.dp)) {
                 var scrubbedIndex by remember(series) { mutableStateOf<Int?>(null) }
                 val activePoint = scrubbedIndex?.let { points.getOrNull(it) } ?: points.lastOrNull()
                 val displayRate = activePoint?.rate ?: latestRate
@@ -851,8 +854,10 @@ private fun ConverterChartsContent(
                     Column {
                         Text(
                             text = "1 ${baseInfo.code} = ${formatConverterValue(BigDecimal.valueOf(displayRate))} ${targetInfo.code}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                            style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (uiState.baseAmount.compareTo(BigDecimal.ONE) != 0) {
                             val totalConverted = uiState.baseAmount.multiply(BigDecimal.valueOf(displayRate))
@@ -885,12 +890,12 @@ private fun ConverterChartsContent(
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (isPositive) PositiveGreenText else NegativeRedText,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = if (compact) 6.dp else 10.dp, vertical = if (compact) 2.dp else 5.dp)
                         )
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 14.dp))
 
                 // Timeframe selector bar (1W, 1M, 3M, 6M, 1Y)
                 Row(
@@ -909,7 +914,7 @@ private fun ConverterChartsContent(
                         ) {
                             Text(
                                 text = tf.label,
-                                modifier = Modifier.padding(vertical = 7.dp),
+                                modifier = Modifier.padding(vertical = if (compact) 4.dp else 7.dp),
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -919,13 +924,13 @@ private fun ConverterChartsContent(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 16.dp))
 
                 if (uiState.isChartLoading) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(210.dp),
+                            .height(chartHeight),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator()
@@ -938,10 +943,10 @@ private fun ConverterChartsContent(
                         onScrubIndexChanged = { scrubbedIndex = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(210.dp)
+                            .height(chartHeight)
                     )
 
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
 
                     // X-axis date labels
                     Row(
@@ -970,18 +975,18 @@ private fun ConverterChartsContent(
 
         // Period Statistics (High / Low / Average)
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(if (compact) 8.dp else 16.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 1.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(if (compact) 7.dp else 16.dp)) {
                 Text(
                     text = "${uiState.chartTimeframe.label} Statistics (${baseInfo.code}/${targetInfo.code})",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -995,13 +1000,13 @@ private fun ConverterChartsContent(
 
         // Multi-Currency Relative Change Overview
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(if (compact) 8.dp else 16.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 1.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(if (compact) 7.dp else 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(

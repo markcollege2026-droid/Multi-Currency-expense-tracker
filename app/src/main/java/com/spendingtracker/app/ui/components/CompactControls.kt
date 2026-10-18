@@ -753,7 +753,7 @@ private fun hardwareChar(key: Key): Char? = when (key) {
     Key.Seven, Key.NumPad7 -> '7'
     Key.Eight, Key.NumPad8 -> '8'
     Key.Nine, Key.NumPad9 -> '9'
-    Key.Period, Key.NumPadDot, Key.Comma, Key.NumPadComma, Key.Star -> '.'
+    Key.Period, Key.NumPadDot, Key.Comma, Key.NumPadComma, Key.Multiply -> '.'
     Key.Minus, Key.NumPadSubtract -> '-'
     else -> null
 }

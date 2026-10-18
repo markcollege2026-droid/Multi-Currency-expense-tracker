@@ -76,7 +76,7 @@ class AddTopUpViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 val state = _uiState.value
-                val amount = try { BigDecimal(state.amount) } catch (e: Exception) {
+                val amount = try { BigDecimal(state.amount.trim().replace(',', '.')) } catch (e: Exception) {
                     _uiState.value = state.copy(error = "Invalid amount", isLoading = false)
                     return@launch
                 }
