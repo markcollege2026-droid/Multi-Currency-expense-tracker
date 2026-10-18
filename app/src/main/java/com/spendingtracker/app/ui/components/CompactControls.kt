@@ -241,27 +241,37 @@ fun AppFilterChip(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
+    // Not a Material FilterChip: its 48dp interactive-size padding is too tall
+    // for a 320dp-high window. The focus ring keeps it discoverable on D-pad.
+    val compact = LocalCompactUi.current
     val source = remember { MutableInteractionSource() }
-    val focused by source.collectIsFocusedAsState()
-    Box(
-        modifier = modifier.drawWithContent {
-            drawContent()
-            if (focused) drawQinFocusRing(color = QinFocusColor, corner = 8.dp)
-        }
+    Row(
+        modifier = modifier
+            .heightIn(min = if (compact) 30.dp else 40.dp)
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (selected) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+            .clickable(
+                interactionSource = source,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .padding(horizontal = if (compact) 7.dp else 12.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        FilterChip(
-            selected = selected,
-            onClick = onClick,
-            label = {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            enabled = enabled,
-            interactionSource = source
+        Text(
+            text = label,
+            style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            else if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -275,9 +285,11 @@ fun AppPill(
     selected: Boolean = false,
     contentDescription: String? = null
 ) {
+    val compact = LocalCompactUi.current
     val source = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
+            .heightIn(min = if (compact) 28.dp else 36.dp)
             .clip(RoundedCornerShape(50))
             .background(
                 if (selected) MaterialTheme.colorScheme.primaryContainer
@@ -741,7 +753,7 @@ private fun hardwareChar(key: Key): Char? = when (key) {
     Key.Seven, Key.NumPad7 -> '7'
     Key.Eight, Key.NumPad8 -> '8'
     Key.Nine, Key.NumPad9 -> '9'
-    Key.Period, Key.NumPadDot, Key.Comma, Key.NumPadComma -> '.'
+    Key.Period, Key.NumPadDot, Key.Comma, Key.NumPadComma, Key.Star -> '.'
     Key.Minus, Key.NumPadSubtract -> '-'
     else -> null
 }

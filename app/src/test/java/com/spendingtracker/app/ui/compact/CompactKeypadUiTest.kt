@@ -4,8 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasSetTextAction
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
@@ -24,6 +24,7 @@ import org.robolectric.annotation.Config
  * Robolectric + Compose checks for the 480x640 F21 window. These run on the JVM
  * in CI; they are not a substitute for a physical-keypad device test.
  */
+@OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], qualifiers = "w240dp-h320dp-mdpi")
 class CompactKeypadUiTest {

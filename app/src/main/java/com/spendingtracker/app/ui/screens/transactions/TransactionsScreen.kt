@@ -25,13 +25,12 @@ import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
-import com.spendingtracker.app.ui.components.AppButton
 import com.spendingtracker.app.ui.components.AppDot
 import com.spendingtracker.app.ui.components.AppEmptyState
 import com.spendingtracker.app.ui.components.AppFilterChip
+import com.spendingtracker.app.ui.components.AppPill
 import com.spendingtracker.app.ui.components.AppIconButton
 import com.spendingtracker.app.ui.components.AppLoadingScreen
-import com.spendingtracker.app.ui.components.AppOutlinedButton
 import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.util.CurrencyFormatter
@@ -92,13 +91,30 @@ fun TransactionsScreen(
                     .padding(horizontal = dims.screenPadding)
             ) {
                 Spacer(Modifier.height(4.dp))
-                AppTextField(
-                    value = uiState.searchQuery,
-                    onValueChange = viewModel::onSearchChanged,
-                    label = "Search",
-                    placeholder = "note, amount, category…",
-                    imeAction = ImeAction.Search
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    AppTextField(
+                        value = uiState.searchQuery,
+                        onValueChange = viewModel::onSearchChanged,
+                        label = "Search",
+                        placeholder = "note, amount…",
+                        imeAction = ImeAction.Search,
+                        modifier = Modifier.weight(1f)
+                    )
+                    AppPill(
+                        text = "−",
+                        onClick = onAddExpense,
+                        contentDescription = "Add expense"
+                    )
+                    AppPill(
+                        text = "+",
+                        onClick = onAddTopUp,
+                        contentDescription = "Add top-up"
+                    )
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(
                     modifier = Modifier
@@ -128,19 +144,6 @@ fun TransactionsScreen(
                         label = "Card pmts"
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    AppButton(onClick = onAddExpense, modifier = Modifier.weight(1.15f)) {
-                        Text("− Expense", maxLines = 1)
-                    }
-                    AppOutlinedButton(onClick = onAddTopUp, modifier = Modifier.weight(1f)) {
-                        Text("+ Top-up", maxLines = 1)
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
 
                 if (grouped.isEmpty()) {
                     AppEmptyState(
