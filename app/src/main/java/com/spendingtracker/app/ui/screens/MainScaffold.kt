@@ -1,13 +1,29 @@
 package com.spendingtracker.app.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.spendingtracker.app.ui.compact.LocalAppDimens
+import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.navigation.Screen
 import com.spendingtracker.app.ui.screens.converter.ConverterScreen
 import com.spendingtracker.app.ui.screens.home.HomeScreen
@@ -15,20 +31,20 @@ import com.spendingtracker.app.ui.screens.loans.LoansScreen
 import com.spendingtracker.app.ui.screens.settings.SettingsScreen
 import com.spendingtracker.app.ui.screens.transactions.TransactionsScreen
 
-data class BottomNavItem(val label: String, val route: String, val icon: String)
+data class BottomNavItem(
+    val label: String,
+    val compactLabel: String,
+    val route: String,
+    val icon: ImageVector
+)
 
 /**
  * State-based bottom navigation (no nested NavHost back stacks).
  *
- * Nested per-tab back stacks with saveState/restoreState can corrupt across
- * process recreation and app updates (e.g. a restored tab stack that no longer
- * contains the start destination), which made the Home button appear to jump
- * to Settings and made Home unreachable. A single selected-tab state cannot
- * desync: every tab tap shows exactly one screen, and system back always
- * returns to Home first. Each tab's UI state (scroll, search, dialogs) is kept
- * across switches via [rememberSaveableStateHolder].
+ * The bar is hand-built so it can be 42dp high on the F21 instead of Material's
+ * 80dp NavigationBar. Each item is selectable (D-pad focusable) and receives the
+ * app-wide amber focus ring through LocalIndication.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScaffold(
     onNavigateToAddExpense: () -> Unit,
@@ -41,36 +57,70 @@ fun MainScaffold(
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(Screen.Home.route) }
     val stateHolder = rememberSaveableStateHolder()
+    val compact = LocalCompactUi.current
+    val dims = LocalAppDimens.current
     val items = listOf(
-        BottomNavItem("Home", Screen.Home.route, "🏠"),
-        BottomNavItem("Transactions", Screen.Transactions.route, "📋"),
-        BottomNavItem("Converter", Screen.Converter.route, "💱"),
-        BottomNavItem("Loans", Screen.Loans.route, "💳"),
-        BottomNavItem("Settings", Screen.Settings.route, "⚙️")
+        BottomNavItem("Home", "Home", Screen.Home.route, Icons.Default.Home),
+        BottomNavItem("Transactions", "History", Screen.Transactions.route, Icons.Default.List),
+        BottomNavItem("Converter", "Rates", Screen.Converter.route, Icons.Default.Star),
+        BottomNavItem("Loans", "Loans", Screen.Loans.route, Icons.Default.Person),
+        BottomNavItem("Settings", "Settings", Screen.Settings.route, Icons.Default.Settings)
     )
 
-    // System back: from any tab go to Home first; on Home let the system
-    // handle it (the activity finishes), which is standard bottom-nav UX and
-    // guarantees Home is always one tap/back away.
     BackHandler(enabled = selectedTab != Screen.Home.route) {
         selectedTab = Screen.Home.route
     }
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                items.forEach { item ->
-                    NavigationBarItem(
-                        selected = selectedTab == item.route,
-                        onClick = { selectedTab = item.route },
-                        icon = { Text(item.icon) },
-                        label = { Text(item.label) }
-                    )
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .height(dims.navBarHeight)
+                ) {
+                    items.forEach { item ->
+                        val selected = selectedTab == item.route
+                        val source = remember { MutableInteractionSource() }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .selectable(
+                                    selected = selected,
+                                    interactionSource = source,
+                                    indication = LocalIndication.current,
+                                    role = Role.Tab,
+                                    onClick = { selectedTab = item.route }
+                                )
+                                .padding(vertical = 1.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(if (compact) 18.dp else 20.dp),
+                                tint = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = if (compact) item.compactLabel else item.label,
+                                fontSize = if (compact) 9.sp else 10.sp,
+                                lineHeight = if (compact) 11.sp else 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
             when (selectedTab) {
                 Screen.Home.route -> stateHolder.SaveableStateProvider(Screen.Home.route) {
                     HomeScreen(

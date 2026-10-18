@@ -1,27 +1,42 @@
 package com.spendingtracker.app.ui.screens.settings
 
 import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.Account
+import com.spendingtracker.app.ui.compact.LocalAppDimens
+import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppButton
+import com.spendingtracker.app.ui.components.AppDialog
+import com.spendingtracker.app.ui.components.AppFilterChip
+import com.spendingtracker.app.ui.components.AppHairline
+import com.spendingtracker.app.ui.components.AppOutlinedButton
+import com.spendingtracker.app.ui.components.AppSectionHeader
+import com.spendingtracker.app.ui.components.AppTextField
+import com.spendingtracker.app.ui.components.AppTopBar
+import com.spendingtracker.app.ui.components.AppValueRow
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: (() -> Unit)? = null,
@@ -37,120 +52,251 @@ fun SettingsScreen(
     var addAccountBalance by remember { mutableStateOf("") }
     var showAddAccountCurrencyPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val dims = LocalAppDimens.current
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
-                    }
-                }
-            )
-        }
+        topBar = { AppTopBar(title = "Settings", onBack = onBack) }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (uiState.isLoading) {
-                CircularProgressIndicator()
-            } else {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Accounts", style = MaterialTheme.typography.titleMedium)
-                        Text("Balances, expenses and top-ups are tracked per account. Debts/loans are shared across all accounts.", style = MaterialTheme.typography.bodySmall)
-                        uiState.accounts.forEach { account ->
-                            val isActive = account.id == uiState.activeAccountId
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        account.name + if (isActive) "  (active)" else "",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        "Start: ${CurrencyFormatter.formatSimple(account.startingBalanceAsBigDecimal(), account.currency)}",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                                if (!isActive) {
-                                    TextButton(onClick = { viewModel.switchAccount(account) }) { Text("Switch") }
-                                }
-                                TextButton(onClick = { renameTarget = account }) { Text("Rename") }
-                                TextButton(
-                                    onClick = { deleteTarget = account },
-                                    enabled = uiState.accounts.size > 1
-                                ) { Text("Delete") }
+        if (uiState.isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(
+                    start = dims.screenPadding,
+                    end = dims.screenPadding,
+                    top = 4.dp,
+                    bottom = 12.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
+            ) {
+                if (uiState.message != null || uiState.error != null) {
+                    item(key = "messages") {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (uiState.error != null) MaterialTheme.colorScheme.errorContainer
+                            else MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(7.dp)) {
+                                Text(
+                                    text = uiState.error ?: uiState.message.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Dismiss",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 3.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { viewModel.clearMessage() }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
                             }
                         }
-                        Button(onClick = { showAddAccount = true }, modifier = Modifier.fillMaxWidth()) { Text("Add account") }
                     }
                 }
 
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Balance", style = MaterialTheme.typography.titleMedium)
-                        Text("Currency: ${uiState.settings?.balanceCurrency ?: "USD"}")
-                        Text("Starting: ${uiState.settings?.startingBalance ?: "0"}")
-                        Button(onClick = { showCurrencyPicker = true }) { Text("Change balance currency") }
-                        Text("Changing currency will re-express history using stored rates", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Low balance warning", style = MaterialTheme.typography.titleMedium)
-                        OutlinedTextField(value = uiState.lowBalanceThreshold, onValueChange = viewModel::onThresholdChanged, label = { Text("Threshold in ${uiState.settings?.balanceCurrency}") }, modifier = Modifier.fillMaxWidth())
-                        Button(onClick = viewModel::saveThreshold) { Text("Save threshold") }
-                    }
-                }
-
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Theme", style = MaterialTheme.typography.titleMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = uiState.theme == "LIGHT", onClick = { viewModel.onThemeChanged("LIGHT") }, label = { Text("Light") })
-                            FilterChip(selected = uiState.theme == "DARK", onClick = { viewModel.onThemeChanged("DARK") }, label = { Text("Dark") })
-                            FilterChip(selected = uiState.theme == "SYSTEM", onClick = { viewModel.onThemeChanged("SYSTEM") }, label = { Text("System") })
+                item(key = "accounts") {
+                    SettingsSection("Accounts") {
+                        Text(
+                            text = "Balances, expenses and top-ups are tracked per account. Loans are shared.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        uiState.accounts.forEach { account ->
+                            val isActive = account.id == uiState.activeAccountId
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = account.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "Start " + CurrencyFormatter.formatSimple(
+                                            account.startingBalanceAsBigDecimal(),
+                                            account.currency
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
+                                if (isActive) {
+                                    Text(
+                                        text = "ACTIVE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    SmallAction("Use") { viewModel.switchAccount(account) }
+                                }
+                                SmallAction("Rename") { renameTarget = account }
+                                if (uiState.accounts.size > 1) {
+                                    SmallAction("Delete", isError = true) { deleteTarget = account }
+                                }
+                            }
+                            AppHairline()
+                        }
+                        AppOutlinedButton(onClick = { showAddAccount = true }) {
+                            Text("+ Add account", maxLines = 1)
                         }
                     }
                 }
 
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Currency order", style = MaterialTheme.typography.titleMedium)
-                        Text("Customize how currencies appear in dropdowns", style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            FilterChip(selected = uiState.currencySortMode == "ALPHABETICAL", onClick = { viewModel.onCurrencySortModeChanged("ALPHABETICAL") }, label = { Text("A-Z") })
-                            FilterChip(selected = uiState.currencySortMode == "FAVORITES", onClick = { viewModel.onCurrencySortModeChanged("FAVORITES") }, label = { Text("Favorites") })
-                            FilterChip(selected = uiState.currencySortMode == "RECENT", onClick = { viewModel.onCurrencySortModeChanged("RECENT") }, label = { Text("Recent") })
-                            FilterChip(selected = uiState.currencySortMode == "CUSTOM", onClick = { viewModel.onCurrencySortModeChanged("CUSTOM") }, label = { Text("Custom") })
+                item(key = "balance") {
+                    SettingsSection("Balance") {
+                        AppValueRow("Currency", uiState.settings?.balanceCurrency ?: "USD")
+                        AppValueRow("Starting", uiState.settings?.startingBalance ?: "0")
+                        AppOutlinedButton(onClick = { showCurrencyPicker = true }) {
+                            Text("Change balance currency", maxLines = 1)
+                        }
+                        Text(
+                            text = "Changing currency re-expresses history using stored rates.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
+                    }
+                }
+
+                item(key = "threshold") {
+                    SettingsSection("Low balance warning") {
+                        AppTextField(
+                            value = uiState.lowBalanceThreshold,
+                            onValueChange = viewModel::onThresholdChanged,
+                            label = "Threshold in ${uiState.settings?.balanceCurrency ?: "USD"}",
+                            keyboardType = KeyboardType.Decimal
+                        )
+                        AppButton(onClick = viewModel::saveThreshold) {
+                            Text("Save threshold", maxLines = 1)
+                        }
+                    }
+                }
+
+                item(key = "theme") {
+                    SettingsSection("Theme") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            AppFilterChip(
+                                selected = uiState.theme == "LIGHT",
+                                onClick = { viewModel.onThemeChanged("LIGHT") },
+                                label = "Light"
+                            )
+                            AppFilterChip(
+                                selected = uiState.theme == "DARK",
+                                onClick = { viewModel.onThemeChanged("DARK") },
+                                label = "Dark"
+                            )
+                            AppFilterChip(
+                                selected = uiState.theme == "SYSTEM",
+                                onClick = { viewModel.onThemeChanged("SYSTEM") },
+                                label = "System"
+                            )
+                        }
+                    }
+                }
+
+                item(key = "currency_order") {
+                    SettingsSection("Currency order") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            AppFilterChip(
+                                selected = uiState.currencySortMode == "ALPHABETICAL",
+                                onClick = { viewModel.onCurrencySortModeChanged("ALPHABETICAL") },
+                                label = "A-Z"
+                            )
+                            AppFilterChip(
+                                selected = uiState.currencySortMode == "FAVORITES",
+                                onClick = { viewModel.onCurrencySortModeChanged("FAVORITES") },
+                                label = "Favorites"
+                            )
+                            AppFilterChip(
+                                selected = uiState.currencySortMode == "RECENT",
+                                onClick = { viewModel.onCurrencySortModeChanged("RECENT") },
+                                label = "Recent"
+                            )
+                            AppFilterChip(
+                                selected = uiState.currencySortMode == "CUSTOM",
+                                onClick = { viewModel.onCurrencySortModeChanged("CUSTOM") },
+                                label = "Custom"
+                            )
                         }
                         if (uiState.favoriteCurrencies.isNotEmpty()) {
-                            Text("Favorites: ${uiState.favoriteCurrencies.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                text = "Favorites: ${uiState.favoriteCurrencies.joinToString(", ")}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         if (uiState.recentCurrencies.isNotEmpty()) {
-                            Text("Recent: ${uiState.recentCurrencies.take(5).joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                text = "Recent: ${uiState.recentCurrencies.take(5).joinToString(", ")}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = viewModel::showCurrencyOrderDialog) { Text("Customize order") }
-                            TextButton(onClick = viewModel::resetCurrencyOrder) { Text("Reset") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            AppButton(
+                                onClick = viewModel::showCurrencyOrderDialog,
+                                modifier = Modifier.weight(1.3f)
+                            ) { Text("Customize", maxLines = 1) }
+                            AppOutlinedButton(
+                                onClick = viewModel::resetCurrencyOrder,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Reset", maxLines = 1) }
                         }
-                        Text("Tap star in currency picker to add/remove favorites", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "Tap the star in the currency picker to add or remove favorites.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
                     }
                 }
 
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Exchange rates", style = MaterialTheme.typography.titleMedium)
-                        Text("Last updated: ${uiState.settings?.lastRatesUpdate?.let { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(it)) } ?: "Never"}")
-                        Button(onClick = viewModel::refreshRates) { Text("Refresh rates") }
+                item(key = "rates") {
+                    SettingsSection("Exchange rates") {
+                        Text(
+                            text = "Last updated: " + (
+                                uiState.settings?.lastRatesUpdate?.let {
+                                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(it))
+                                } ?: "Never"
+                                ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        AppButton(onClick = viewModel::refreshRates) {
+                            Text("Refresh rates", maxLines = 1)
+                        }
                     }
                 }
 
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Data", style = MaterialTheme.typography.titleMedium)
-                        Button(onClick = viewModel::exportJson, modifier = Modifier.fillMaxWidth()) { Text("Export all as JSON") }
-                        Button(onClick = viewModel::exportCsv, modifier = Modifier.fillMaxWidth()) { Text("Export transactions as CSV") }
+                item(key = "data") {
+                    SettingsSection("Data") {
+                        AppOutlinedButton(onClick = viewModel::exportJson) {
+                            Text("Export all as JSON", maxLines = 1)
+                        }
+                        AppOutlinedButton(onClick = viewModel::exportCsv) {
+                            Text("Export transactions as CSV", maxLines = 1)
+                        }
                         BackupControls(uiState, viewModel)
 
                         uiState.exportJson?.let { json ->
@@ -160,7 +306,9 @@ fun SettingsScreen(
                                 type = "application/json"
                             }
                             val shareIntent = Intent.createChooser(sendIntent, "Share JSON")
-                            Button(onClick = { context.startActivity(shareIntent) }, modifier = Modifier.fillMaxWidth()) { Text("Share exported JSON") }
+                            AppButton(onClick = { context.startActivity(shareIntent) }) {
+                                Text("Share exported JSON", maxLines = 1)
+                            }
                         }
                         uiState.exportCsv?.let { csv ->
                             val sendIntent = Intent().apply {
@@ -169,28 +317,22 @@ fun SettingsScreen(
                                 type = "text/csv"
                             }
                             val shareIntent = Intent.createChooser(sendIntent, "Share CSV")
-                            Button(onClick = { context.startActivity(shareIntent) }, modifier = Modifier.fillMaxWidth()) { Text("Share exported CSV") }
+                            AppButton(onClick = { context.startActivity(shareIntent) }) {
+                                Text("Share exported CSV", maxLines = 1)
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(enabled = !uiState.backupBusy, onClick = viewModel::requestErase, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) {
-                            Text("Erase all data")
+                        AppButton(
+                            onClick = viewModel::requestErase,
+                            enabled = !uiState.backupBusy,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Text("Erase all data", maxLines = 1)
                         }
                     }
-                }
-
-                uiState.message?.let {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                        Text(it, modifier = Modifier.padding(12.dp))
-                    }
-                }
-                uiState.error?.let {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                        Text(it, modifier = Modifier.padding(12.dp))
-                    }
-                }
-                if (uiState.message != null || uiState.error != null) {
-                    TextButton(onClick = viewModel::clearMessage) { Text("Dismiss") }
                 }
             }
         }
@@ -200,72 +342,74 @@ fun SettingsScreen(
                 orderedCurrencies = uiState.orderedCurrencies,
                 balanceCurrency = uiState.settings?.balanceCurrency ?: "USD",
                 onDismiss = { showCurrencyPicker = false },
-                onCurrencySelected = { code -> showCurrencyPicker = false; viewModel.requestChangeCurrency(code) }
+                onCurrencySelected = { code ->
+                    showCurrencyPicker = false
+                    viewModel.requestChangeCurrency(code)
+                }
             )
         }
 
         if (showAddAccount) {
-            AlertDialog(
+            AppDialog(
                 onDismissRequest = { showAddAccount = false },
-                title = { Text("New account") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = addAccountName,
-                            onValueChange = { addAccountName = it },
-                            label = { Text("Account name") },
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = addAccountBalance,
-                            onValueChange = { addAccountBalance = it },
-                            label = { Text("Starting balance (optional)") },
-                            singleLine = true
-                        )
-                        OutlinedButton(onClick = { showAddAccountCurrencyPicker = true }) {
-                            Text("Currency: $addAccountCurrency")
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        viewModel.addAccount(addAccountName, addAccountCurrency, addAccountBalance)
-                        addAccountName = ""
-                        addAccountBalance = ""
-                        showAddAccount = false
-                    }) { Text("Create") }
-                },
-                dismissButton = { TextButton(onClick = { showAddAccount = false }) { Text("Cancel") } }
-            )
+                title = "New account",
+                confirmLabel = "Create",
+                confirmEnabled = addAccountName.isNotBlank(),
+                onConfirm = {
+                    viewModel.addAccount(addAccountName, addAccountCurrency, addAccountBalance)
+                    addAccountName = ""
+                    addAccountBalance = ""
+                    showAddAccount = false
+                }
+            ) {
+                AppTextField(
+                    value = addAccountName,
+                    onValueChange = { addAccountName = it },
+                    label = "Account name"
+                )
+                AppTextField(
+                    value = addAccountBalance,
+                    onValueChange = { addAccountBalance = it },
+                    label = "Starting balance (optional)",
+                    keyboardType = KeyboardType.Decimal
+                )
+                AppOutlinedButton(onClick = { showAddAccountCurrencyPicker = true }) {
+                    Text("Currency: $addAccountCurrency", maxLines = 1)
+                }
+            }
         }
 
         renameTarget?.let { target ->
             var name by remember(target) { mutableStateOf(target.name) }
-            AlertDialog(
+            AppDialog(
                 onDismissRequest = { renameTarget = null },
-                title = { Text("Rename account") },
-                text = {
-                    OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Name") })
-                },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.renameAccount(target, name); renameTarget = null }) { Text("Save") }
-                },
-                dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
-            )
+                title = "Rename account",
+                confirmLabel = "Save",
+                confirmEnabled = name.isNotBlank(),
+                onConfirm = {
+                    viewModel.renameAccount(target, name)
+                    renameTarget = null
+                }
+            ) {
+                AppTextField(value = name, onValueChange = { name = it }, label = "Name")
+            }
         }
 
         deleteTarget?.let { target ->
-            AlertDialog(
+            AppDialog(
                 onDismissRequest = { deleteTarget = null },
-                title = { Text("Delete account?") },
-                text = {
-                    Text("Deletes \"${target.name}\" together with its expenses and top-ups. This cannot be undone. Debts/loans are kept.")
-                },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.deleteAccount(target); deleteTarget = null }) { Text("Delete") }
-                },
-                dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }
-            )
+                title = "Delete account?",
+                confirmLabel = "Delete",
+                onConfirm = {
+                    viewModel.deleteAccount(target)
+                    deleteTarget = null
+                }
+            ) {
+                Text(
+                    text = "Deletes \"${target.name}\" together with its expenses and top-ups. This cannot be undone. Loans are kept.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
 
         if (showAddAccountCurrencyPicker) {
@@ -273,28 +417,39 @@ fun SettingsScreen(
                 orderedCurrencies = uiState.orderedCurrencies,
                 balanceCurrency = uiState.settings?.balanceCurrency ?: "USD",
                 onDismiss = { showAddAccountCurrencyPicker = false },
-                onCurrencySelected = { code -> addAccountCurrency = code; showAddAccountCurrencyPicker = false }
+                onCurrencySelected = { code ->
+                    addAccountCurrency = code
+                    showAddAccountCurrencyPicker = false
+                }
             )
         }
 
         if (uiState.showChangeCurrencyDialog) {
-            AlertDialog(
+            AppDialog(
                 onDismissRequest = viewModel::dismissChangeCurrency,
-                title = { Text("Change balance currency?") },
-                text = { Text("Changing the balance currency will re-express all history using stored rates. Continue?") },
-                confirmButton = { Button(onClick = viewModel::confirmChangeCurrency) { Text("Continue") } },
-                dismissButton = { TextButton(onClick = viewModel::dismissChangeCurrency) { Text("Cancel") } }
-            )
+                title = "Change balance currency?",
+                confirmLabel = "Continue",
+                onConfirm = viewModel::confirmChangeCurrency
+            ) {
+                Text(
+                    text = "Changing the balance currency re-expresses all history using stored rates. Continue?",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
 
         if (uiState.showEraseDialog) {
-            AlertDialog(
+            AppDialog(
                 onDismissRequest = viewModel::dismissErase,
-                title = { Text("Erase all data?") },
-                text = { Text("Are you sure you want to erase all data? This cannot be undone.") },
-                confirmButton = { Button(onClick = viewModel::confirmErase, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Erase") } },
-                dismissButton = { TextButton(onClick = viewModel::dismissErase) { Text("Cancel") } }
-            )
+                title = "Erase all data?",
+                confirmLabel = "Erase",
+                onConfirm = viewModel::confirmErase
+            ) {
+                Text(
+                    text = "Are you sure you want to erase all data? This cannot be undone.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
 
         if (uiState.showCurrencyOrderDialog) {
@@ -313,7 +468,46 @@ fun SettingsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(7.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            AppSectionHeader(title)
+            content()
+        }
+    }
+}
+
+/** Small text action that stays tappable/focusable but does not cost 48dp. */
+@Composable
+private fun SmallAction(
+    label: String,
+    isError: Boolean = false,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .padding(start = 3.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 5.dp)
+    )
+}
+
 @Composable
 fun CurrencyOrderDialog(
     orderedCurrencies: List<com.spendingtracker.app.util.CurrencyProvider.CurrencyInfo>,
@@ -333,90 +527,96 @@ fun CurrencyOrderDialog(
         )
     }
     var searchQuery by remember { mutableStateOf("") }
+    val compact = LocalCompactUi.current
+    val maxList = (LocalConfiguration.current.screenHeightDp * if (compact) 0.5f else 0.55f).dp
+    val filtered = remember(searchQuery, localOrder, orderedCurrencies) {
+        if (searchQuery.isBlank()) {
+            localOrder.mapNotNull { code ->
+                orderedCurrencies.find { it.code == code }
+                    ?: com.spendingtracker.app.util.CurrencyProvider.allCurrencies.find { it.code == code }
+            }
+        } else {
+            com.spendingtracker.app.util.CurrencyProvider.allCurrencies.filter {
+                it.code.contains(searchQuery.uppercase()) ||
+                    it.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Customize currency order") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                Text("Sort mode: $sortMode", style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Search currencies") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                val filtered = if (searchQuery.isBlank()) {
-                    localOrder.mapNotNull { code -> orderedCurrencies.find { it.code == code } ?: com.spendingtracker.app.util.CurrencyProvider.allCurrencies.find { it.code == code } }
-                } else {
-                    com.spendingtracker.app.util.CurrencyProvider.allCurrencies.filter {
-                        it.code.contains(searchQuery.uppercase()) || it.name.contains(searchQuery, ignoreCase = true)
-                    }
-                }
-
-                androidx.compose.foundation.lazy.LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+        title = "Customize currency order",
+        confirmLabel = "Save",
+        onConfirm = {
+            onSaveCustomOrder(localOrder)
+            onDismiss()
+        },
+        contentScrollable = false
+    ) {
+        Text(
+            text = "Sort mode: $sortMode",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        AppTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = "Search currencies",
+            placeholder = "EUR, dollar…"
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = maxList),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            items(filtered.size) { idx ->
+                val currency = filtered[idx]
+                val isFavorite = favoriteCurrencies.contains(currency.code)
+                val actualIndex = localOrder.indexOf(currency.code)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(filtered.size) { idx ->
-                        val currency = filtered[idx]
-                        val isFavorite = favoriteCurrencies.contains(currency.code)
-                        val actualIndex = localOrder.indexOf(currency.code)
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("${currency.code} - ${currency.name}", style = MaterialTheme.typography.bodyMedium)
-                                    Text(currency.symbol, style = MaterialTheme.typography.bodySmall)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    IconButton(onClick = { onToggleFavorite(currency.code) }) {
-                                        Text(if (isFavorite) "★" else "☆")
-                                    }
-                                    if (sortMode == "CUSTOM" && actualIndex != -1) {
-                                        IconButton(onClick = {
-                                            if (actualIndex > 0) {
-                                                val newOrder = localOrder.toMutableList()
-                                                val item = newOrder.removeAt(actualIndex)
-                                                newOrder.add(actualIndex - 1, item)
-                                                localOrder = newOrder
-                                                onMove(actualIndex, actualIndex - 1)
-                                            }
-                                        }) {
-                                            Text("↑")
-                                        }
-                                        IconButton(onClick = {
-                                            if (actualIndex < localOrder.size - 1) {
-                                                val newOrder = localOrder.toMutableList()
-                                                val item = newOrder.removeAt(actualIndex)
-                                                newOrder.add(actualIndex + 1, item)
-                                                localOrder = newOrder
-                                                onMove(actualIndex, actualIndex + 1)
-                                            }
-                                        }) {
-                                            Text("↓")
-                                        }
-                                    }
-                                }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "${currency.code} · ${currency.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = currency.symbol,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                    SmallAction(if (isFavorite) "★" else "☆") { onToggleFavorite(currency.code) }
+                    if (sortMode == "CUSTOM" && actualIndex != -1) {
+                        SmallAction("↑") {
+                            if (actualIndex > 0) {
+                                val newOrder = localOrder.toMutableList()
+                                val item = newOrder.removeAt(actualIndex)
+                                newOrder.add(actualIndex - 1, item)
+                                localOrder = newOrder
+                                onMove(actualIndex, actualIndex - 1)
+                            }
+                        }
+                        SmallAction("↓") {
+                            if (actualIndex < localOrder.size - 1) {
+                                val newOrder = localOrder.toMutableList()
+                                val item = newOrder.removeAt(actualIndex)
+                                newOrder.add(actualIndex + 1, item)
+                                localOrder = newOrder
+                                onMove(actualIndex, actualIndex + 1)
                             }
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(onClick = {
-                onSaveCustomOrder(localOrder)
-                onDismiss()
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
+    }
 }

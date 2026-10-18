@@ -2,20 +2,27 @@ package com.spendingtracker.app.ui.screens.transactions
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
+import com.spendingtracker.app.ui.components.AppButton
+import com.spendingtracker.app.ui.components.AppOutlinedButton
+import com.spendingtracker.app.ui.components.AppTextField
+import com.spendingtracker.app.ui.components.AppTopBar
+import com.spendingtracker.app.ui.components.AppValueRow
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTopUpScreen(
     topUpId: Long?,
@@ -23,51 +30,113 @@ fun AddTopUpScreen(
     viewModel: AddTopUpViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val amountFocus = remember { FocusRequester() }
+    val hardwareKeypad = LocalHardwareKeypad.current
+    val compact = LocalCompactUi.current
 
-    LaunchedEffect(topUpId) { viewModel.loadTopUp(topUpId) }
+    LaunchedEffect(topUpId) {
+        viewModel.loadTopUp(topUpId)
+        amountFocus.requestFocus()
+        if (hardwareKeypad) keyboard?.hide()
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (uiState.isEditMode) "Edit Top-up" else "Add Money") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+            AppTopBar(
+                title = if (uiState.isEditMode) "Edit top-up" else "Add money",
+                onBack = {
+                    keyboard?.hide()
+                    onBack()
+                }
             )
+        },
+        bottomBar = {
+            Surface(tonalElevation = 3.dp, color = MaterialTheme.colorScheme.surface) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp)
+                ) {
+                    uiState.error?.let {
+                        Text(
+                            text = it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        AppOutlinedButton(
+                            onClick = {
+                                keyboard?.hide()
+                                onBack()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Cancel", maxLines = 1) }
+                        AppButton(
+                            onClick = {
+                                keyboard?.hide()
+                                viewModel.saveTopUp(topUpId, onBack)
+                            },
+                            modifier = Modifier.weight(1.6f),
+                            enabled = !uiState.isLoading && uiState.amount.isNotBlank()
+                        ) {
+                            if (uiState.isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                Text(if (uiState.isEditMode) "Save changes" else "Add money", maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
         }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                // Scrollable + keyboard-aware so the Save button stays reachable on small screens
                 .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 10.dp)
         ) {
-            Text("Balance operations are in ${uiState.balanceCurrency} only", style = MaterialTheme.typography.bodyMedium)
-
-            OutlinedTextField(
+            Text(
+                text = "Balance operations use ${uiState.balanceCurrency} only",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            AppTextField(
                 value = uiState.amount,
                 onValueChange = viewModel::onAmountChanged,
-                label = { Text("Amount in ${uiState.balanceCurrency}") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth()
+                label = "Amount in ${uiState.balanceCurrency}",
+                keyboardType = KeyboardType.Decimal,
+                placeholder = "0.00",
+                imeAction = ImeAction.Next,
+                focusRequester = amountFocus
             )
-
-            OutlinedTextField(
+            AppTextField(
                 value = uiState.note,
                 onValueChange = viewModel::onNoteChanged,
-                label = { Text("Note") },
-                modifier = Modifier.fillMaxWidth()
+                label = "Note (optional)",
+                placeholder = "e.g. salary",
+                imeAction = ImeAction.Done
             )
-
-            Text("Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(uiState.date))}")
-
-            if (uiState.error != null) Text(uiState.error!!, color = MaterialTheme.colorScheme.error)
-
-            Button(onClick = { viewModel.saveTopUp(topUpId, onBack) }, modifier = Modifier.fillMaxWidth(), enabled = !uiState.isLoading) {
-                if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp)) else Text("Save")
-            }
+            AppValueRow(
+                label = "Date",
+                value = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(uiState.date))
+            )
+            Spacer(Modifier.height(2.dp))
         }
     }
 }

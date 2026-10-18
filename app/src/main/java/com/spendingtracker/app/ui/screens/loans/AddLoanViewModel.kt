@@ -100,7 +100,7 @@ class AddLoanViewModel @Inject constructor(
                 if (s.personName.isBlank()) {
                     _uiState.value = s.copy(error = "Person name required", isLoading = false); return@launch
                 }
-                val amount = try { BigDecimal(s.amount) } catch (e: Exception) {
+                val amount = try { BigDecimal(s.amount.trim().replace(',', '.')) } catch (e: Exception) {
                     _uiState.value = s.copy(error = "Invalid amount", isLoading = false); return@launch
                 }
                 if (amount <= BigDecimal.ZERO) {
@@ -131,7 +131,7 @@ class AddLoanViewModel @Inject constructor(
     fun addRepayment(loanId: Long) {
         viewModelScope.launch {
             val s = _uiState.value
-            val amount = try { BigDecimal(s.newRepaymentAmount) } catch (e: Exception) {
+            val amount = try { BigDecimal(s.newRepaymentAmount.trim().replace(',', '.')) } catch (e: Exception) {
                 _uiState.value = s.copy(error = "Invalid repayment amount"); return@launch
             }
             if (amount <= BigDecimal.ZERO) {

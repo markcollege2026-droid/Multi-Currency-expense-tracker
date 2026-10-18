@@ -176,7 +176,7 @@ class AddExpenseViewModel @Inject constructor(
         conversionJob?.cancel()
         conversionJob = viewModelScope.launch {
             val state = _uiState.value
-            val amount = try { BigDecimal(state.amount) } catch (e: Exception) { null }
+            val amount = state.amount.trim().replace(',', '.').toBigDecimalOrNull()
             if (amount == null || state.currency.isBlank()) {
                 _uiState.update { it.copy(convertedAmount = null, rateUsed = null) }
                 return@launch
@@ -186,7 +186,7 @@ class AddExpenseViewModel @Inject constructor(
                 return@launch
             }
             val rate = if (state.useManualRate) {
-                try { BigDecimal(state.manualRate) } catch (e: Exception) { null }
+                try { BigDecimal(state.manualRate.trim().replace(',', '.')) } catch (e: Exception) { null }
             } else {
                 rateRepository.getConversionRate(state.currency, state.balanceCurrency)
             }
@@ -205,7 +205,7 @@ class AddExpenseViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 val state = _uiState.value
-                val amountOriginal = try { BigDecimal(state.amount) } catch (e: Exception) {
+                val amountOriginal = try { BigDecimal(state.amount.trim().replace(',', '.')) } catch (e: Exception) {
                     _uiState.value = state.copy(error = "Invalid amount", isLoading = false)
                     return@launch
                 }
@@ -215,7 +215,7 @@ class AddExpenseViewModel @Inject constructor(
                 }
                 val rate = if (state.currency == state.balanceCurrency) BigDecimal.ONE
                 else if (state.useManualRate) {
-                    try { BigDecimal(state.manualRate) } catch (e: Exception) {
+                    try { BigDecimal(state.manualRate.trim().replace(',', '.')) } catch (e: Exception) {
                         _uiState.value = state.copy(error = "Invalid manual rate", isLoading = false)
                         return@launch
                     }
