@@ -71,7 +71,7 @@ original Material layout.
 All results below come from the GitHub Actions **Build APKs** workflow
 (`./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease`):
 
-- Code commit `PENDING` (run `PENDING`) — **success**: 88 JUnit tests, lint,
+- Code commit `ab1d424` (run 39150741420) — **success**: 90 JUnit tests, lint,
   debug APK, signed release APK, AAB and the v1.8.0 upgrade/signature check.
   Artifact `spending-tracker-apks` (21.6 MB) contains both installable APKs.
 
