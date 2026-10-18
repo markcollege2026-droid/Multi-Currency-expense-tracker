@@ -43,9 +43,11 @@ object KeypadInput {
         keyCode: Int,
         allowDecimal: Boolean = true,
         allowNegative: Boolean = false
-    ): String? = when {
-        digitFor(keyCode) != null -> appendChar(current, digitFor(keyCode)!!, allowDecimal, allowNegative)
-        else -> appendChar(current, keyCharFor(keyCode) ?: return null, allowDecimal, allowNegative)
+    ): String? {
+        val digit = digitFor(keyCode)
+        if (digit != null) return appendChar(current, digit, allowDecimal, allowNegative)
+        val char = keyCharFor(keyCode) ?: return null
+        return appendChar(current, char, allowDecimal, allowNegative)
     }
 
     fun keyCharFor(keyCode: Int): Char? = when {
