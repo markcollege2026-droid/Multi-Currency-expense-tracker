@@ -2,6 +2,8 @@ name: Build APKs
 on:
   push:
     branches: [main, 'arena/**']
+    paths-ignore:
+      - 'delivery/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
