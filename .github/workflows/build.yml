@@ -87,3 +87,21 @@ jobs:
           path: |
             app/build/reports/
             app/build/test-results/
+      # Puts the signed release APK into a delivery/ commit on the branch so it
+      # can be fetched with plain git in environments that cannot reach the
+      # Actions artifact CDN. delivery/** is ignored by the push trigger above.
+      - name: Deliver release APK to the branch
+        if: success() && github.event_name == 'push'
+        run: |
+          mkdir -p delivery
+          cp app/build/outputs/apk/release/app-release.apk delivery/app-release-v1.9.0.apk
+          cp app/build/outputs/apk/release/SHA256SUMS.txt delivery/SHA256SUMS.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add delivery/
+          if git diff --cached --quiet; then
+            echo "Delivery already up to date"
+          else
+            git commit -m "chore: deliver signed release APK"
+            git push origin "HEAD:${GITHUB_REF}"
+          fi
