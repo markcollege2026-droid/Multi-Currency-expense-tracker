@@ -20,8 +20,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppButton
+import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.components.AppTopBar
+import com.spendingtracker.app.ui.theme.AppType
 import com.spendingtracker.app.util.CurrencyProvider
 
 @Composable
@@ -38,7 +40,7 @@ fun SetupScreen(
     }
 
     Scaffold(
-        topBar = { AppTopBar(title = "Welcome to Spending Tracker") },
+        topBar = { AppTopBar(title = "Set up your ledger") },
         bottomBar = {
             // Pinned above the keyboard/navigation bar so Continue is always reachable.
             Surface(tonalElevation = 3.dp) {
@@ -88,10 +90,19 @@ fun SetupScreen(
             )
         ) {
             item(key = "intro") {
-                Text(
-                    text = "Choose your balance currency. Expenses in other currencies are converted to it.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                AppCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "LEDGER CURRENCY",
+                            style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Choose the currency your balance is kept in. Expenses in other currencies are converted to it at save time.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
             item(key = "account_name") {
                 AppTextField(
@@ -111,12 +122,28 @@ fun SetupScreen(
                 )
             }
             item(key = "selected") {
-                Text(
-                    text = "Balance currency: ${uiState.selectedCurrency} · " +
-                        CurrencyProvider.getSymbol(uiState.selectedCurrency),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "BALANCE CURRENCY",
+                            style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${uiState.selectedCurrency} · ${CurrencyProvider.getSymbol(uiState.selectedCurrency)}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "Tap a currency below",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             item(key = "search") {
                 AppTextField(
@@ -132,10 +159,10 @@ fun SetupScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(5.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(
                             if (selected) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.surfaceContainerLow
                         )
                         .clickable { viewModel.onCurrencySelected(currency.code) }
                         .padding(horizontal = 7.dp, vertical = 4.dp),

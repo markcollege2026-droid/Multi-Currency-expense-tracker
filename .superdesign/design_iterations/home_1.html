@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home · Ledger</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --paper:#F7F5EF; --surface:#FBF9F4; --card:#FFFFFF; --low:#F7F5EE; --cont:#F2F0E8;
+  --high:#ECE9E0; --highest:#E6E3D9; --ink:#171B15; --ink2:#4C5148; --line:#CDD1C6;
+  --primary:#0F5132; --primary-ink:#FFFFFF; --primary-cont:#D7ECDD; --primary-deep:#08361F;
+  --sage:#5C6B60; --sage-cont:#E7EDE4; --amber:#8A5A12; --amber-cont:#FBE7C6;
+  --error:#B3261E; --error-cont:#F9DEDC; --income:#1F7A4C; --warn:#B97C10; --focus:#FFC400;
+  --r-xs:6px; --r-sm:10px; --r-md:14px; --r-lg:20px; --r-xl:28px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+html,body{background:#171B17;color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased}
+body{padding:40px 20px}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* ---------- device ---------- */
+.stage{display:flex;justify-content:center}
+.phone{width:390px;height:844px;background:#0B0F0C;border-radius:46px;padding:10px;
+  box-shadow:0 40px 80px -24px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.06)}
+.screen{position:relative;width:100%;height:100%;background:var(--paper);border-radius:37px;
+  overflow:hidden;display:flex;flex-direction:column}
+.statusbar{height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 26px;font-size:12.5px;font-weight:600;color:var(--ink);letter-spacing:.2px}
+.statusbar .right{display:flex;align-items:center;gap:5px}
+.bars{display:flex;align-items:flex-end;gap:2px}
+.bars i{display:block;width:3px;background:var(--ink);border-radius:1px}
+.bars i:nth-child(1){height:4px}.bars i:nth-child(2){height:6px}
+.bars i:nth-child(3){height:8px}.bars i:nth-child(4){height:10px}
+.batt{width:22px;height:11px;border:1.5px solid var(--ink);border-radius:3px;position:relative;opacity:.9}
+.batt:before{content:"";position:absolute;inset:1.5px 6px 1.5px 1.5px;background:var(--ink);border-radius:1px}
+
+/* ---------- chrome ---------- */
+.topbar{flex:0 0 auto;padding:2px 16px 12px;display:flex;align-items:flex-end;gap:10px;background:var(--paper)}
+.topbar .titles{flex:1;min-width:0}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--ink2)}
+.topbar h1{font-size:24px;line-height:30px;font-weight:700;letter-spacing:-.3px;margin-top:2px}
+.topbar .who{font-size:12px;color:var(--ink2);margin-top:1px}
+.roundbtn{width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--line);
+  display:grid;place-items:center;color:var(--ink)}
+.roundbtn.solid{background:var(--primary);border-color:var(--primary);color:#fff}
+.pill{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;
+  background:var(--card);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink)}
+.pill.sel{background:var(--primary-cont);border-color:rgba(15,81,50,.22);color:var(--primary-deep)}
+.content{flex:1;overflow-y:auto;padding:0 16px 18px;scrollbar-width:none}
+.content::-webkit-scrollbar{display:none}
+.content>*+*{margin-top:12px}
+
+/* ---------- tabbar ---------- */
+.tabbar{flex:0 0 76px;background:var(--surface);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(5,1fr);align-items:center;padding-bottom:6px}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink2);font-size:10px;font-weight:600}
+.tab .ico{width:56px;height:26px;border-radius:999px;display:grid;place-items:center}
+.tab.on{color:var(--primary)}
+.tab.on .ico{background:var(--primary-cont)}
+.tab svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- primitives ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px}
+.card.tight{padding:12px}
+.sect{display:flex;align-items:center;gap:10px;margin:16px 2px 0}
+.sect h2{font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--ink2);flex:1}
+.sect a{font-size:12px;font-weight:700;color:var(--primary);text-decoration:none}
+.hero{border-radius:var(--r-xl);padding:20px;color:#fff;position:relative;overflow:hidden;
+  background:linear-gradient(145deg,#0F5132 0%,#1D6B45 100%)}
+.hero .glow{position:absolute;width:220px;height:220px;border-radius:50%;right:-70px;top:-90px;
+  background:radial-gradient(circle,rgba(255,255,255,.16),transparent 62%)}
+.hero .eyebrow{color:rgba(255,255,255,.72)}
+.hero .amount{font-size:44px;line-height:48px;font-weight:700;letter-spacing:-1.2px;margin-top:6px}
+.hero .amount small{font-size:24px;font-weight:600;letter-spacing:-.4px;opacity:.9;margin-right:4px}
+.hero .stats{display:flex;gap:16px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.18)}
+.hero .stats div{flex:1}
+.hero .stats span{display:block;font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:rgba(255,255,255,.66)}
+.hero .stats b{display:block;font-size:15px;margin-top:3px;font-weight:600}
+.hero .foot{display:flex;align-items:center;gap:8px;margin-top:14px}
+.hero .tag{font-size:11px;font-weight:600;color:#FFE7B4;background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:4px 10px;display:inline-flex;gap:5px}
+.hero .adjust{margin-left:auto;font-size:12px;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.35);
+  border-radius:999px;padding:6px 12px;text-decoration:none}
+.btn{height:46px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;gap:8px;
+  font-size:14px;font-weight:700;letter-spacing:.1px;border:1px solid transparent}
+.btn.primary{background:var(--primary);color:#fff}
+.btn.tonal{background:var(--primary-cont);color:var(--primary-deep)}
+.btn.ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
+.btn.sm{height:34px;font-size:12px;border-radius:var(--r-sm);padding:0 12px}
+.rowline{display:flex;align-items:center;gap:12px;padding:10px 0}
+.rowline+.rowline{border-top:.5px solid rgba(205,209,198,.75)}
+.avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:13px;font-weight:800;flex:0 0 38px}
+.rtitle{font-size:14px;font-weight:600;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rmeta{font-size:11.5px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ramt{margin-left:auto;text-align:right}
+.ramt b{display:block;font-size:14px;font-weight:700;letter-spacing:-.1px}
+.ramt span{font-size:10.5px;color:var(--ink2)}
+.neg{color:var(--error)}
+.pos{color:var(--income)}
+.muted{color:var(--ink2)}
+.bar{height:6px;border-radius:999px;background:var(--cont);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--primary)}
+.chip{height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:transparent;
+  display:inline-flex;align-items:center;font-size:12px;font-weight:600;color:var(--ink2);white-space:nowrap}
+.chip.on{background:var(--primary-cont);border-color:rgba(15,81,50,.22);color:var(--primary-deep);font-weight:700}
+.chiprow{display:flex;gap:6px;overflow:hidden}
+.field{background:var(--low);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 12px}
+.field .lbl{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink2)}
+.field .val{font-size:15px;font-weight:600;margin-top:2px}
+.field.sel{display:flex;align-items:center;gap:10px}
+.field.sel .val{flex:1}
+.chev{color:var(--ink2);font-size:16px;font-weight:700}
+.tile{background:var(--low);border-radius:var(--r-md);padding:12px;flex:1}
+.tile .k{font-size:10.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--ink2)}
+.tile .v{font-size:18px;font-weight:700;margin-top:3px;letter-spacing:-.3px}
+.empty{background:var(--low);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--ink2);font-size:12px}
+
+/* ---------- gallery ---------- */
+.gallery{max-width:1500px;margin:0 auto}
+.gallery header{color:#F4F2EA;text-align:center;margin-bottom:34px}
+.gallery header .eyebrow{color:#A9B6AA}
+.gallery header h1{font-size:40px;line-height:44px;letter-spacing:-1.2px;margin:8px 0 10px;color:#F7F5EF}
+.gallery header p{color:#AEBBAF;font-size:14px;max-width:620px;margin:0 auto;line-height:22px}
+.grid{display:flex;flex-wrap:wrap;gap:56px 44px;justify-content:center}
+.item{width:390px}
+.frame{width:390px;height:767px;overflow:hidden;border-radius:38px}
+.frame iframe{width:470px;height:924px;border:0;transform:scale(.83);transform-origin:top left}
+.item h3{color:#E9E7DE;font-size:14px;font-weight:700;margin-top:18px;letter-spacing:.2px}
+.item p{color:#9FAAA2;font-size:12px;margin-top:4px;line-height:18px}
+.tokens{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0 auto 40px;max-width:900px}
+.sw{display:flex;align-items:center;gap:8px;color:#C9D2C9;font-size:11px;
+  border:1px solid rgba(255,255,255,.10);border-radius:999px;padding:6px 12px}
+.sw i{width:10px;height:10px;border-radius:3px;display:block}
+.note{color:#8E9A90;font-size:11px;text-align:center;margin-top:34px;line-height:18px}
+@media(max-width:520px){body{padding:20px 8px}.phone{width:100%;height:auto;aspect-ratio:390/844}
+  .item{width:100%}.gallery header h1{font-size:28px;line-height:32px}}
+</style></head>
+<body>
+<div class="stage"><div class="phone"><div class="screen">
+<div class="statusbar"><span>9:41</span><div class="right">
+<span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+
+<div class="topbar">
+  <div class="titles">
+    <div class="eyebrow">Tue, 21 Oct</div>
+    <h1>Spending</h1>
+  </div>
+  <span class="pill sel">Main · ₪</span>
+  <span class="roundbtn solid"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+</div>
+<main class="content">
+  <section class="hero">
+    <div class="glow"></div>
+    <div class="eyebrow">Total balance</div>
+    <div class="amount num"><small>₪</small>12,480.25</div>
+    <div class="stats">
+      <div><span>This week</span><b class="num">₪1,284.50</b></div>
+      <div><span>This month</span><b class="num">₪4,912.80</b></div>
+    </div>
+    <div class="foot">
+      <span class="tag">● Rates updated 3h ago</span>
+      <a class="adjust" href="#">Adjust</a>
+    </div>
+  </section>
+
+  <div style="display:flex;gap:8px">
+    <div class="btn primary" style="flex:1">+ Add expense</div>
+    <div class="btn tonal" style="flex:1">+ Add income</div>
+  </div>
+
+  <section class="card">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <div class="eyebrow" style="flex:1">Total available</div>
+      <div class="num" style="font-size:15px;font-weight:700">₪14,982.10</div>
+    </div>
+    <div class="rowline" style="padding-top:12px">
+      <span class="avatar" style="background:var(--primary-cont);color:var(--primary-deep)">M</span>
+      <div style="min-width:0"><div class="rtitle">Main / debit</div><div class="rmeta">Everyday spending</div></div>
+      <div class="ramt"><b class="num">₪12,480.25</b></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:var(--amber-cont);color:var(--amber)">C</span>
+      <div style="min-width:0"><div class="rtitle">Cash</div><div class="rmeta">Wallet</div></div>
+      <div class="ramt"><b class="num">₪820.00</b></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:var(--error-cont);color:var(--error)">V</span>
+      <div style="min-width:0"><div class="rtitle">Visa •• 4421</div><div class="rmeta">Autopay 28 Oct · full</div></div>
+      <div class="ramt"><b class="num neg">−₪318.15</b></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <div class="btn ghost sm" style="flex:1">Cash income</div>
+      <div class="btn ghost sm" style="flex:1">Add credit card</div>
+    </div>
+  </section>
+
+  <div class="sect"><h2>Recent</h2><a href="#">See all</a></div>
+  <section class="card tight" style="padding:4px 12px">
+    <div class="rowline">
+      <span class="avatar" style="background:#F3E7D2;color:#8A5A12">F</span>
+      <div style="min-width:0"><div class="rtitle">Coffee</div><div class="rmeta">Food · Café Dizengoff</div></div>
+      <div class="ramt"><b class="num neg">−₪18.00</b><span>08:12</span></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:#E3EEDF;color:#2F6B44">G</span>
+      <div style="min-width:0"><div class="rtitle">Groceries</div><div class="rmeta">Food · Shufersal</div></div>
+      <div class="ramt"><b class="num neg">−₪236.40</b><span>Yesterday</span></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:var(--primary-cont);color:var(--primary-deep)">S</span>
+      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Income · Main / debit</div></div>
+      <div class="ramt"><b class="num pos">+₪9,400.00</b><span>19 Oct</span></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:#E6E9F2;color:#3C4C7A">T</span>
+      <div style="min-width:0"><div class="rtitle">Metro card</div><div class="rmeta">Transport · €2.50 → ₪9.90</div></div>
+      <div class="ramt"><b class="num neg">−₪9.90</b><span>19 Oct</span></div>
+    </div>
+  </section>
+
+  <div class="sect"><h2>Top categories · October</h2><a href="#">Breakdown</a></div>
+  <section class="card" style="display:flex;flex-direction:column;gap:12px">
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+        <b>Food &amp; drink</b><span class="num muted">₪1,120 · 34%</span></div>
+      <div class="bar"><i style="width:34%"></i></div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+        <b>Transport</b><span class="num muted">₪690 · 21%</span></div>
+      <div class="bar"><i style="width:21%"></i></div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+        <b>Home</b><span class="num muted">₪590 · 18%</span></div>
+      <div class="bar"><i style="width:18%"></i></div>
+    </div>
+  </section>
+
+  <div class="sect"><h2>Last 7 days</h2><span class="muted" style="font-size:11px">avg ₪183 / day</span></div>
+  <section class="card" style="display:flex;align-items:flex-end;gap:10px;height:96px;padding:14px 16px">
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:28px;border-radius:5px;background:var(--primary)"></div></div><div class="muted" style="font-size:9px;margin-top:6px">15</div></div>
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:16px;border-radius:5px;background:var(--primary);opacity:.85"></div></div><div class="muted" style="font-size:9px;margin-top:6px">16</div></div>
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:34px;border-radius:5px;background:var(--primary)"></div></div><div class="muted" style="font-size:9px;margin-top:6px">17</div></div>
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:22px;border-radius:5px;background:var(--primary)"></div></div><div class="muted" style="font-size:9px;margin-top:6px">18</div></div>
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:40px;border-radius:5px;background:var(--primary)"></div></div><div class="muted" style="font-size:9px;margin-top:6px">19</div></div>
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:12px;border-radius:5px;background:var(--primary)"></div></div><div class="muted" style="font-size:9px;margin-top:6px">20</div></div>
+    <div style="flex:1;text-align:center"><div style="height:44px;display:flex;align-items:flex-end"><div style="width:100%;height:8px;border-radius:5px;background:var(--primary);opacity:.45"></div></div><div class="muted" style="font-size:9px;margin-top:6px">21</div></div>
+  </section>
+
+  <div class="sect"><h2>Tools</h2></div>
+  <section class="card tight" style="padding:0 12px">
+    <div class="rowline"><span class="avatar" style="background:var(--sage-cont);color:var(--sage)">↻</span>
+      <div style="min-width:0"><div class="rtitle">Recurring payments</div><div class="rmeta">3 active · next 28 Oct</div></div><span class="chev">›</span></div>
+    <div class="rowline"><span class="avatar" style="background:var(--sage-cont);color:var(--sage)">⇄</span>
+      <div style="min-width:0"><div class="rtitle">Loans &amp; debts</div><div class="rmeta">₪1,240 I owe · ₪2,600 owed to me</div></div><span class="chev">›</span></div>
+  </section>
+</main>
+
+<nav class="tabbar"><div class="tab on"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg></span>Home</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>History</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></span>Rates</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0M17 5.5a3 3 0 0 1 0 5.8M21 19v-1a4 4 0 0 0-3-3.7"/></svg></span>Loans</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 14.9H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 3.1h0A2 2 0 1 1 13 3v.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v0a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>Settings</div></nav>
+</div></div></div>
+</body></html>

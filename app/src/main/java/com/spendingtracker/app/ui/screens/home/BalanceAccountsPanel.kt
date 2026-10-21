@@ -45,8 +45,8 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
         sum + (state.accountBalances[card.id] ?: BigDecimal.ZERO)
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(dims.cardPadding)) {
+    AppCard {
+        Column {
             val headerSource = remember { MutableInteractionSource() }
             Row(
                 modifier = Modifier
@@ -61,13 +61,13 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Total available",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "TOTAL AVAILABLE",
+                        style = com.spendingtracker.app.ui.theme.AppType.eyebrow,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = CurrencyFormatter.format(state.totalAvailable, state.balanceCurrency),
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium.merge(com.spendingtracker.app.ui.theme.AppType.tabular),
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

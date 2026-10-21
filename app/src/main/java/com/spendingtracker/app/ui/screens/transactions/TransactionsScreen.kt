@@ -1,5 +1,6 @@
 package com.spendingtracker.app.ui.screens.transactions
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -25,6 +26,7 @@ import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppAvatar
 import com.spendingtracker.app.ui.components.AppDot
 import com.spendingtracker.app.ui.components.AppEmptyState
 import com.spendingtracker.app.ui.components.AppFilterChip
@@ -33,6 +35,8 @@ import com.spendingtracker.app.ui.components.AppIconButton
 import com.spendingtracker.app.ui.components.AppLoadingScreen
 import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.components.AppTopBar
+import com.spendingtracker.app.ui.theme.AppType
+import com.spendingtracker.app.ui.theme.LocalAppPalette
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
@@ -78,7 +82,7 @@ fun TransactionsScreen(
 
     Scaffold(
         topBar = {
-            AppTopBar(title = "Transactions", onBack = onBack)
+            AppTopBar(title = "History", onBack = onBack)
         }
     ) { padding ->
         if (uiState.isLoading) {
@@ -154,16 +158,15 @@ fun TransactionsScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         contentPadding = PaddingValues(bottom = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         grouped.forEach { (day, dayItems) ->
                             item(key = "day_$day") {
                                 Text(
-                                    text = day,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 3.dp, bottom = 1.dp)
+                                    text = day.uppercase(),
+                                    style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp, start = 2.dp)
                                 )
                             }
                             items(dayItems) { (_, item) ->
@@ -195,6 +198,27 @@ fun TransactionsScreen(
 }
 
 @Composable
+private fun TransactionCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable RowScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        onClick = onClick ?: {}
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
+    }
+}
+
+@Composable
 private fun ExpenseRow(
     expense: Expense,
     currency: String,
@@ -202,15 +226,15 @@ private fun ExpenseRow(
     onDelete: () -> Unit
 ) {
     val compact = LocalCompactUi.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .clickable(onClick = onEdit)
-            .padding(start = if (compact) 9.dp else 12.dp, top = 4.dp, bottom = 4.dp, end = 0.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    val palette = LocalAppPalette.current
+    TransactionCard(onClick = onEdit) {
+        AppAvatar(
+            text = "−",
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            size = if (compact) 30.dp else 34.dp
+        )
+        Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -220,7 +244,7 @@ private fun ExpenseRow(
                         "${CurrencyFormatter.formatSimple(expense.originalAsBigDecimal(), expense.currencyOriginal)} → -" +
                             CurrencyFormatter.formatSimple(expense.convertedAsBigDecimal(), currency)
                     },
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -236,7 +260,7 @@ private fun ExpenseRow(
             if (!expense.note.isNullOrBlank()) {
                 Text(
                     text = expense.note.orEmpty(),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -247,7 +271,8 @@ private fun ExpenseRow(
             onClick = onDelete,
             icon = Icons.Default.Delete,
             contentDescription = "Delete expense",
-            modifier = Modifier.size(30.dp)
+            modifier = Modifier.size(32.dp),
+            tint = palette.expense.copy(alpha = 0.75f)
         )
     }
 }
@@ -260,24 +285,22 @@ private fun TopUpRow(
     onDelete: () -> Unit
 ) {
     val compact = LocalCompactUi.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))
-            .clickable(onClick = onEdit)
-            .padding(start = if (compact) 9.dp else 12.dp, top = 4.dp, bottom = 4.dp, end = 0.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AppDot(color = MaterialTheme.colorScheme.primary, sizeDp = 6)
-        Spacer(Modifier.width(5.dp))
+    val palette = LocalAppPalette.current
+    TransactionCard(onClick = onEdit) {
+        AppAvatar(
+            text = "+",
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            size = if (compact) 30.dp else 34.dp
+        )
+        Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "+" + CurrencyFormatter.formatSimple(topUp.amountAsBigDecimal(), currency),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = palette.income,
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
                 )
@@ -289,8 +312,8 @@ private fun TopUpRow(
                 )
             }
             Text(
-                text = topUp.note ?: "Top-up",
-                style = MaterialTheme.typography.labelSmall,
+                text = topUp.note ?: "Income",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -300,37 +323,48 @@ private fun TopUpRow(
             onClick = onDelete,
             icon = Icons.Default.Delete,
             contentDescription = "Delete top-up",
-            modifier = Modifier.size(30.dp)
+            modifier = Modifier.size(32.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
 @Composable
 private fun CreditCardPaymentRow(payment: CreditCardPayment, currency: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f))
-            .padding(horizontal = 7.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.22f))
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Card payment · " + CurrencyFormatter.formatSimple(java.math.BigDecimal(payment.amount), currency),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppAvatar(
+                text = "V",
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                size = 30.dp
             )
-            Text(
-                text = payment.status.replace('_', ' ').lowercase(Locale.getDefault()) +
-                    " · debit → card #${payment.cardId}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Card payment · " + CurrencyFormatter.formatSimple(java.math.BigDecimal(payment.amount), currency),
+                    style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = payment.status.replace('_', ' ').lowercase(Locale.getDefault()) +
+                        " · debit → card #${payment.cardId}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

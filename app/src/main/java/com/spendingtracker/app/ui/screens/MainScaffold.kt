@@ -2,6 +2,7 @@ package com.spendingtracker.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -17,11 +18,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.navigation.Screen
@@ -73,47 +77,68 @@ fun MainScaffold(
 
     Scaffold(
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .height(dims.navBarHeight)
-                ) {
-                    items.forEach { item ->
-                        val selected = selectedTab == item.route
-                        val source = remember { MutableInteractionSource() }
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .selectable(
-                                    selected = selected,
-                                    interactionSource = source,
-                                    indication = LocalIndication.current,
-                                    role = Role.Tab,
-                                    onClick = { selectedTab = item.route }
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                Column {
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .height(dims.navBarHeight)
+                    ) {
+                        items.forEach { item ->
+                            val selected = selectedTab == item.route
+                            val source = remember { MutableInteractionSource() }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .selectable(
+                                        selected = selected,
+                                        interactionSource = source,
+                                        indication = LocalIndication.current,
+                                        role = Role.Tab,
+                                        onClick = { selectedTab = item.route }
+                                    )
+                                    .padding(vertical = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .height(if (compact) 20.dp else 26.dp)
+                                        .widthIn(min = if (compact) 42.dp else 54.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(
+                                            if (selected) MaterialTheme.colorScheme.primaryContainer
+                                            else Color.Transparent
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = item.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(if (compact) 16.dp else 19.dp),
+                                        tint = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(Modifier.height(if (compact) 1.dp else 3.dp))
+                                Text(
+                                    text = if (compact) item.compactLabel else item.label,
+                                    fontSize = if (compact) 9.sp else 10.sp,
+                                    lineHeight = if (compact) 11.sp else 12.sp,
+                                    fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.Bold
+                                    else androidx.compose.ui.text.font.FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Clip,
+                                    color = if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                .padding(vertical = 1.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(if (compact) 18.dp else 20.dp),
-                                tint = if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = if (compact) item.compactLabel else item.label,
-                                fontSize = if (compact) 9.sp else 10.sp,
-                                lineHeight = if (compact) 11.sp else 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                                color = if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            }
                         }
                     }
                 }

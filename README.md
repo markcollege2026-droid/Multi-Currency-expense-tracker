@@ -2,6 +2,22 @@
 
 Offline-first personal finance app with multi-currency expense tracking and loan/debt management.
 
+## UI and design system (Ledger)
+
+The interface is built on a single design system, **Ledger**: warm bone paper,
+one forest accent, amber reserved for warnings and the hardware focus ring, hairline
+cards instead of shadows, and money always in tabular figures. Light and dark themes
+are both defined in code (Material You dynamic colour is available but off by
+default), and the compact Qin F21 layout shares the same tokens at a smaller scale.
+
+- Design source of truth: [`.superdesign/design-system.md`](.superdesign/design-system.md)
+- Screen mockups (390×844, self-contained HTML): [`.superdesign/design_iterations/`](.superdesign/design_iterations/)
+- Component library: `ui/components/AppCards.kt` (`AppCard`, `AppSectionCard`,
+  `AppStatTile`, `AppAvatar`, `AppListRow`) and `ui/components/CompactControls.kt`
+- Tokens: `ui/theme/Color.kt`, `ui/theme/Type.kt`, `ui/theme/Shapes.kt`, `ui/theme/Theme.kt`
+- How the design was produced and how each screen maps to code:
+  [`.superdesign/README.md`](.superdesign/README.md)
+
 ## Qin F21 Pro build
 
 This branch adds a compact layout for the 480×640 Qin F21 Pro and full physical-key

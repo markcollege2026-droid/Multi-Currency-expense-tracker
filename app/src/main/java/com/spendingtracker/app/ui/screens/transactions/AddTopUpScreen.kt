@@ -16,10 +16,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.AppButton
+import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppOutlinedButton
+import com.spendingtracker.app.ui.components.AppSectionHeader
 import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.ui.components.AppValueRow
+import com.spendingtracker.app.ui.theme.AppType
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -111,31 +114,45 @@ fun AddTopUpScreen(
                 .padding(horizontal = if (compact) 11.dp else 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 10.dp)
         ) {
-            Text(
-                text = "Balance operations use ${uiState.balanceCurrency} only",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            AppTextField(
-                value = uiState.amount,
-                onValueChange = viewModel::onAmountChanged,
-                label = "Amount in ${uiState.balanceCurrency}",
-                keyboardType = KeyboardType.Decimal,
-                placeholder = "0.00",
-                imeAction = ImeAction.Next,
-                focusRequester = amountFocus
-            )
-            AppTextField(
-                value = uiState.note,
-                onValueChange = viewModel::onNoteChanged,
-                label = "Note (optional)",
-                placeholder = "e.g. salary",
-                imeAction = ImeAction.Done
-            )
-            AppValueRow(
-                label = "Date",
-                value = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(uiState.date))
-            )
+            AppCard {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "INCOME TO ${uiState.balanceCurrency}",
+                        style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    AppTextField(
+                        value = uiState.amount,
+                        onValueChange = viewModel::onAmountChanged,
+                        label = "Amount in ${uiState.balanceCurrency}",
+                        keyboardType = KeyboardType.Decimal,
+                        placeholder = "0.00",
+                        imeAction = ImeAction.Next,
+                        focusRequester = amountFocus
+                    )
+                    Text(
+                        text = "Balance operations use ${uiState.balanceCurrency} only",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            AppSectionHeader("Details")
+            AppCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppValueRow(
+                        label = "Date",
+                        value = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(uiState.date))
+                    )
+                    AppTextField(
+                        value = uiState.note,
+                        onValueChange = viewModel::onNoteChanged,
+                        label = "Note (optional)",
+                        placeholder = "e.g. salary",
+                        imeAction = ImeAction.Done
+                    )
+                }
+            }
             Spacer(Modifier.height(2.dp))
         }
     }

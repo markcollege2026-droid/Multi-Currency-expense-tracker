@@ -125,10 +125,10 @@ private fun RecurringItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(
-                if (payment.isActive) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                if (payment.isActive) MaterialTheme.colorScheme.surfaceContainer
+                else MaterialTheme.colorScheme.surfaceContainerLow
             )
             .clickable(onClick = onEdit)
             .padding(horizontal = if (compact) 9.dp else 12.dp, vertical = if (compact) 6.dp else 10.dp),

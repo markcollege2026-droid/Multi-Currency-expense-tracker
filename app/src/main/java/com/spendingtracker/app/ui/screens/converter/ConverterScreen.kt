@@ -68,7 +68,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val ConverterBlue = Color(0xFF2563EB)
+private val ConverterBlue = Color(0xFF1B7A50)
 private val PositiveGreenBg = Color(0xFFE6F4EA)
 private val PositiveGreenText = Color(0xFF1E8E3E)
 private val NegativeRedBg = Color(0xFFFCE8E6)
@@ -302,7 +302,7 @@ private fun ConverterModeBar(
             .fillMaxWidth()
             .padding(horizontal = dims.screenPadding, vertical = if (compact) 3.dp else 6.dp),
         shape = RoundedCornerShape(if (compact) 8.dp else 14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Row(
             modifier = Modifier
@@ -550,7 +550,7 @@ private fun TargetCurrencyCard(
                 modifier = Modifier
                     .size(if (compact) 24.dp else 44.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Text(text = item.info.flag, fontSize = if (compact) 13.sp else 23.sp)
@@ -729,7 +729,7 @@ private fun AmountSelectionDialog(
         if (previewTargets.isNotEmpty()) {
             Surface(
                 shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -935,7 +935,7 @@ private fun ConverterChartsContent(
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable { onSelectTimeframe(tf) },
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) ConverterBlue else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            color = if (isSelected) ConverterBlue else MaterialTheme.colorScheme.surfaceContainer
                         ) {
                             Text(
                                 text = tf.label,
@@ -1305,7 +1305,7 @@ private fun AddCurrencyOrCommodityDialog(
                         .clip(RoundedCornerShape(5.dp))
                         .background(
                             if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.surfaceContainerLow
                         )
                         .clickable { onToggleCode(info.code) }
                         .padding(horizontal = 6.dp, vertical = 3.dp),
@@ -1454,7 +1454,7 @@ private fun ConverterActionButton(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(5.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .clickable(
                 interactionSource = source,
                 indication = androidx.compose.foundation.LocalIndication.current,

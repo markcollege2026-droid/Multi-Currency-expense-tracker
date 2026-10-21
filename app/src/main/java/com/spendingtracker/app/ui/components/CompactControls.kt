@@ -71,38 +71,44 @@ fun AppTopBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val dims = LocalAppDimens.current
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .heightIn(min = dims.topBarHeight)
-                .padding(horizontal = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
+    Column(modifier = modifier.fillMaxWidth()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surface
         ) {
-            if (onBack != null) {
-                AppIconButton(
-                    onClick = onBack,
-                    icon = Icons.Default.ArrowBack,
-                    contentDescription = "Back"
-                )
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 4.dp)
-            )
-            actions()
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .heightIn(min = dims.topBarHeight)
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (onBack != null) {
+                    AppIconButton(
+                        onClick = onBack,
+                        icon = Icons.Default.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.2).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 6.dp)
+                )
+                actions()
+            }
         }
+        HorizontalDivider(
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+        )
     }
 }
 
@@ -146,7 +152,7 @@ fun AppButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     colors: ButtonColors = ButtonDefaults.buttonColors(),
-    shape: androidx.compose.ui.graphics.Shape = ButtonDefaults.shape,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
     contentPadding: PaddingValues? = null,
     content: @Composable RowScope.() -> Unit
 ) {
@@ -157,12 +163,14 @@ fun AppButton(
     Box(
         modifier = modifier.drawWithContent {
             drawContent()
-            if (focused) drawQinFocusRing(color = QinFocusColor, corner = 10.dp)
+            if (focused) drawQinFocusRing(color = QinFocusColor, corner = 14.dp)
         }
     ) {
         Button(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = if (compact) (if (tight) 30.dp else 36.dp) else 46.dp),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -172,11 +180,16 @@ fun AppButton(
                     vertical = if (tight) 2.dp else 5.dp
                 )
             } else {
-                ButtonDefaults.ContentPadding
+                PaddingValues(horizontal = 20.dp, vertical = 12.dp)
             },
-            interactionSource = source,
-            content = content
-        )
+            interactionSource = source
+        ) {
+            ProvideTextStyle(
+                value = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+            ) {
+                content()
+            }
+        }
     }
 }
 
@@ -195,24 +208,36 @@ fun AppOutlinedButton(
     Box(
         modifier = modifier.drawWithContent {
             drawContent()
-            if (focused) drawQinFocusRing(color = QinFocusColor, corner = 10.dp)
+            if (focused) drawQinFocusRing(color = QinFocusColor, corner = 14.dp)
         }
     ) {
         OutlinedButton(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = if (compact) (if (tight) 30.dp else 36.dp) else 46.dp),
             enabled = enabled,
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+            ),
             contentPadding = contentPadding ?: if (compact) {
                 PaddingValues(
                     horizontal = if (tight) 8.dp else 12.dp,
                     vertical = if (tight) 2.dp else 5.dp
                 )
             } else {
-                ButtonDefaults.ContentPadding
+                PaddingValues(horizontal = 20.dp, vertical = 12.dp)
             },
-            interactionSource = source,
-            content = content
-        )
+            interactionSource = source
+        ) {
+            ProvideTextStyle(
+                value = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+            ) {
+                content()
+            }
+        }
     }
 }
 
@@ -255,13 +280,20 @@ fun AppFilterChip(
     val compact = LocalCompactUi.current
     val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
+    val chipShape = RoundedCornerShape(50)
     Row(
         modifier = modifier
-            .heightIn(min = if (compact) (if (tight) 30.dp else 36.dp) else 40.dp)
-            .clip(RoundedCornerShape(50))
+            .heightIn(min = if (compact) (if (tight) 30.dp else 34.dp) else 36.dp)
+            .clip(chipShape)
             .background(
-                if (selected) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else Color.Transparent
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                else MaterialTheme.colorScheme.outlineVariant,
+                shape = chipShape
             )
             .clickable(
                 interactionSource = source,
@@ -271,7 +303,7 @@ fun AppFilterChip(
                 onClick = onClick
             )
             .padding(
-                horizontal = if (compact) (if (tight) 7.dp else 10.dp) else 12.dp,
+                horizontal = if (compact) (if (tight) 9.dp else 11.dp) else 13.dp,
                 vertical = if (compact) (if (tight) 3.dp else 5.dp) else 6.dp
             ),
         verticalAlignment = Alignment.CenterVertically
@@ -281,7 +313,7 @@ fun AppFilterChip(
             style = if (compact) (if (tight) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge) else MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            else if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+            else if (selected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -301,13 +333,20 @@ fun AppPill(
     val compact = LocalCompactUi.current
     val tight = LocalTightUi.current
     val source = remember { MutableInteractionSource() }
+    val pillShape = RoundedCornerShape(50)
     Box(
         modifier = modifier
-            .heightIn(min = if (compact) (if (tight) 28.dp else 34.dp) else 36.dp)
-            .clip(RoundedCornerShape(50))
+            .heightIn(min = if (compact) (if (tight) 28.dp else 32.dp) else 32.dp)
+            .clip(pillShape)
             .background(
                 if (selected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant
+                else MaterialTheme.colorScheme.surfaceContainerLowest
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                else MaterialTheme.colorScheme.outlineVariant,
+                shape = pillShape
             )
             .clickable(
                 interactionSource = source,
@@ -321,8 +360,8 @@ fun AppPill(
                 } else Modifier
             )
             .padding(
-                horizontal = if (compact) (if (tight) 7.dp else 10.dp) else 7.dp,
-                vertical = if (compact) (if (tight) 4.dp else 5.dp) else 4.dp
+                horizontal = if (compact) (if (tight) 8.dp else 11.dp) else 12.dp,
+                vertical = if (compact) (if (tight) 4.dp else 5.dp) else 5.dp
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -382,6 +421,7 @@ fun AppTextField(
             placeholder = placeholder?.let { { Text(it) } },
             singleLine = true,
             visualTransformation = visualTransformation,
+            shape = RoundedCornerShape(10.dp),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
             keyboardActions = actions,
             modifier = if (focusRequester != null) modifier.focusRequester(focusRequester) else modifier
@@ -429,7 +469,9 @@ fun AppTextField(
                 .fillMaxWidth()
                 .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                 .heightIn(min = if (tight) 32.dp else 38.dp)
-                .border(if (focused) 2.dp else 1.dp, borderColor, RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .border(if (focused) 2.dp else 1.dp, borderColor, RoundedCornerShape(10.dp))
                 .padding(horizontal = if (tight) 8.dp else 10.dp, vertical = if (tight) 6.dp else 8.dp)
                 .pointerInput(Unit) {
                     // Do not consume the tap: BasicTextField still needs it to place the
@@ -519,11 +561,13 @@ fun AppSelectorRow(
     placeholder: String = "Select"
 ) {
     val source = remember { MutableInteractionSource() }
+    val selectShape = RoundedCornerShape(12.dp)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .clip(selectShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, selectShape)
             .clickable(
                 interactionSource = source,
                 indication = LocalIndication.current,
@@ -531,7 +575,7 @@ fun AppSelectorRow(
                 role = Role.Button,
                 onClick = onClick
             )
-            .padding(horizontal = 7.dp, vertical = 5.dp)
+            .padding(horizontal = 11.dp, vertical = 8.dp)
             .semantics { contentDescription = "$label: $value" },
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -542,25 +586,26 @@ fun AppSelectorRow(
                     .clip(CircleShape)
                     .background(leadingColor)
             )
-            Spacer(Modifier.width(5.dp))
+            Spacer(Modifier.width(8.dp))
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = value.ifBlank { placeholder },
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = value.ifBlank { placeholder },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
         Text(
             text = "›",
             style = MaterialTheme.typography.titleMedium,
@@ -602,9 +647,9 @@ fun AppDialog(
                 .widthIn(max = 440.dp)
                 .heightIn(max = maxScreenHeight)
                 .imePadding(),
-            shape = RoundedCornerShape(if (compact) (if (tight) 10.dp else 14.dp) else 16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp
+            shape = RoundedCornerShape(if (compact) (if (tight) 14.dp else 18.dp) else 20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            shadowElevation = 8.dp
         ) {
             Column(
                 modifier = Modifier
@@ -660,17 +705,18 @@ fun AppDialog(
 /** Thin labelled divider used by the compact settings lists. */
 @Composable
 fun AppSectionHeader(title: String, modifier: Modifier = Modifier, trailing: @Composable (() -> Unit)? = null) {
+    val compact = LocalCompactUi.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 2.dp),
+            .padding(top = 4.dp, bottom = 2.dp, start = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            text = title.uppercase(),
+            style = if (compact) com.spendingtracker.app.ui.theme.AppType.eyebrowCompact
+            else com.spendingtracker.app.ui.theme.AppType.eyebrow,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f)
         )
         trailing?.invoke()
@@ -711,11 +757,19 @@ fun AppLoadingScreen(modifier: Modifier = Modifier) {
 
 @Composable
 fun AppEmptyState(text: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
     }
 }
