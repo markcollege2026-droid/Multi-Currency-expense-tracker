@@ -23,9 +23,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.LoanDebt
+import com.spendingtracker.app.data.local.entity.Repayment
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.*
+import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
@@ -40,6 +42,7 @@ fun AddLoanScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showDueDatePicker by remember { mutableStateOf(false) }
+    var pendingRepaymentDelete by remember { mutableStateOf<Repayment?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
     val hardwareKeypad = LocalHardwareKeypad.current
@@ -252,7 +255,8 @@ fun AddLoanScreen(
                                 viewModel.addRepayment(loanId)
                             },
                             modifier = Modifier.widthIn(min = 52.dp),
-                            enabled = uiState.newRepaymentAmount.isNotBlank()
+                            enabled = uiState.newRepaymentAmount.isNotBlank(),
+                            fillWidth = false
                         ) { Text("Add", maxLines = 1) }
                     }
                 }
@@ -289,7 +293,7 @@ fun AddLoanScreen(
                             )
                         }
                         AppIconButton(
-                            onClick = { viewModel.deleteRepayment(rep, loanId) },
+                            onClick = { pendingRepaymentDelete = rep },
                             icon = Icons.Default.Delete,
                             contentDescription = "Delete repayment",
                             modifier = Modifier.size(28.dp)
@@ -316,6 +320,23 @@ fun AddLoanScreen(
                 onConfirm = { millis ->
                     viewModel.onDueDateChanged(millis)
                     showDueDatePicker = false
+                }
+            )
+        }
+
+        pendingRepaymentDelete?.let { repayment ->
+            AppConfirmDialog(
+                title = "Delete repayment?",
+                message = "Removing this repayment reopens " +
+                    CurrencyFormatter.formatSimple(
+                        try { java.math.BigDecimal(repayment.amount) } catch (e: Exception) { java.math.BigDecimal.ZERO },
+                        uiState.currency
+                    ) + " of the remaining balance.",
+                confirmLabel = "Delete",
+                onDismiss = { pendingRepaymentDelete = null },
+                onConfirm = {
+                    if (loanId != null) viewModel.deleteRepayment(repayment, loanId)
+                    pendingRepaymentDelete = null
                 }
             )
         }

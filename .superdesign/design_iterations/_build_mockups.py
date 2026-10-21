@@ -122,6 +122,25 @@ body{padding:40px 20px}
 .tile .v{font-size:18px;font-weight:700;margin-top:3px;letter-spacing:-.3px}
 .empty{background:var(--low);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--ink2);font-size:12px}
 
+/* ---------- dialog ---------- */
+.scrim{position:absolute;inset:0;background:rgba(23,27,21,.42);backdrop-filter:blur(1.5px);
+  display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}
+.dialog{width:100%;max-width:330px;background:var(--card);border-radius:20px;padding:20px;
+  box-shadow:0 24px 48px -12px rgba(0,0,0,.35)}
+.dialog h2{font-size:18px;line-height:24px;font-weight:700;letter-spacing:-.2px}
+.dialog .hint{font-size:11.5px;color:var(--ink2);margin-top:6px;line-height:17px}
+.dialog .stack{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.dactions{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center}
+.dactions .btn{width:auto;padding:0 16px;height:40px}
+.dactions .txt{font-size:13px;font-weight:700;color:var(--primary);padding:0 8px;height:40px;
+  display:flex;align-items:center}
+.dactions .txt.danger{color:var(--error)}
+.dactions .btn.danger{background:var(--error);color:#fff}
+.badge-note{position:absolute;left:16px;right:16px;bottom:96px;background:rgba(255,255,255,.94);
+  border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:11px;color:var(--ink2);
+  line-height:16px;z-index:6}
+.badge-note b{color:var(--ink)}
+
 /* ---------- gallery ---------- */
 .gallery{max-width:1500px;margin:0 auto}
 .gallery header{color:#F4F2EA;text-align:center;margin-bottom:34px}
@@ -633,6 +652,53 @@ def settings():
     return page("Settings", body, tabs=tabbar("settings"))
 
 
+# ---------------------------------------------------------------- ADD CASH DIALOG
+def add_cash():
+    body = """
+<div class="scrim">
+  <div class="dialog">
+    <h2>Add cash balance</h2>
+    <div class="hint">A cash balance is a separate wallet. Opening amounts do not withdraw money from main/debit.</div>
+    <div class="stack">
+      <div class="field"><div class="lbl">Name</div><div class="val">Cash</div></div>
+      <div class="field"><div class="lbl">Opening cash</div><div class="val num">0.00</div></div>
+    </div>
+    <div class="dactions">
+      <span class="txt">Cancel</span>
+      <span class="btn primary">Create</span>
+    </div>
+  </div>
+</div>
+<div class="badge-note"><b>Both actions are always rendered.</b> The action row wraps instead of
+  measuring the confirm button at zero width — this dialog previously offered only “Cancel”.</div>
+"""
+    return page("Add cash balance", body, tabs=tabbar("home"))
+
+
+def delete_confirm():
+    body = """
+<div class="scrim">
+  <div class="dialog">
+    <h2>Edit cash</h2>
+    <div class="hint">cash · ILS · opening ₪820.00</div>
+    <div class="stack">
+      <div class="field"><div class="lbl">Name</div><div class="val">Cash</div></div>
+      <div class="field"><div class="lbl">Low balance warning (optional)</div><div class="val num">100.00</div></div>
+    </div>
+    <div class="hint">Deleting this balance also removes its expenses, income and payments.</div>
+    <div class="dactions">
+      <span class="txt danger">Delete</span>
+      <span class="txt">Cancel</span>
+      <span class="btn primary">Save</span>
+    </div>
+  </div>
+</div>
+<div class="badge-note"><b>Three actions, one row.</b> Delete asks for confirmation in a second
+  dialog (“Delete transaction?” / Cancel · Delete). Destructive buttons carry the word, not just the colour.</div>
+"""
+    return page("Confirmations", body, tabs=tabbar("home"))
+
+
 # ---------------------------------------------------------------- GALLERY
 def gallery(files):
     swatches = [("#F7F5EF", "Background"), ("#FFFFFF", "Card"), ("#0F5132", "Forest primary"),
@@ -670,6 +736,8 @@ SCREENS = [
     ("converter", "Converter", "Base and target cards, mid-market rate, 7-day sparkline and quick pairs.", converter),
     ("loans", "Loans &amp; debts", "Net position, partial-repayment progress and overdue reminders.", loans),
     ("settings", "Settings", "Accounts, appearance, backup/restore, rates and about.", settings),
+    ("add-cash", "Add cash balance", "Dialog actions: Cancel and Create are both always rendered and reachable.", add_cash),
+    ("dialogs", "Confirmations", "Destructive actions ask first: one-tap delete is now a two-step confirm.", delete_confirm),
 ]
 
 def main():

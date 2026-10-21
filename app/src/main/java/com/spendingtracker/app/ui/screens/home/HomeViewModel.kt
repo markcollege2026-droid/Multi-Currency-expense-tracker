@@ -217,6 +217,16 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(message = "Credit card payment completed") }
     }
     fun configureAutopay(card: Account) = action { financeRepository.configureAutopay(card); runAutopay() }
+    /** Renames a balance account or changes its warning threshold / credit limit. */
+    fun updateBalanceAccount(account: Account) = action {
+        financeRepository.updateAccount(account)
+        _uiState.update { it.copy(message = "${account.name} updated") }
+    }
+    /** Removes a cash or card balance together with its own transactions. */
+    fun deleteBalanceAccount(account: Account) = action {
+        financeRepository.deleteAccountCascade(account)
+        _uiState.update { it.copy(message = "${account.name} deleted") }
+    }
     fun dismissPayment(payment: CreditCardPayment) = action { financeRepository.dismissPayment(payment) }
     fun clearMessage() { _uiState.update { it.copy(message = null) } }
     private fun action(block: suspend () -> Unit) {

@@ -30,6 +30,7 @@ import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.*
+import com.spendingtracker.app.ui.components.DueDatePickerDialog
 import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
@@ -45,6 +46,8 @@ fun AddExpenseScreen(
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAccountPicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(expenseId) { viewModel.loadExpense(expenseId) }
@@ -66,7 +69,11 @@ fun AddExpenseScreen(
         onOpenAccount = { showAccountPicker = true },
         onManualRateToggle = viewModel::onUseManualRateChanged,
         onManualRateChanged = viewModel::onManualRateChanged,
-        onAllowOverdraft = viewModel::allowOverdraft
+        onAllowOverdraft = viewModel::allowOverdraft,
+        onOpenDate = { showDatePicker = true },
+        onDelete = if (uiState.isEditMode) {
+            { showDeleteConfirm = true }
+        } else null
     )
 
     if (showCurrencyPicker) {
@@ -90,6 +97,29 @@ fun AddExpenseScreen(
             },
             onDeleteCategory = { viewModel.deleteCategory(it) },
             onCreateCategory = { name, color -> viewModel.createCategory(name, color) }
+        )
+    }
+    if (showDatePicker) {
+        DueDatePickerDialog(
+            initialDateMillis = uiState.date,
+            onDismiss = { showDatePicker = false },
+            onConfirm = { millis ->
+                viewModel.onDateChanged(millis)
+                showDatePicker = false
+            }
+        )
+    }
+    if (showDeleteConfirm && expenseId != null) {
+        AppConfirmDialog(
+            title = "Delete expense?",
+            message = "The expense will be removed and the balance restored. This cannot be undone.",
+            confirmLabel = "Delete",
+            onDismiss = { showDeleteConfirm = false },
+            onConfirm = {
+                showDeleteConfirm = false
+                keyboard?.hide()
+                viewModel.deleteExpense(expenseId, onBack)
+            }
         )
     }
     if (showAccountPicker) {
@@ -118,6 +148,8 @@ fun AddExpenseContent(
     onManualRateToggle: (Boolean) -> Unit,
     onManualRateChanged: (String) -> Unit,
     onAllowOverdraft: (Boolean) -> Unit,
+    onOpenDate: () -> Unit = {},
+    onDelete: (() -> Unit)? = null,
     hardwareKeypad: Boolean = LocalHardwareKeypad.current
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -151,7 +183,17 @@ fun AddExpenseContent(
         topBar = {
             AppTopBar(
                 title = if (state.isEditMode) "Edit expense" else "New expense",
-                onBack = onBack
+                onBack = onBack,
+                actions = {
+                    if (onDelete != null) {
+                        AppIconButton(
+                            onClick = onDelete,
+                            icon = Icons.Default.Delete,
+                            contentDescription = "Delete expense",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             )
         },
         bottomBar = {
@@ -309,9 +351,10 @@ fun AddExpenseContent(
                             )
                         }
                     }
-                    AppValueRow(
+                    AppSelectorRow(
                         label = "Date",
-                        value = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(state.date))
+                        value = SimpleDateFormat("EEE d MMM yyyy · HH:mm", Locale.getDefault()).format(Date(state.date)),
+                        onClick = onOpenDate
                     )
                     AppTextField(
                         value = state.note,

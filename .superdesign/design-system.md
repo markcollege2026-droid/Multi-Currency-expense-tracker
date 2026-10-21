@@ -191,6 +191,18 @@ unselected `onSurfaceVariant`.
 **Dialogs** — `surfaceContainerLowest`, 20dp radius, title `titleLarge` bold, body
 scrolls to max 58% of screen height, actions pinned bottom-right, primary action last.
 
+*Dialog actions are a `FlowRow`.* Each action is measured at its intrinsic width and the
+row wraps to a second line when it does not fit (compact 240dp with three actions).
+Never put `fillMaxWidth` buttons side by side in an `End`-aligned row: the first child
+consumes the line and later children measure at 0dp, which silently removes the confirm
+button. A dialog always offers a way forward **and** a way out; destructive confirms use
+the error colour *and* a verb label ("Delete expense").
+
+**Confirmations** — anything that rewrites the ledger asks first with a one-line
+consequence: deleting a transaction, income, loan, repayment, recurring payment, cash or
+card balance. Non-destructive state changes ("Mark settled") confirm too, because they
+are otherwise invisible in balances.
+
 ## 8. Accessibility
 
 - Contrast: body text ≥ 4.5:1, large amounts ≥ 3:1 (verified for every token pair above).

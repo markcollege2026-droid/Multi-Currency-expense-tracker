@@ -154,6 +154,7 @@ fun AppButton(
     colors: ButtonColors = ButtonDefaults.buttonColors(),
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
     contentPadding: PaddingValues? = null,
+    fillWidth: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
     val compact = LocalCompactUi.current
@@ -169,7 +170,7 @@ fun AppButton(
         Button(
             onClick = onClick,
             modifier = Modifier
-                .fillMaxWidth()
+                .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
                 .heightIn(min = if (compact) (if (tight) 30.dp else 36.dp) else 46.dp),
             enabled = enabled,
             shape = shape,
@@ -199,6 +200,7 @@ fun AppOutlinedButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     contentPadding: PaddingValues? = null,
+    fillWidth: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
     val compact = LocalCompactUi.current
@@ -214,7 +216,7 @@ fun AppOutlinedButton(
         OutlinedButton(
             onClick = onClick,
             modifier = Modifier
-                .fillMaxWidth()
+                .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
                 .heightIn(min = if (compact) (if (tight) 30.dp else 36.dp) else 46.dp),
             enabled = enabled,
             shape = RoundedCornerShape(14.dp),
@@ -246,6 +248,7 @@ fun AppTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    fillWidth: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
     val source = remember { MutableInteractionSource() }
@@ -258,7 +261,7 @@ fun AppTextButton(
     ) {
         TextButton(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = if (fillWidth) Modifier.fillMaxWidth() else Modifier,
             enabled = enabled,
             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
             interactionSource = source,
@@ -619,6 +622,7 @@ fun AppSelectorRow(
  * width and no height cap, which clips on 240x320dp. Buttons stay pinned below a
  * scrollable body, so the primary action is never hidden by a long form or IME.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AppDialog(
     onDismissRequest: () -> Unit,
@@ -629,6 +633,8 @@ fun AppDialog(
     onConfirm: (() -> Unit)? = null,
     contentScrollable: Boolean = true,
     contentMaxHeightFraction: Float = 0.58f,
+    confirmColors: ButtonColors = ButtonDefaults.buttonColors(),
+    extraAction: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val compact = LocalCompactUi.current
@@ -676,29 +682,101 @@ fun AppDialog(
                     verticalArrangement = Arrangement.spacedBy(if (compact) (if (tight) 5.dp else 8.dp) else 10.dp),
                     content = content
                 )
-                if (onConfirm != null || dismissLabel.isNotEmpty()) {
-                    Row(
+                if (onConfirm != null || dismissLabel.isNotEmpty() || extraAction != null) {
+                    // The actions live in a FlowRow: each button is measured against the
+                    // full dialog width and wraps to a second line when the row is too
+                    // narrow. Previously both buttons were fillMaxWidth inside an
+                    // End-aligned Row, so the confirm action was measured at 0dp and
+                    // disappeared - dialogs appeared to offer "Cancel" only.
+                    FlowRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        maxItemsInEachRow = 3
                     ) {
+                        extraAction?.let { action -> DialogActionSlot { action() } }
                         if (dismissLabel.isNotEmpty()) {
-                            AppTextButton(onClick = onDismissRequest) {
-                                Text(dismissLabel, maxLines = 1)
+                            DialogActionSlot {
+                                AppTextButton(
+                                    onClick = onDismissRequest,
+                                    fillWidth = false
+                                ) {
+                                    Text(dismissLabel, maxLines = 1)
+                                }
                             }
                         }
                         if (onConfirm != null && confirmLabel != null) {
-                            Spacer(Modifier.width(4.dp))
-                            AppButton(onClick = onConfirm, enabled = confirmEnabled) {
-                                Text(confirmLabel, maxLines = 1)
+                            DialogActionSlot {
+                                AppButton(
+                                    onClick = onConfirm,
+                                    enabled = confirmEnabled,
+                                    colors = confirmColors,
+                                    fillWidth = false
+                                ) {
+                                    Text(confirmLabel, maxLines = 1)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Keeps the mixed text/contained buttons of a dialog action row on one baseline.
+ * Height only - the width stays with the button so it never swallows its siblings.
+ */
+@Composable
+private fun DialogActionSlot(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier.heightIn(min = 32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+/**
+ * Destructive or irreversible confirmation. Always offers both the affirmative
+ * action and an explicit way out, and uses the error colour for the confirm button
+ * only - the label says what happens ("Delete expense") so colour is not the only
+ * signal.
+ */
+@Composable
+fun AppConfirmDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+    confirmLabel: String = "Delete",
+    dismissLabel: String = "Cancel",
+    destructive: Boolean = true
+) {
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = title,
+        confirmLabel = confirmLabel,
+        dismissLabel = dismissLabel,
+        onConfirm = onConfirm,
+        contentScrollable = false,
+        confirmColors = if (destructive) {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            )
+        } else {
+            ButtonDefaults.buttonColors()
+        }
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

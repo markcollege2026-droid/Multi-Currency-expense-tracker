@@ -66,6 +66,29 @@ stays in `app/src/main`.
 | Section cards and theme picker | `ui/screens/settings/SettingsScreen.kt` |
 | Onboarding | `ui/screens/setup/SetupScreen.kt` |
 
+## Functionality pass (follow-up)
+
+The first pass shipped styling; this pass closed functional gaps found by walking every
+screen. Two categories:
+
+**Broken**: the shared `AppDialog` rendered its confirm button inside an `End`-aligned
+`Row` where both buttons were `fillMaxWidth`, so the confirm was measured at 0dp and
+disappeared. Every confirmation dialog — "Add cash balance", "Delete account?", "Erase
+all data?" — showed only *Cancel*. Actions are now a `FlowRow` (intrinsic widths, wraps
+on 240dp), buttons gained `fillWidth`, and `AppDialogActionsTest` (Robolectric, regular +
+240×320dp windows) locks the behaviour in.
+
+**Missing options** added:
+
+| Where | Added |
+|---|---|
+| Balance panel | Main/cash/card rows are tappable → *Edit balance* dialog (rename, low-balance warning, card credit limit, delete with confirmation) |
+| Cash / card rows | *+ Cash income*, *Edit cash*, *Pay card*, *Autopay*, *+ Add credit card* are always reachable; card autopay status is shown as meta |
+| Expense / income edit | *Date* picker (was display-only) and a delete action with confirmation |
+| History | Category filter, currency filters, "Last 30 days", "Clear filters" and a filtered total — the view model supported these but the UI never exposed them |
+| History / Recurring / Loans / Loan edit | Confirmation dialogs before delete; settle/reopen confirmation |
+| Recurring empty state | Real call to action instead of a paragraph |
+
 ## Constraints the design respects
 
 - **Two densities.** Regular phones/tablets and the Qin F21 Pro (240×320dp) share the

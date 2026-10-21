@@ -22,6 +22,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppCard
+import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppEmptyState
 import com.spendingtracker.app.ui.components.AppIconButton
 import com.spendingtracker.app.ui.components.AppSectionHeader
@@ -44,6 +45,9 @@ fun LoansScreen(
     val uiState by viewModel.uiState.collectAsState()
     val dims = LocalAppDimens.current
     val compact = LocalCompactUi.current
+
+    var pendingDelete by remember { mutableStateOf<LoanWithBalance?>(null) }
+    var pendingSettle by remember { mutableStateOf<LoanWithBalance?>(null) }
 
     Scaffold(
         topBar = {
@@ -139,8 +143,8 @@ fun LoansScreen(
                         LoanItem(
                             item = item,
                             onEdit = { onEditLoan(item.loan.id) },
-                            onDelete = { viewModel.deleteLoan(item.loan) },
-                            onToggleSettled = { viewModel.toggleSettled(item.loan) }
+                            onDelete = { pendingDelete = item },
+                            onToggleSettled = { pendingSettle = item }
                         )
                     }
                 }
@@ -172,13 +176,49 @@ fun LoansScreen(
                         LoanItem(
                             item = item,
                             onEdit = { onEditLoan(item.loan.id) },
-                            onDelete = { viewModel.deleteLoan(item.loan) },
-                            onToggleSettled = { viewModel.toggleSettled(item.loan) }
+                            onDelete = { pendingDelete = item },
+                            onToggleSettled = { pendingSettle = item }
                         )
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { item ->
+        AppConfirmDialog(
+            title = "Delete loan?",
+            message = "\"${item.loan.personName}\" and its repayment history will be deleted. " +
+                "Balances in your accounts are not changed by loans.",
+            confirmLabel = "Delete",
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                viewModel.deleteLoan(item.loan)
+                pendingDelete = null
+            }
+        )
+    }
+
+    pendingSettle?.let { item ->
+        val settling = !item.loan.isSettled
+        AppConfirmDialog(
+            title = if (settling) "Mark as settled?" else "Reopen this loan?",
+            message = if (settling) {
+                "\"${item.loan.personName}\" will be marked settled with " +
+                    CurrencyFormatter.format(item.remaining, item.loan.currencyOriginal) + " still outstanding. " +
+                    "You can reopen it later."
+            } else {
+                "The loan will go back to open with " +
+                    CurrencyFormatter.format(item.remaining, item.loan.currencyOriginal) + " remaining."
+            },
+            confirmLabel = if (settling) "Mark settled" else "Reopen",
+            destructive = false,
+            onDismiss = { pendingSettle = null },
+            onConfirm = {
+                viewModel.toggleSettled(item.loan)
+                pendingSettle = null
+            }
+        )
     }
 }
 

@@ -112,6 +112,25 @@ body{padding:40px 20px}
 .tile .v{font-size:18px;font-weight:700;margin-top:3px;letter-spacing:-.3px}
 .empty{background:var(--low);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--ink2);font-size:12px}
 
+/* ---------- dialog ---------- */
+.scrim{position:absolute;inset:0;background:rgba(23,27,21,.42);backdrop-filter:blur(1.5px);
+  display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}
+.dialog{width:100%;max-width:330px;background:var(--card);border-radius:20px;padding:20px;
+  box-shadow:0 24px 48px -12px rgba(0,0,0,.35)}
+.dialog h2{font-size:18px;line-height:24px;font-weight:700;letter-spacing:-.2px}
+.dialog .hint{font-size:11.5px;color:var(--ink2);margin-top:6px;line-height:17px}
+.dialog .stack{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.dactions{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center}
+.dactions .btn{width:auto;padding:0 16px;height:40px}
+.dactions .txt{font-size:13px;font-weight:700;color:var(--primary);padding:0 8px;height:40px;
+  display:flex;align-items:center}
+.dactions .txt.danger{color:var(--error)}
+.dactions .btn.danger{background:var(--error);color:#fff}
+.badge-note{position:absolute;left:16px;right:16px;bottom:96px;background:rgba(255,255,255,.94);
+  border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:11px;color:var(--ink2);
+  line-height:16px;z-index:6}
+.badge-note b{color:var(--ink)}
+
 /* ---------- gallery ---------- */
 .gallery{max-width:1500px;margin:0 auto}
 .gallery header{color:#F4F2EA;text-align:center;margin-bottom:34px}
@@ -141,7 +160,7 @@ body{padding:40px 20px}
   the Compose implementation follows the same tokens.</p>
 </header>
 <div class="tokens"><span class="sw"><i style="background:#F7F5EF"></i>Background</span><span class="sw"><i style="background:#FFFFFF"></i>Card</span><span class="sw"><i style="background:#0F5132"></i>Forest primary</span><span class="sw"><i style="background:#D7ECDD"></i>Primary container</span><span class="sw"><i style="background:#8A5A12"></i>Amber tertiary</span><span class="sw"><i style="background:#B3261E"></i>Error</span><span class="sw"><i style="background:#171B15"></i>Ink</span><span class="sw"><i style="background:#CDD1C6"></i>Hairline</span><span class="sw"><i style="background:#FFC400"></i>Hardware focus</span></div>
-<div class="grid"><div class="item"><div class="frame"><iframe src="home_1.html" title="Home" loading="lazy"></iframe></div><h3>Home</h3><p>Hero balance, quick actions, balances, recent activity, categories and a 7-day trend.</p></div><div class="item"><div class="frame"><iframe src="history_1.html" title="History" loading="lazy"></iframe></div><h3>History</h3><p>Search, filters and day-grouped rows with signed amounts and tabular figures.</p></div><div class="item"><div class="frame"><iframe src="add-expense_1.html" title="New expense" loading="lazy"></iframe></div><h3>New expense</h3><p>Amount-first form with currency lock, keypad, category chips and account routing.</p></div><div class="item"><div class="frame"><iframe src="converter_1.html" title="Converter" loading="lazy"></iframe></div><h3>Converter</h3><p>Base and target cards, mid-market rate, 7-day sparkline and quick pairs.</p></div><div class="item"><div class="frame"><iframe src="loans_1.html" title="Loans &amp; debts" loading="lazy"></iframe></div><h3>Loans &amp; debts</h3><p>Net position, partial-repayment progress and overdue reminders.</p></div><div class="item"><div class="frame"><iframe src="settings_1.html" title="Settings" loading="lazy"></iframe></div><h3>Settings</h3><p>Accounts, appearance, backup/restore, rates and about.</p></div></div>
+<div class="grid"><div class="item"><div class="frame"><iframe src="home_1.html" title="Home" loading="lazy"></iframe></div><h3>Home</h3><p>Hero balance, quick actions, balances, recent activity, categories and a 7-day trend.</p></div><div class="item"><div class="frame"><iframe src="history_1.html" title="History" loading="lazy"></iframe></div><h3>History</h3><p>Search, filters and day-grouped rows with signed amounts and tabular figures.</p></div><div class="item"><div class="frame"><iframe src="add-expense_1.html" title="New expense" loading="lazy"></iframe></div><h3>New expense</h3><p>Amount-first form with currency lock, keypad, category chips and account routing.</p></div><div class="item"><div class="frame"><iframe src="converter_1.html" title="Converter" loading="lazy"></iframe></div><h3>Converter</h3><p>Base and target cards, mid-market rate, 7-day sparkline and quick pairs.</p></div><div class="item"><div class="frame"><iframe src="loans_1.html" title="Loans &amp; debts" loading="lazy"></iframe></div><h3>Loans &amp; debts</h3><p>Net position, partial-repayment progress and overdue reminders.</p></div><div class="item"><div class="frame"><iframe src="settings_1.html" title="Settings" loading="lazy"></iframe></div><h3>Settings</h3><p>Accounts, appearance, backup/restore, rates and about.</p></div><div class="item"><div class="frame"><iframe src="add-cash_1.html" title="Add cash balance" loading="lazy"></iframe></div><h3>Add cash balance</h3><p>Dialog actions: Cancel and Create are both always rendered and reachable.</p></div><div class="item"><div class="frame"><iframe src="dialogs_1.html" title="Confirmations" loading="lazy"></iframe></div><h3>Confirmations</h3><p>Destructive actions ask first: one-tap delete is now a two-step confirm.</p></div></div>
 <p class="note">Token source: <code>.superdesign/design-system.md</code> ·
 Compose implementation: <code>ui/theme/Color.kt</code>, <code>ui/theme/Theme.kt</code>,
 <code>ui/components/AppCards.kt</code></p>

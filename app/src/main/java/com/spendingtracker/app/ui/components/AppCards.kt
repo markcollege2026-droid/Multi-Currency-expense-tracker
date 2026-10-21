@@ -1,8 +1,10 @@
 package com.spendingtracker.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -10,11 +12,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -41,30 +45,31 @@ fun AppCard(
     val cardShape = shape ?: RoundedCornerShape(if (compact) 16.dp else 20.dp)
     val inner = padding ?: PaddingValues(if (compact) 12.dp else 16.dp)
     val border = BorderStroke(1.dp, borderColor)
-    val body: @Composable () -> Unit = {
+    val source = remember { MutableInteractionSource() }
+    // Clickable through LocalIndication (not Surface(onClick)) so D-pad focus draws
+    // the amber ring, exactly like buttons and rows.
+    val clickModifier = if (onClick != null) {
+        Modifier.clickable(
+            interactionSource = source,
+            indication = LocalIndication.current,
+            role = Role.Button,
+            onClick = onClick
+        )
+    } else {
+        Modifier
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = cardShape,
+        color = containerColor,
+        border = border
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(clickModifier)
                 .padding(inner),
             content = content
-        )
-    }
-    if (onClick != null) {
-        Surface(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            shape = cardShape,
-            color = containerColor,
-            border = border,
-            content = body
-        )
-    } else {
-        Surface(
-            modifier = modifier.fillMaxWidth(),
-            shape = cardShape,
-            color = containerColor,
-            border = border,
-            content = body
         )
     }
 }
@@ -169,10 +174,22 @@ fun AppListRow(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)
             )
         }
+        val source = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .then(
+                    if (onClick != null) {
+                        Modifier.clickable(
+                            interactionSource = source,
+                            indication = LocalIndication.current,
+                            role = Role.Button,
+                            onClick = onClick
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

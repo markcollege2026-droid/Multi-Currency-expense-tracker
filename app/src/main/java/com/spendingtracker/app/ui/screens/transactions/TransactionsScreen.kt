@@ -27,6 +27,8 @@ import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppAvatar
+import com.spendingtracker.app.ui.components.AppCard
+import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppDot
 import com.spendingtracker.app.ui.components.AppEmptyState
 import com.spendingtracker.app.ui.components.AppFilterChip
@@ -54,6 +56,18 @@ fun TransactionsScreen(
     val compact = LocalCompactUi.current
     val dims = LocalAppDimens.current
 
+    // Deleting a transaction rewrites balances, so it always asks first.
+    var pendingDelete by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    var showCategoryFilter by remember { mutableStateOf(false) }
+
+    // Filters the view model already supported but the screen never exposed.
+    val currencies = remember(uiState.allExpenses, uiState.balanceCurrency) {
+        (uiState.allExpenses.map { it.currencyOriginal } + uiState.balanceCurrency).distinct().sorted()
+    }
+    val periodStart = uiState.dateRangeStart
+    val filtersActive = uiState.selectedCategoryId != null ||
+        uiState.selectedCurrency != null || uiState.dateRangeStart != null
+
     // Group by day. Memoized because date formatting is expensive on big lists.
     val grouped = remember(
         uiState.filteredExpenses,
@@ -62,7 +76,9 @@ fun TransactionsScreen(
         uiState.selectedType,
         uiState.searchQuery,
         uiState.selectedCategoryId,
-        uiState.selectedCurrency
+        uiState.selectedCurrency,
+        uiState.dateRangeStart,
+        uiState.dateRangeEnd
     ) {
         val dateFormat = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
         (
@@ -71,6 +87,8 @@ fun TransactionsScreen(
                 uiState.cardPayments.filter {
                     (uiState.selectedType == null || uiState.selectedType == "CARD_PAYMENT") &&
                         uiState.selectedCategoryId == null &&
+                        (uiState.dateRangeStart == null || it.date >= uiState.dateRangeStart) &&
+                        (uiState.dateRangeEnd == null || it.date <= uiState.dateRangeEnd) &&
                         (uiState.selectedCurrency == null || uiState.selectedCurrency == uiState.balanceCurrency) &&
                         (uiState.searchQuery.isBlank() ||
                             "credit card payment ${it.status}".contains(uiState.searchQuery, ignoreCase = true))
@@ -149,6 +167,80 @@ fun TransactionsScreen(
                     )
                 }
 
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val categoryName = uiState.categories.firstOrNull { it.id == uiState.selectedCategoryId }?.name
+                    AppFilterChip(
+                        selected = categoryName != null,
+                        onClick = { showCategoryFilter = true },
+                        label = categoryName ?: "Category"
+                    )
+                    AppFilterChip(
+                        selected = uiState.selectedCurrency == null,
+                        onClick = { viewModel.onCurrencySelected(null) },
+                        label = "Any currency"
+                    )
+                    currencies.forEach { code ->
+                        AppFilterChip(
+                            selected = uiState.selectedCurrency == code,
+                            onClick = {
+                                viewModel.onCurrencySelected(if (uiState.selectedCurrency == code) null else code)
+                            },
+                            label = code
+                        )
+                    }
+                    AppFilterChip(
+                        selected = periodStart != null,
+                        onClick = {
+                            if (periodStart != null) {
+                                viewModel.onDateRangeChanged(null, null)
+                            } else {
+                                val start = java.util.Calendar.getInstance().apply {
+                                    add(java.util.Calendar.MONTH, -1)
+                                }.timeInMillis
+                                viewModel.onDateRangeChanged(start, System.currentTimeMillis())
+                            }
+                        },
+                        label = "Last 30 days"
+                    )
+                    if (filtersActive) {
+                        AppFilterChip(
+                            selected = true,
+                            onClick = viewModel::clearFilters,
+                            label = "Clear filters"
+                        )
+                    }
+                }
+
+                val shownCount = uiState.filteredExpenses.size + uiState.filteredTopUps.size
+                if (shownCount > 0) {
+                    Text(
+                        text = "$shownCount entries · spent " +
+                            CurrencyFormatter.formatSimple(
+                                uiState.filteredExpenses.fold(java.math.BigDecimal.ZERO) { sum, e ->
+                                    sum + e.convertedAsBigDecimal()
+                                },
+                                uiState.balanceCurrency
+                            ) + " · received " +
+                            CurrencyFormatter.formatSimple(
+                                uiState.filteredTopUps.fold(java.math.BigDecimal.ZERO) { sum, t ->
+                                    sum + t.amountAsBigDecimal()
+                                },
+                                uiState.balanceCurrency
+                            ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
                 if (grouped.isEmpty()) {
                     AppEmptyState(
                         text = "No transactions yet.\nAdd an expense or top-up to get started.",
@@ -179,13 +271,23 @@ fun TransactionsScreen(
                                         expense = item,
                                         currency = uiState.balanceCurrency,
                                         onEdit = { onEditExpense(item.id) },
-                                        onDelete = { viewModel.deleteExpense(item) }
+                                        onDelete = {
+                                            pendingDelete = "This expense of " +
+                                                CurrencyFormatter.format(item.convertedAsBigDecimal(), uiState.balanceCurrency) +
+                                                " will be removed and the balance restored." to
+                                                { viewModel.deleteExpense(item) }
+                                        }
                                     )
                                     is TopUp -> TopUpRow(
                                         topUp = item,
                                         currency = uiState.balanceCurrency,
                                         onEdit = { onEditTopUp(item.id) },
-                                        onDelete = { viewModel.deleteTopUp(item) }
+                                        onDelete = {
+                                            pendingDelete = "This income of " +
+                                                CurrencyFormatter.format(item.amountAsBigDecimal(), uiState.balanceCurrency) +
+                                                " will be removed and the balance reduced." to
+                                                { viewModel.deleteTopUp(item) }
+                                        }
                                     )
                                 }
                             }
@@ -195,6 +297,30 @@ fun TransactionsScreen(
             }
         }
     }
+
+    if (showCategoryFilter) {
+        CategoryPickerDialog(
+            categories = uiState.categories,
+            onDismiss = { showCategoryFilter = false },
+            onCategorySelected = { id ->
+                viewModel.onCategorySelected(id)
+                showCategoryFilter = false
+            }
+        )
+    }
+
+    pendingDelete?.let { (message, action) ->
+        AppConfirmDialog(
+            title = "Delete transaction?",
+            message = message,
+            confirmLabel = "Delete",
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                action()
+                pendingDelete = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -203,15 +329,14 @@ private fun TransactionCard(
     onClick: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        onClick = onClick ?: {}
+    AppCard(
+        modifier = modifier,
+        onClick = onClick,
+        padding = PaddingValues(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+        shape = RoundedCornerShape(14.dp)
     ) {
         Row(
-            modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             content = content
         )

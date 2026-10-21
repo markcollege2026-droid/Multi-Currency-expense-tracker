@@ -104,4 +104,23 @@ class AddTopUpViewModel @Inject constructor(
             }
         }
     }
+
+    /** Deletes the income entry being edited; the caller closes the screen on success. */
+    fun deleteTopUp(topUpId: Long, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            try {
+                val existing = financeRepository.getTopUpById(topUpId)
+                if (existing == null) {
+                    _uiState.value = _uiState.value.copy(error = "Entry no longer exists", isLoading = false)
+                    return@launch
+                }
+                financeRepository.deleteTopUp(existing)
+                _uiState.value = _uiState.value.copy(isLoading = false)
+                onDeleted()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
+            }
+        }
+    }
 }

@@ -137,4 +137,29 @@ class TransactionsViewModel @Inject constructor(
     fun deleteTopUp(topUp: TopUp) {
         viewModelScope.launch { financeRepository.deleteTopUp(topUp) }
     }
+
+    /** Applies a custom date range; null values clear that side of the range. */
+    fun onDateRangeChanged(start: Long?, end: Long?) {
+        val current = _uiState.value
+        val newState = current.copy(dateRangeStart = start, dateRangeEnd = end)
+        _uiState.value = newState.copy(
+            filteredExpenses = filterExpenses(current.allExpenses, newState),
+            filteredTopUps = filterTopUps(current.allTopUps, newState)
+        )
+    }
+
+    /** Resets every filter except the search query. */
+    fun clearFilters() {
+        val current = _uiState.value
+        val newState = current.copy(
+            selectedCategoryId = null,
+            selectedCurrency = null,
+            dateRangeStart = null,
+            dateRangeEnd = null
+        )
+        _uiState.value = newState.copy(
+            filteredExpenses = filterExpenses(current.allExpenses, newState),
+            filteredTopUps = filterTopUps(current.allTopUps, newState)
+        )
+    }
 }
