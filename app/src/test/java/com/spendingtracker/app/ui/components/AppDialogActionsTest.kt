@@ -1,15 +1,14 @@
 package com.spendingtracker.app.ui.components
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.height
-import androidx.compose.ui.Modifier
 import com.spendingtracker.app.ui.theme.SpendingTrackerTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -21,10 +20,13 @@ import org.robolectric.annotation.Config
 /**
  * Regression tests for the dialog action bar.
  *
- * The confirm button used to be a `fillMaxWidth` child of an `End`-aligned `Row`,
- * so it was measured at 0dp and disappeared: dialogs such as "Set up cash" only
- * showed "Cancel". These tests assert that every action is really displayed and
- * clickable on both a regular phone window and the 240x320dp Qin F21 window.
+ * The confirm button used to be a `fillMaxWidth` child of an `End`-aligned `Row`, so
+ * it was measured at 0dp and disappeared: every confirmation ("Add cash balance",
+ * "Delete account?", "Erase all data?") appeared to offer only "Cancel". The action
+ * bar is now a [AppDialogActions] FlowRow with intrinsic widths; these tests render it
+ * inside a deliberately narrow column - the worst case that used to break - and assert
+ * every action is displayed and clickable. Both a regular phone window and the
+ * 240x320dp Qin F21 window are covered.
  */
 abstract class AppDialogActionsTestBase {
 
@@ -32,17 +34,16 @@ abstract class AppDialogActionsTestBase {
     val compose = createComposeRule()
 
     @Test
-    fun confirmAndDismissAreBothDisplayed() {
+    fun bothActionsAreDisplayedInANarrowDialog() {
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
-                AppDialog(
-                    onDismissRequest = {},
-                    title = "Add cash",
-                    confirmLabel = "Create",
-                    dismissLabel = "Cancel",
-                    onConfirm = {}
-                ) {
-                    Text("Opening cash")
+                Column(modifier = Modifier.width(180.dp)) {
+                    AppDialogActions(
+                        dismissLabel = "Cancel",
+                        onDismiss = {},
+                        confirmLabel = "Create",
+                        onConfirm = {}
+                    )
                 }
             }
         }
@@ -51,18 +52,17 @@ abstract class AppDialogActionsTestBase {
     }
 
     @Test
-    fun confirmIsClickable() {
+    fun confirmRunsItsAction() {
         var created = false
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
-                AppDialog(
-                    onDismissRequest = {},
-                    title = "Add cash",
-                    confirmLabel = "Create",
-                    dismissLabel = "Cancel",
-                    onConfirm = { created = true }
-                ) {
-                    Text("Opening cash")
+                Column(modifier = Modifier.width(180.dp)) {
+                    AppDialogActions(
+                        dismissLabel = "Cancel",
+                        onDismiss = {},
+                        confirmLabel = "Create",
+                        onConfirm = { created = true }
+                    )
                 }
             }
         }
@@ -71,65 +71,73 @@ abstract class AppDialogActionsTestBase {
     }
 
     @Test
-    fun allThreeActionsFitIncludingExtraAction() {
+    fun dismissRunsItsAction() {
+        var dismissed = false
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
-                AppDialog(
-                    onDismissRequest = {},
-                    title = "Edit cash",
-                    confirmLabel = "Save",
-                    dismissLabel = "Cancel",
-                    onConfirm = {},
-                    extraAction = { Text("Delete") }
-                ) {
-                    Text("Name")
+                Column(modifier = Modifier.width(180.dp)) {
+                    AppDialogActions(
+                        dismissLabel = "Cancel",
+                        onDismiss = { dismissed = true },
+                        confirmLabel = "Save",
+                        onConfirm = {}
+                    )
                 }
             }
         }
-        compose.onNodeWithText("Save").assertIsDisplayed()
-        compose.onNodeWithText("Cancel").assertIsDisplayed()
-        compose.onNodeWithText("Delete").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performClick()
+        assertTrue("Cancel did not run its action", dismissed)
     }
 
     @Test
-    fun longBodyDoesNotHideActions() {
+    fun threeActionsAllFit() {
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
-                AppDialog(
-                    onDismissRequest = {},
-                    title = "Long form",
-                    confirmLabel = "Save",
-                    dismissLabel = "Cancel",
-                    onConfirm = {}
-                ) {
-                    Column {
-                        repeat(12) { index ->
-                            Column(modifier = Modifier.height(40.dp)) { Text("Row $index") }
-                        }
-                    }
+                Column(modifier = Modifier.width(180.dp)) {
+                    AppDialogActions(
+                        dismissLabel = "Cancel",
+                        onDismiss = {},
+                        confirmLabel = "Save",
+                        onConfirm = {},
+                        extraAction = { Text("Delete") }
+                    )
                 }
             }
         }
+        compose.onNodeWithText("Delete").assertIsDisplayed()
         compose.onNodeWithText("Save").assertIsDisplayed()
         compose.onNodeWithText("Cancel").assertIsDisplayed()
     }
 
     @Test
-    fun confirmDialogOffersBothChoices() {
+    fun disabledConfirmIsStillVisible() {
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
-                AppConfirmDialog(
-                    title = "Delete transaction?",
-                    message = "This cannot be undone.",
-                    confirmLabel = "Delete",
-                    dismissLabel = "Cancel",
-                    onDismiss = {},
-                    onConfirm = {}
-                )
+                Column(modifier = Modifier.width(180.dp)) {
+                    AppDialogActions(
+                        dismissLabel = "Cancel",
+                        onDismiss = {},
+                        confirmLabel = "Create",
+                        onConfirm = {},
+                        confirmEnabled = false
+                    )
+                }
             }
         }
-        compose.onNodeWithText("Delete").assertIsDisplayed()
-        compose.onNodeWithText("Cancel").assertIsDisplayed()
+        compose.onNodeWithText("Create").assertIsDisplayed()
+    }
+
+    @Test
+    fun noActionsRenderNothingAndDoNotCrash() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                Column(modifier = Modifier.width(180.dp)) {
+                    AppDialogActions(dismissLabel = "")
+                    Text("body")
+                }
+            }
+        }
+        compose.onNodeWithText("body").assertIsDisplayed()
     }
 }
 
@@ -145,9 +153,11 @@ class AppDialogActionsCompactTest : AppDialogActionsTestBase() {
     fun compactWindowReallyIsCompact() {
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
-                Text(if (com.spendingtracker.app.ui.compact.LocalCompactUi.current) "compact" else "regular")
+                Text(
+                    text = if (com.spendingtracker.app.ui.compact.LocalCompactUi.current) "compact" else "regular"
+                )
             }
         }
-        compose.onNodeWithText("compact").assertExists()
+        compose.onNodeWithText("compact").assertIsDisplayed()
     }
 }

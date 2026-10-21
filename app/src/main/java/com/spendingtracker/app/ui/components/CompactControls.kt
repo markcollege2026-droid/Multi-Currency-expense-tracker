@@ -682,44 +682,65 @@ fun AppDialog(
                     verticalArrangement = Arrangement.spacedBy(if (compact) (if (tight) 5.dp else 8.dp) else 10.dp),
                     content = content
                 )
-                if (onConfirm != null || dismissLabel.isNotEmpty() || extraAction != null) {
-                    // The actions live in a FlowRow: each button is measured against the
-                    // full dialog width and wraps to a second line when the row is too
-                    // narrow. Previously both buttons were fillMaxWidth inside an
-                    // End-aligned Row, so the confirm action was measured at 0dp and
-                    // disappeared - dialogs appeared to offer "Cancel" only.
-                    FlowRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        maxItemsInEachRow = 3
-                    ) {
-                        extraAction?.let { action -> DialogActionSlot { action() } }
-                        if (dismissLabel.isNotEmpty()) {
-                            DialogActionSlot {
-                                AppTextButton(
-                                    onClick = onDismissRequest,
-                                    fillWidth = false
-                                ) {
-                                    Text(dismissLabel, maxLines = 1)
-                                }
-                            }
-                        }
-                        if (onConfirm != null && confirmLabel != null) {
-                            DialogActionSlot {
-                                AppButton(
-                                    onClick = onConfirm,
-                                    enabled = confirmEnabled,
-                                    colors = confirmColors,
-                                    fillWidth = false
-                                ) {
-                                    Text(confirmLabel, maxLines = 1)
-                                }
-                            }
-                        }
-                    }
+                AppDialogActions(
+                    modifier = Modifier.padding(top = 8.dp),
+                    dismissLabel = dismissLabel,
+                    onDismiss = onDismissRequest,
+                    confirmLabel = confirmLabel,
+                    onConfirm = onConfirm,
+                    confirmEnabled = confirmEnabled,
+                    confirmColors = confirmColors,
+                    extraAction = extraAction
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Action bar shared by every dialog.
+ *
+ * Each action is measured at its intrinsic width inside a [FlowRow], so a narrow
+ * dialog wraps to a second line instead of squeezing one of the buttons to zero
+ * width. (An `End`-aligned `Row` with two `fillMaxWidth` buttons measured the second
+ * button at 0dp, which made every confirmation appear to offer only "Cancel".)
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AppDialogActions(
+    modifier: Modifier = Modifier,
+    dismissLabel: String = "Cancel",
+    onDismiss: () -> Unit = {},
+    confirmLabel: String? = null,
+    onConfirm: (() -> Unit)? = null,
+    confirmEnabled: Boolean = true,
+    confirmColors: ButtonColors = ButtonDefaults.buttonColors(),
+    extraAction: (@Composable () -> Unit)? = null
+) {
+    if (onConfirm == null && dismissLabel.isEmpty() && extraAction == null) return
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        maxItemsInEachRow = 3
+    ) {
+        extraAction?.let { action -> DialogActionSlot { action() } }
+        if (dismissLabel.isNotEmpty()) {
+            DialogActionSlot {
+                AppTextButton(onClick = onDismiss, fillWidth = false) {
+                    Text(dismissLabel, maxLines = 1)
+                }
+            }
+        }
+        if (onConfirm != null && confirmLabel != null) {
+            DialogActionSlot {
+                AppButton(
+                    onClick = onConfirm,
+                    enabled = confirmEnabled,
+                    colors = confirmColors,
+                    fillWidth = false
+                ) {
+                    Text(confirmLabel, maxLines = 1)
                 }
             }
         }

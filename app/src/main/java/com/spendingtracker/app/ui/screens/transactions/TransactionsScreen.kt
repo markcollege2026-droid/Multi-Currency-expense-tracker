@@ -64,9 +64,12 @@ fun TransactionsScreen(
     val currencies = remember(uiState.allExpenses, uiState.balanceCurrency) {
         (uiState.allExpenses.map { it.currencyOriginal } + uiState.balanceCurrency).distinct().sorted()
     }
+    // Captured once: uiState is a delegated property, so its members cannot be
+    // smart-cast inside the filter lambdas below.
     val periodStart = uiState.dateRangeStart
+    val periodEnd = uiState.dateRangeEnd
     val filtersActive = uiState.selectedCategoryId != null ||
-        uiState.selectedCurrency != null || uiState.dateRangeStart != null
+        uiState.selectedCurrency != null || periodStart != null
 
     // Group by day. Memoized because date formatting is expensive on big lists.
     val grouped = remember(
@@ -77,8 +80,8 @@ fun TransactionsScreen(
         uiState.searchQuery,
         uiState.selectedCategoryId,
         uiState.selectedCurrency,
-        uiState.dateRangeStart,
-        uiState.dateRangeEnd
+        periodStart,
+        periodEnd
     ) {
         val dateFormat = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
         (
@@ -87,8 +90,8 @@ fun TransactionsScreen(
                 uiState.cardPayments.filter {
                     (uiState.selectedType == null || uiState.selectedType == "CARD_PAYMENT") &&
                         uiState.selectedCategoryId == null &&
-                        (uiState.dateRangeStart == null || it.date >= uiState.dateRangeStart) &&
-                        (uiState.dateRangeEnd == null || it.date <= uiState.dateRangeEnd) &&
+                        (periodStart == null || it.date >= periodStart) &&
+                        (periodEnd == null || it.date <= periodEnd) &&
                         (uiState.selectedCurrency == null || uiState.selectedCurrency == uiState.balanceCurrency) &&
                         (uiState.searchQuery.isBlank() ||
                             "credit card payment ${it.status}".contains(uiState.searchQuery, ignoreCase = true))
