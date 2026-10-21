@@ -11,9 +11,30 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.8.1 — file backups, encryption and multiple balances
+## Current release: 1.9.0 — Add menu, withdrawals and multi-currency cash
 
 See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).
+
+**v1.9.0 highlights:** the Home expense/top-up buttons are now a single **+ Add**
+button that pops out three actions — **Expense**, **Top up** and **Withdraw** —
+with a staggered pop-out animation (hardware back closes the menu).
+
+- **Withdraw**: moves money from the main balance into any cash account. When the
+  two accounts use different currencies the amount is converted with cached
+  exchange rates, the rate and converted amount are previewed before confirming,
+  and both sides are stored in their own currency. Withdrawals require sufficient
+  main funds and appear in History under the *Withdrawals* filter (they are
+  transfers, not spending, so they never inflate category/weekly stats).
+- **Multiple cash accounts**: each main balance can hold any number of cash
+  accounts; each cash account can be created in a **different currency** from
+  main (cards stay in the main currency because payments debit main at face
+  value). Week/month/category totals convert foreign-currency cash activity back
+  into the main currency.
+- **Set aside**: every cash account has an *Include / Set aside* toggle —
+  set-aside balances are excluded from Total available and the Cash summary while
+  remaining fully usable for spending.
+- Backup JSON schema version 5 carries withdrawals and the set-aside flag and
+  still imports versions 1–4.
 
 **File backups:** Settings → Data → Backup files lets you choose a save folder for JSON backups, CSV reports, or password-encrypted `.stbk` backups. Restore accepts JSON or `.stbk` and prompts before replacing existing data. Encryption uses built-in AES-128-GCM with PBKDF2-HMAC-SHA256; no extra library. Remember your password—there is no recovery. CSV reports cannot be restored.
 

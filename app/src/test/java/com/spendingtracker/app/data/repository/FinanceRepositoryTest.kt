@@ -24,7 +24,7 @@ class FinanceRepositoryTest {
     private var mainId = 0L
     private var cashId = 0L
     private var cardId = 0L
-    private fun repositoryFor(db: AppDatabase) = FinanceRepository(db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(), db.accountDao(), db.recurringPaymentDao(), db.creditCardPaymentDao(), db)
+    private fun repositoryFor(db: AppDatabase) = FinanceRepository(db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(), db.accountDao(), db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(), db)
     @Before fun setup() = runBlocking {
         db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), AppDatabase::class.java).allowMainThreadQueries().build()
         repository = repositoryFor(db)
@@ -44,6 +44,51 @@ class FinanceRepositoryTest {
         money("100", cashId)
         repository.insertExpense(expense(cashId, "101"), allowOverdraft = true)
         money("-1", cashId); money("1000", mainId)
+    }
+    @Test fun multipleCashAccountsAndForeignCurrencyCashAreAllowed() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("50"), "EUR")
+        val ilsCash = repository.createBalanceAccount(mainId, "Pocket", "CASH", BigDecimal("20"))
+        assertEquals("EUR", repository.getAccountById(eurCash)!!.currency)
+        assertEquals("ILS", repository.getAccountById(ilsCash)!!.currency)
+        money("1000", mainId); money("50", eurCash); money("20", ilsCash)
+        // Cards stay in the main currency: payments debit main at face value.
+        repository.createBalanceAccount(mainId, "Mastercard", "CREDIT_CARD", BigDecimal("10"), "EUR")
+        assertEquals("ILS", repository.getAllAccountsSync().first { it.name == "Mastercard" }.currency)
+    }
+    @Test fun withdrawalMovesFundsWithCurrencyConversion() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal.ZERO, "EUR")
+        val w = repository.withdraw(mainId, eurCash, BigDecimal("100"), BigDecimal("0.25"), "ATM")
+        money("900", mainId); money("25", eurCash)
+        assertEquals(0, BigDecimal("100").compareTo(w.amountFromAsBigDecimal()))
+        assertEquals(0, BigDecimal("25").compareTo(w.amountToAsBigDecimal()))
+        assertEquals("ILS", w.currencyFrom)
+        assertEquals("EUR", w.currencyTo)
+        assertEquals(1, repository.getWithdrawalsSync().size)
+    }
+    @Test fun withdrawalRequiresFundsAndValidCashTarget() = runBlocking {
+        rejected { repository.withdraw(mainId, cardId, BigDecimal("10"), BigDecimal.ONE) }
+        rejected { repository.withdraw(mainId, cashId, BigDecimal("1001"), BigDecimal.ONE) }
+        rejected { repository.withdraw(mainId, cashId, BigDecimal("0"), BigDecimal.ONE) }
+        money("1000", mainId); money("100", cashId); money("-250", cardId)
+        assertTrue(repository.getWithdrawalsSync().isEmpty())
+    }
+    @Test fun withdrawalSurvivesBackupRoundTrip() = runBlocking {
+        repository.withdraw(mainId, cashId, BigDecimal("40"), BigDecimal.ONE, "Weekend cash")
+        money("960", mainId); money("140", cashId)
+        val exported = backups().exportAll()
+        assertTrue(backups().importAll(exported).isSuccess)
+        money("960", mainId); money("140", cashId)
+        assertEquals(1, repository.getWithdrawalsSync().size)
+        assertEquals("Weekend cash", repository.getWithdrawalsSync().single().note)
+    }
+    @Test fun cashAccountSetAsideFlagPersists() = runBlocking {
+        val cash = repository.getAccountById(cashId)!!
+        assertTrue(cash.includedInTotal)
+        repository.updateAccount(cash.copy(includedInTotal = false))
+        assertEquals(false, repository.getAccountById(cashId)!!.includedInTotal)
+        val exported = backups().exportAll()
+        assertTrue(backups().importAll(exported).isSuccess)
+        assertEquals(false, repository.getAccountById(cashId)!!.includedInTotal)
     }
     @Test fun manualPaymentIsAtomicAndPreventsOverpayment() = runBlocking {
         rejected { repository.payCard(cardId, BigDecimal("251")) }
@@ -185,7 +230,7 @@ class FinanceRepositoryTest {
         legacy.version = 1
         legacy.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(AppModule.MIGRATION_1_2, AppModule.MIGRATION_2_3, AppModule.MIGRATION_3_4).build()
+            .addMigrations(AppModule.MIGRATION_1_2, AppModule.MIGRATION_2_3, AppModule.MIGRATION_3_4, AppModule.MIGRATION_4_5).build()
         try {
             val migrated = repositoryFor(upgraded)
             assertEquals("legacy note", migrated.getExpenseById(1)!!.note)
@@ -211,7 +256,8 @@ class FinanceRepositoryTest {
         sql.execSQL("DROP TABLE credit_card_payments")
         sql.version = 3
         existing.close()
-        val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries().addMigrations(AppModule.MIGRATION_3_4).build()
+        val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
+            .addMigrations(AppModule.MIGRATION_3_4, AppModule.MIGRATION_4_5).build()
         try {
             val migrated = repositoryFor(upgraded)
             assertEquals("MAIN", migrated.getAccountById(1)!!.type)

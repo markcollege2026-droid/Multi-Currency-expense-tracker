@@ -28,6 +28,8 @@ data class AddExpenseUiState(
     val useManualRate: Boolean = false,
     val categories: List<Category> = emptyList(),
     val balanceCurrency: String = "USD",
+    /** The active main account currency; the payment target may differ (foreign cash). */
+    val mainCurrency: String = "USD",
     val orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies,
     val convertedAmount: BigDecimal? = null,
     val rateUsed: BigDecimal? = null,
@@ -73,6 +75,7 @@ class AddExpenseViewModel @Inject constructor(
                 val ordered = computeOrdered(settings)
                 _uiState.value = _uiState.value.copy(
                     balanceCurrency = account?.currency ?: "USD",
+                    mainCurrency = account?.currency ?: "USD",
                     categories = cats,
                     currency = account?.currency ?: "USD",
                     orderedCurrencies = ordered,
@@ -90,6 +93,8 @@ class AddExpenseViewModel @Inject constructor(
                 val cats = financeRepository.getAllCategoriesSync()
                 val ordered = computeOrdered(settings)
                 if (expense != null) {
+                    val expenseAccounts = financeRepository.getAllAccountsSync()
+                        .filter { it.id == expense.accountId || it.parentAccountId == expense.accountId }
                     _uiState.value = AddExpenseUiState(
                         amount = expense.amountOriginal,
                         currency = expense.currencyOriginal,
@@ -100,6 +105,8 @@ class AddExpenseViewModel @Inject constructor(
                         manualRate = expense.exchangeRateUsed,
                         categories = cats,
                         balanceCurrency = expense.currencyConverted,
+                        mainCurrency = expenseAccounts.firstOrNull { it.id == expense.accountId }?.currency
+                            ?: expense.currencyConverted,
                         orderedCurrencies = ordered,
                         convertedAmount = expense.convertedAsBigDecimal(),
                         rateUsed = expense.rateAsBigDecimal(),
@@ -107,7 +114,7 @@ class AddExpenseViewModel @Inject constructor(
                         createdAt = expense.createdAt,
                         accountId = expense.accountId,
                         balanceAccountId = expense.balanceAccountId,
-                        paymentAccounts = financeRepository.getAllAccountsSync().filter { it.id == expense.accountId || it.parentAccountId == expense.accountId }
+                        paymentAccounts = expenseAccounts
                     )
                 }
             } catch (e: Exception) {
@@ -164,8 +171,13 @@ class AddExpenseViewModel @Inject constructor(
     }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun selectPaymentAccount(id: Long) {
-        val account = _uiState.value.paymentAccounts.first { it.id == id }
-        _uiState.update { it.copy(balanceAccountId = id, paymentMethod = account.type) }
+        val account = _uiState.value.paymentAccounts.firstOrNull { it.id == id } ?: return
+        // The expense must convert into the currency of the account that pays it —
+        // a cash balance can hold a different currency than main.
+        _uiState.update {
+            it.copy(balanceAccountId = id, paymentMethod = account.type, balanceCurrency = account.currency)
+        }
+        calculateConversion()
     }
     fun allowOverdraft(value: Boolean) { _uiState.update { it.copy(allowOverdraft = value) } }
     fun onManualRateChanged(v: String) { _uiState.value = _uiState.value.copy(manualRate = v); calculateConversion() }

@@ -1,5 +1,15 @@
 package com.spendingtracker.app.ui.screens.home
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,9 +57,14 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showQuickAdd by remember { mutableStateOf(false) }
     var showAdjustBalance by remember { mutableStateOf(false) }
+    var showWithdraw by remember { mutableStateOf(false) }
+    var addMenuOpen by rememberSaveable { mutableStateOf(false) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
     val compact = LocalCompactUi.current
     val dims = LocalAppDimens.current
+
+    // While the pop-out Add menu is open, back closes it instead of the app.
+    BackHandler(enabled = addMenuOpen) { addMenuOpen = false }
 
     Scaffold(
         topBar = {
@@ -138,22 +154,58 @@ fun HomeScreen(
                 }
 
                 item(key = "quick_actions") {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AppButton(
-                            onClick = onNavigateToAddExpense,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("+ Expense", maxLines = 1) }
-                        AppButton(
-                            onClick = onNavigateToAddTopUp,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        ) { Text("+ Money", maxLines = 1) }
+                            onClick = { addMenuOpen = !addMenuOpen },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (addMenuOpen) "Close" else "+ Add", maxLines = 1)
+                        }
+                        // Pop-out: Expense / Top up / Withdraw pop in one after another.
+                        AnimatedVisibility(
+                            visible = addMenuOpen,
+                            enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                            exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(140))
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                PopOutMenuOption(index = 0, visible = addMenuOpen, modifier = Modifier.weight(1f)) {
+                                    AppButton(onClick = {
+                                        addMenuOpen = false
+                                        onNavigateToAddExpense()
+                                    }) { Text("Expense", maxLines = 1) }
+                                }
+                                PopOutMenuOption(index = 1, visible = addMenuOpen, modifier = Modifier.weight(1f)) {
+                                    AppButton(
+                                        onClick = {
+                                            addMenuOpen = false
+                                            onNavigateToAddTopUp()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    ) { Text("Top up", maxLines = 1) }
+                                }
+                                PopOutMenuOption(index = 2, visible = addMenuOpen, modifier = Modifier.weight(1f)) {
+                                    AppButton(
+                                        onClick = {
+                                            addMenuOpen = false
+                                            showWithdraw = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    ) { Text("Withdraw", maxLines = 1) }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -270,7 +322,22 @@ fun HomeScreen(
             onDismiss = { showQuickAdd = false },
             onAddExpense = { showQuickAdd = false; onNavigateToAddExpense() },
             onAddMoney = { showQuickAdd = false; onNavigateToAddTopUp() },
+            onWithdraw = { showQuickAdd = false; showWithdraw = true },
             onAddRecurring = { showQuickAdd = false; onNavigateToRecurring() }
+        )
+    }
+
+    if (showWithdraw) {
+        WithdrawDialog(
+            cashAccounts = uiState.balanceAccounts.filter { it.type == "CASH" },
+            mainCurrency = uiState.balanceCurrency,
+            mainBalance = uiState.balance,
+            rateLookup = viewModel::conversionRate,
+            onConfirm = { cashId, amountText, note ->
+                viewModel.withdraw(cashId, amountText, note)
+                showWithdraw = false
+            },
+            onDismiss = { showWithdraw = false }
         )
     }
 
@@ -450,7 +517,12 @@ fun ExpenseItem(
             }
             Spacer(Modifier.width(5.dp))
             Text(
-                text = "-${CurrencyFormatter.formatSimple(expense.convertedAsBigDecimal(), balanceCurrency)}",
+                // The deduction is stored in the paying account's currency, which is
+                // main currency normally but can be a foreign cash currency.
+                text = "-" + CurrencyFormatter.formatSimple(
+                    expense.convertedAsBigDecimal(),
+                    expense.currencyConverted
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error,
@@ -466,6 +538,7 @@ fun QuickAddBottomSheet(
     onDismiss: () -> Unit,
     onAddExpense: () -> Unit,
     onAddMoney: () -> Unit,
+    onWithdraw: () -> Unit = {},
     onAddRecurring: () -> Unit = {}
 ) {
     val compact = LocalCompactUi.current
@@ -484,8 +557,38 @@ fun QuickAddBottomSheet(
             Text("Quick add", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             AppButton(onClick = onAddExpense, modifier = Modifier.fillMaxWidth()) { Text("Expense") }
             AppOutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Income / add money") }
+            AppOutlinedButton(onClick = onWithdraw, modifier = Modifier.fillMaxWidth()) { Text("Withdraw to cash") }
             AppOutlinedButton(onClick = onAddRecurring, modifier = Modifier.fillMaxWidth()) { Text("Recurring payment") }
         }
+    }
+}
+
+/**
+ * One of the three options that pop out of the "+ Add" button. Each option
+ * scales and fades in with a staggered delay so the menu opens like a fan.
+ */
+@Composable
+private fun PopOutMenuOption(
+    index: Int,
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val delay = index * 70
+    val reverseDelay = (2 - index) * 50
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = scaleIn(
+            initialScale = 0.6f,
+            animationSpec = tween(260, delayMillis = delay, easing = FastOutSlowInEasing)
+        ) + fadeIn(animationSpec = tween(200, delayMillis = delay)),
+        exit = scaleOut(
+            targetScale = 0.6f,
+            animationSpec = tween(160, delayMillis = reverseDelay, easing = FastOutSlowInEasing)
+        ) + fadeOut(animationSpec = tween(130, delayMillis = reverseDelay))
+    ) {
+        content()
     }
 }
 

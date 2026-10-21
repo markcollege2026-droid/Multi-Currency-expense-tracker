@@ -22,7 +22,9 @@ import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.*
+import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
+import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.YearMonth
@@ -33,13 +35,14 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
     var paymentCard by remember { mutableStateOf<Account?>(null) }
     var configureCard by remember { mutableStateOf<Account?>(null) }
     var cashAccount by remember { mutableStateOf<Account?>(null) }
+    var withdrawTarget by remember { mutableStateOf<Account?>(null) }
     val compact = LocalCompactUi.current
     val dims = LocalAppDimens.current
     // On the small screen the detailed account controls start collapsed; the
     // summary (total available) is always visible and one D-pad press away.
     var expanded by rememberSaveable { mutableStateOf(!compact) }
 
-    val cash = state.balanceAccounts.firstOrNull { it.type == "CASH" }
+    val cashAccounts = state.balanceAccounts.filter { it.type == "CASH" }
     val cards = state.balanceAccounts.filter { it.type == "CREDIT_CARD" }
     val cardTotal = cards.fold(BigDecimal.ZERO) { sum, card ->
         sum + (state.accountBalances[card.id] ?: BigDecimal.ZERO)
@@ -82,10 +85,8 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
 
             if (!expanded) {
                 Text(
-                    text = "Cash " + CurrencyFormatter.formatSimple(
-                        cash?.let { state.accountBalances[it.id] } ?: BigDecimal.ZERO,
-                        state.balanceCurrency
-                    ) + " · Cards " + CurrencyFormatter.formatSimple(cardTotal, state.balanceCurrency),
+                    text = "Cash " + CurrencyFormatter.formatSimple(state.cashTotal, state.balanceCurrency) +
+                        " · Cards " + CurrencyFormatter.formatSimple(cardTotal, state.balanceCurrency),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -96,25 +97,65 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
 
             AppHairline()
             AppValueRow("Main/debit", CurrencyFormatter.format(state.balance, state.balanceCurrency))
-            AppValueRow(
-                "Cash",
-                CurrencyFormatter.format(
-                    cash?.let { state.accountBalances[it.id] } ?: BigDecimal.ZERO,
-                    state.balanceCurrency
-                )
-            )
+            cashAccounts.forEach { cash ->
+                val cashBalance = state.accountBalances[cash.id] ?: BigDecimal.ZERO
+                AppHairline()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = cash.name + if (cash.currency != state.balanceCurrency) " (${cash.currency})" else "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = CurrencyFormatter.format(cashBalance, cash.currency),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
+                if (!cash.includedInTotal) {
+                    Text(
+                        text = "Set aside — excluded from totals",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    AppTextButton(onClick = { cashAccount = cash }, modifier = Modifier.weight(1f)) {
+                        Text("+ Income", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                    AppTextButton(onClick = { withdrawTarget = cash }, modifier = Modifier.weight(1f)) {
+                        Text("Withdraw", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                    AppTextButton(
+                        onClick = { viewModel.setCashIncluded(cash, !cash.includedInTotal) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = if (cash.includedInTotal) "Set aside" else "Include",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                if (cash == null) {
-                    AppTextButton(onClick = { createType = "CASH" }, modifier = Modifier.weight(1f)) {
-                        Text("Set up cash", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                    }
-                } else {
-                    AppTextButton(onClick = { cashAccount = cash }, modifier = Modifier.weight(1f)) {
-                        Text("+ Cash income", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                    }
+                AppTextButton(onClick = { createType = "CASH" }, modifier = Modifier.weight(1f)) {
+                    Text("+ Cash account", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
                 AppTextButton(onClick = { createType = "CREDIT_CARD" }, modifier = Modifier.weight(1f)) {
                     Text("+ Credit card", style = MaterialTheme.typography.labelSmall, maxLines = 1)
@@ -257,9 +298,10 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
     createType?.let { type ->
         CreateAccountDialog(
             type = type,
+            defaultCurrency = state.balanceCurrency,
             onDismiss = { createType = null },
-            onCreate = { name, opening ->
-                viewModel.createBalanceAccount(name, type, opening)
+            onCreate = { name, opening, currency ->
+                viewModel.createBalanceAccount(name, type, opening, currency)
                 createType = null
             }
         )
@@ -269,11 +311,26 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
             title = "Add cash income",
             description = "Adds external cash, not a withdrawal from main",
             showOverpayment = false,
+            amountLabel = "Amount (${cash.currency})",
             onDismiss = { cashAccount = null }
         ) { amount, _ ->
             viewModel.fundCash(cash.id, amount)
             cashAccount = null
         }
+    }
+    withdrawTarget?.let { cash ->
+        WithdrawDialog(
+            cashAccounts = cashAccounts,
+            initialCashId = cash.id,
+            mainCurrency = state.balanceCurrency,
+            mainBalance = state.balance,
+            rateLookup = viewModel::conversionRate,
+            onConfirm = { cashId, amount, note ->
+                viewModel.withdraw(cashId, amount, note)
+                withdrawTarget = null
+            },
+            onDismiss = { withdrawTarget = null }
+        )
     }
     paymentCard?.let { card ->
         MoneyDialog(
@@ -300,11 +357,14 @@ fun BalanceAccountsPanel(state: HomeUiState, viewModel: HomeViewModel) {
 @Composable
 private fun CreateAccountDialog(
     type: String,
+    defaultCurrency: String,
     onDismiss: () -> Unit,
-    onCreate: (String, String) -> Unit
+    onCreate: (String, String, String) -> Unit
 ) {
     var name by remember(type) { mutableStateOf(if (type == "CASH") "Cash" else "Credit card") }
     var opening by remember(type) { mutableStateOf("0") }
+    var currency by remember(type) { mutableStateOf(defaultCurrency) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
     var error by remember(type) { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -324,7 +384,7 @@ private fun CreateAccountDialog(
             if (name.isBlank() || value == null || value < BigDecimal.ZERO) {
                 error = "Enter a name and non-negative amount"
             } else {
-                onCreate(name, value.toPlainString())
+                onCreate(name, value.toPlainString(), currency)
             }
         }
     ) {
@@ -334,18 +394,41 @@ private fun CreateAccountDialog(
             label = "Name",
             focusRequester = focus
         )
+        if (type == "CASH") {
+            AppSelectorRow(
+                label = "Currency",
+                value = currency,
+                onClick = { showCurrencyPicker = true }
+            )
+        }
         AppTextField(
             value = opening,
             onValueChange = { opening = it; error = null },
-            label = if (type == "CREDIT_CARD") "Opening debt" else "Opening cash",
+            label = if (type == "CREDIT_CARD") "Opening debt" else "Opening cash (${if (type == "CASH") currency else defaultCurrency})",
             keyboardType = KeyboardType.Decimal,
             isError = error != null,
             supportingText = error
         )
         Text(
-            text = "Opening amounts do not withdraw money from main/debit.",
+            text = if (type == "CASH") {
+                "Cash may use a different currency — withdrawals convert automatically. Opening amounts do not withdraw money from main/debit."
+            } else {
+                "Opening amounts do not withdraw money from main/debit."
+            },
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 4
+        )
+    }
+    if (showCurrencyPicker) {
+        CurrencyPickerDialog(
+            orderedCurrencies = CurrencyProvider.allCurrencies,
+            balanceCurrency = currency,
+            onDismiss = { showCurrencyPicker = false },
+            onCurrencySelected = { code ->
+                currency = code
+                showCurrencyPicker = false
+            }
         )
     }
 }
@@ -356,6 +439,7 @@ private fun MoneyDialog(
     description: String,
     showOverpayment: Boolean,
     onDismiss: () -> Unit,
+    amountLabel: String = "Amount",
     save: (String, Boolean) -> Unit
 ) {
     var amount by remember { mutableStateOf("") }
@@ -385,7 +469,7 @@ private fun MoneyDialog(
         AppTextField(
             value = amount,
             onValueChange = { amount = it },
-            label = "Amount",
+            label = amountLabel,
             keyboardType = KeyboardType.Decimal,
             focusRequester = focus
         )

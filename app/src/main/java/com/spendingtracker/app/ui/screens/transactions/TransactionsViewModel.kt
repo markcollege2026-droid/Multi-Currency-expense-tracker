@@ -2,9 +2,11 @@ package com.spendingtracker.app.ui.screens.transactions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
+import com.spendingtracker.app.data.local.entity.Withdrawal
 import com.spendingtracker.app.data.repository.FinanceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -19,6 +21,9 @@ data class TransactionsUiState(
     val categories: List<Category> = emptyList(),
     val filteredExpenses: List<Expense> = emptyList(),
     val filteredTopUps: List<TopUp> = emptyList(),
+    val allWithdrawals: List<Withdrawal> = emptyList(),
+    val filteredWithdrawals: List<Withdrawal> = emptyList(),
+    val accountsById: Map<Long, Account> = emptyMap(),
     val searchQuery: String = "",
     val selectedCategoryId: Long? = null,
     val selectedCurrency: String? = null,
@@ -44,8 +49,9 @@ class TransactionsViewModel @Inject constructor(
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
                 combine(financeRepository.observeActiveAccount(), financeRepository.observeBalanceAccounts()) { active, all -> active to all },
-                financeRepository.observeCardPayments()
-            ) { expenses, topUps, categories, wallet, payments ->
+                combine(financeRepository.observeCardPayments(), financeRepository.observeWithdrawals()) { payments, withdrawals -> payments to withdrawals }
+            ) { expenses, topUps, categories, wallet, paymentAndWithdrawals ->
+                val (payments, withdrawals) = paymentAndWithdrawals
                 val (account, accounts) = wallet
                 val incomeAccountIds = accounts.filter { it.id == account?.id || it.parentAccountId == account?.id }.map { it.id }.toSet()
                 val accountId = account?.id
@@ -53,6 +59,9 @@ class TransactionsViewModel @Inject constructor(
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
                     allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId in incomeAccountIds },
+                    allWithdrawals = if (accountId == null) emptyList()
+                    else withdrawals.filter { it.fromAccountId == accountId || incomeAccountIds.contains(it.toAccountId) },
+                    accountsById = accounts.associateBy { it.id },
                     categories = categories,
                     balanceCurrency = account?.currency ?: "USD",
                     isLoading = false
@@ -60,7 +69,8 @@ class TransactionsViewModel @Inject constructor(
             }.collect { baseState ->
                 _uiState.value = baseState.copy(
                     filteredExpenses = filterExpenses(baseState.allExpenses, baseState),
-                    filteredTopUps = filterTopUps(baseState.allTopUps, baseState)
+                    filteredTopUps = filterTopUps(baseState.allTopUps, baseState),
+                    filteredWithdrawals = filterWithdrawals(baseState.allWithdrawals, baseState)
                 )
             }
         }
@@ -94,40 +104,54 @@ class TransactionsViewModel @Inject constructor(
         }
     }
 
-    fun onSearchChanged(query: String) {
+    private fun filterWithdrawals(withdrawals: List<Withdrawal>, state: TransactionsUiState): List<Withdrawal> {
+        return withdrawals.filter { withdrawal ->
+            if (state.searchQuery.isNotBlank()) {
+                val q = state.searchQuery.lowercase()
+                if (!(withdrawal.note?.lowercase()?.contains(q) == true ||
+                        withdrawal.currencyFrom.lowercase().contains(q) ||
+                        withdrawal.currencyTo.lowercase().contains(q))
+                ) return@filter false
+            }
+            if (state.selectedCategoryId != null) return@filter false
+            if (state.selectedType != null && state.selectedType != "WITHDRAWAL") return@filter false
+            if (state.selectedCurrency != null &&
+                state.selectedCurrency != withdrawal.currencyFrom &&
+                state.selectedCurrency != withdrawal.currencyTo
+            ) return@filter false
+            if (state.dateRangeStart != null && withdrawal.date < state.dateRangeStart) return@filter false
+            if (state.dateRangeEnd != null && withdrawal.date > state.dateRangeEnd) return@filter false
+            true
+        }
+    }
+
+    private fun refilter() {
         val current = _uiState.value
         _uiState.value = current.copy(
-            searchQuery = query,
-            filteredExpenses = filterExpenses(current.allExpenses, current.copy(searchQuery = query)),
-            filteredTopUps = filterTopUps(current.allTopUps, current.copy(searchQuery = query))
+            filteredExpenses = filterExpenses(current.allExpenses, current),
+            filteredTopUps = filterTopUps(current.allTopUps, current),
+            filteredWithdrawals = filterWithdrawals(current.allWithdrawals, current)
         )
+    }
+
+    fun onSearchChanged(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query)
+        refilter()
     }
 
     fun onCategorySelected(id: Long?) {
-        val current = _uiState.value
-        val newState = current.copy(selectedCategoryId = id)
-        _uiState.value = newState.copy(
-            filteredExpenses = filterExpenses(current.allExpenses, newState),
-            filteredTopUps = filterTopUps(current.allTopUps, newState)
-        )
+        _uiState.value = _uiState.value.copy(selectedCategoryId = id)
+        refilter()
     }
 
     fun onCurrencySelected(currency: String?) {
-        val current = _uiState.value
-        val newState = current.copy(selectedCurrency = currency)
-        _uiState.value = newState.copy(
-            filteredExpenses = filterExpenses(current.allExpenses, newState),
-            filteredTopUps = filterTopUps(current.allTopUps, newState)
-        )
+        _uiState.value = _uiState.value.copy(selectedCurrency = currency)
+        refilter()
     }
 
     fun onTypeSelected(type: String?) {
-        val current = _uiState.value
-        val newState = current.copy(selectedType = type)
-        _uiState.value = newState.copy(
-            filteredExpenses = filterExpenses(current.allExpenses, newState),
-            filteredTopUps = filterTopUps(current.allTopUps, newState)
-        )
+        _uiState.value = _uiState.value.copy(selectedType = type)
+        refilter()
     }
 
     fun deleteExpense(expense: Expense) {
@@ -136,5 +160,9 @@ class TransactionsViewModel @Inject constructor(
 
     fun deleteTopUp(topUp: TopUp) {
         viewModelScope.launch { financeRepository.deleteTopUp(topUp) }
+    }
+
+    fun deleteWithdrawal(withdrawal: Withdrawal) {
+        viewModelScope.launch { financeRepository.deleteWithdrawal(withdrawal) }
     }
 }

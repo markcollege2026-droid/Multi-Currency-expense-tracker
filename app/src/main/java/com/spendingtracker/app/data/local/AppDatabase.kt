@@ -18,9 +18,10 @@ import com.spendingtracker.app.data.local.entity.*
         Repayment::class,
         Account::class,
         RecurringPayment::class,
-        CreditCardPayment::class
+        CreditCardPayment::class,
+        Withdrawal::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -35,4 +36,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun repaymentDao(): RepaymentDao
     abstract fun accountDao(): AccountDao
     abstract fun recurringPaymentDao(): RecurringPaymentDao
+    abstract fun withdrawalDao(): WithdrawalDao
 }

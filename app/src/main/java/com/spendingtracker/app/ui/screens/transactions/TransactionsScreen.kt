@@ -23,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.CreditCardPayment
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
+import com.spendingtracker.app.data.local.entity.Withdrawal
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppDot
@@ -54,6 +55,7 @@ fun TransactionsScreen(
     val grouped = remember(
         uiState.filteredExpenses,
         uiState.filteredTopUps,
+        uiState.filteredWithdrawals,
         uiState.cardPayments,
         uiState.selectedType,
         uiState.searchQuery,
@@ -64,6 +66,7 @@ fun TransactionsScreen(
         (
             uiState.filteredExpenses.map { it.date to it } +
                 uiState.filteredTopUps.map { it.date to it } +
+                uiState.filteredWithdrawals.map { it.date to it } +
                 uiState.cardPayments.filter {
                     (uiState.selectedType == null || uiState.selectedType == "CARD_PAYMENT") &&
                         uiState.selectedCategoryId == null &&
@@ -143,6 +146,11 @@ fun TransactionsScreen(
                         onClick = { viewModel.onTypeSelected("CARD_PAYMENT") },
                         label = "Card pmts"
                     )
+                    AppFilterChip(
+                        selected = uiState.selectedType == "WITHDRAWAL",
+                        onClick = { viewModel.onTypeSelected("WITHDRAWAL") },
+                        label = "Withdrawals"
+                    )
                 }
 
                 if (grouped.isEmpty()) {
@@ -180,9 +188,17 @@ fun TransactionsScreen(
                                     )
                                     is TopUp -> TopUpRow(
                                         topUp = item,
-                                        currency = uiState.balanceCurrency,
+                                        // Cash income is stored in the cash account's currency,
+                                        // which may differ from the main balance currency.
+                                        currency = uiState.accountsById[item.accountId]?.currency
+                                            ?: uiState.balanceCurrency,
                                         onEdit = { onEditTopUp(item.id) },
                                         onDelete = { viewModel.deleteTopUp(item) }
+                                    )
+                                    is Withdrawal -> WithdrawalRow(
+                                        withdrawal = item,
+                                        toName = uiState.accountsById[item.toAccountId]?.name,
+                                        onDelete = { viewModel.deleteWithdrawal(item) }
                                     )
                                 }
                             }
@@ -300,6 +316,58 @@ private fun TopUpRow(
             onClick = onDelete,
             icon = Icons.Default.Delete,
             contentDescription = "Delete top-up",
+            modifier = Modifier.size(30.dp)
+        )
+    }
+}
+
+@Composable
+private fun WithdrawalRow(
+    withdrawal: Withdrawal,
+    toName: String?,
+    onDelete: () -> Unit
+) {
+    val compact = LocalCompactUi.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f))
+            .padding(start = if (compact) 9.dp else 12.dp, top = 4.dp, bottom = 4.dp, end = 0.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "-" + CurrencyFormatter.formatSimple(withdrawal.amountFromAsBigDecimal(), withdrawal.currencyFrom) +
+                        (if (withdrawal.currencyFrom == withdrawal.currencyTo) " → +" else " ≈ +") +
+                        CurrencyFormatter.formatSimple(withdrawal.amountToAsBigDecimal(), withdrawal.currencyTo),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(withdrawal.date)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Withdrawal · main → " + (toName ?: "cash") +
+                    (if (!withdrawal.note.isNullOrBlank()) " · " + withdrawal.note else ""),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        AppIconButton(
+            onClick = onDelete,
+            icon = Icons.Default.Delete,
+            contentDescription = "Delete withdrawal",
             modifier = Modifier.size(30.dp)
         )
     }

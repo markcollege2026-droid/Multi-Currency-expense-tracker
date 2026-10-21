@@ -136,7 +136,8 @@ fun AddExpenseContent(
         it.id == (state.balanceAccountId ?: state.accountId)
     }
     val accountLabel = selectedAccount?.let {
-        "${it.name} · ${it.type.replace('_', ' ').lowercase(Locale.getDefault())}"
+        "${it.name} · ${it.type.replace('_', ' ').lowercase(Locale.getDefault())}" +
+            if (it.currency != state.mainCurrency) " · ${it.currency}" else ""
     } ?: "Main"
     val category = state.categories.firstOrNull { it.id == state.categoryId }
 

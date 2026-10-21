@@ -37,6 +37,7 @@ class FinanceRepository @Inject constructor(
     private val accountDao: AccountDao,
     private val recurringPaymentDao: RecurringPaymentDao,
     private val paymentDao: CreditCardPaymentDao,
+    private val withdrawalDao: WithdrawalDao,
     private val database: AppDatabase
 ) {
     // ---- Accounts ----
@@ -68,11 +69,13 @@ class FinanceRepository @Inject constructor(
         accountDao.getAllAccountsSync().filter { it.parentAccountId == account.id }.forEach { child ->
             paymentDao.deleteForAccount(child.id)
             topUpDao.deleteForAccount(child.id)
+            withdrawalDao.deleteInvolving(child.id)
             accountDao.deleteAccount(child)
         }
         paymentDao.deleteForAccount(account.id)
         recurringPaymentDao.deleteForAccount(account.id)
         topUpDao.deleteForAccount(account.id)
+        withdrawalDao.deleteInvolving(account.id)
         expenseDao.deleteForAccount(account.id)
         accountDao.deleteAccount(account)
     }
@@ -96,8 +99,9 @@ class FinanceRepository @Inject constructor(
             expenseDao.getAllExpenses(),
             topUpDao.getAllTopUps(),
             accountDao.getAllAccounts(),
-            paymentDao.observeAll()
-        ) { expenses, topups, accounts, payments ->
+            paymentDao.observeAll(),
+            withdrawalDao.observeAll()
+        ) { expenses, topups, accounts, payments, withdrawals ->
             val currencyByAccount = accounts.associate { it.id to it.currency }
             val expenseItems = expenses.map {
                 TransactionItem(
@@ -136,7 +140,22 @@ class FinanceRepository @Inject constructor(
                 TransactionItem(it.id, "CARD_PAYMENT", BigDecimal(it.amount), currency, BigDecimal(it.amount), currency,
                     null, null, it.date, "Credit card payment · ${it.status}", "MAIN")
             }
-            (expenseItems + topUpItems + paymentItems).sortedByDescending { it.date }
+            val withdrawalItems = withdrawals.map {
+                TransactionItem(
+                    id = it.id,
+                    type = "WITHDRAWAL",
+                    amountOriginal = it.amountFromAsBigDecimal(),
+                    currencyOriginal = it.currencyFrom,
+                    amountConverted = it.amountToAsBigDecimal(),
+                    currencyConverted = it.currencyTo,
+                    rateUsed = it.rateAsBigDecimal(),
+                    categoryId = null,
+                    date = it.date,
+                    note = it.note ?: "Withdrawal to cash",
+                    paymentMethod = "MAIN"
+                )
+            }
+            (expenseItems + topUpItems + paymentItems + withdrawalItems).sortedByDescending { it.date }
         }
     }
 
@@ -166,6 +185,79 @@ class FinanceRepository @Inject constructor(
     suspend fun deleteTopUp(topUp: TopUp) = topUpDao.deleteTopUp(topUp)
     suspend fun getTopUpById(id: Long): TopUp? = topUpDao.getTopUpById(id)
 
+    // ---- Withdrawals (main -> cash, with conversion) ----
+    fun observeWithdrawals(): Flow<List<Withdrawal>> = withdrawalDao.observeAll()
+    suspend fun getWithdrawalsSync(): List<Withdrawal> = withdrawalDao.getAllSync()
+    suspend fun deleteWithdrawal(withdrawal: Withdrawal) = withdrawalDao.delete(withdrawal)
+    suspend fun restoreWithdrawal(withdrawal: Withdrawal): Long = withdrawalDao.insert(withdrawal)
+
+    suspend fun insertWithdrawal(withdrawal: Withdrawal): Long = database.withTransaction {
+        validateWithdrawal(withdrawal)
+        withdrawalDao.insert(withdrawal)
+    }
+
+    private suspend fun validateWithdrawal(withdrawal: Withdrawal) {
+        val from = accountDao.getAccountById(withdrawal.fromAccountId) ?: error("Source account not found")
+        val to = accountDao.getAccountById(withdrawal.toAccountId) ?: error("Cash account not found")
+        require(from.type == "MAIN") { "Withdrawals start from a main balance" }
+        require(to.type == "CASH" && to.parentAccountId == from.id) { "Withdrawals go to a cash account of the same balance" }
+        require(from.id != to.id) { "Source and cash account must differ" }
+        require(withdrawal.currencyFrom == from.currency && withdrawal.currencyTo == to.currency) { "Currency mismatch" }
+        require(withdrawal.amountFromAsBigDecimal() > BigDecimal.ZERO) { "Amount must be positive" }
+        require(withdrawal.amountToAsBigDecimal() >= BigDecimal.ZERO) { "Amount must not be negative" }
+        require(withdrawal.rateAsBigDecimal() > BigDecimal.ZERO) { "Exchange rate must be positive" }
+    }
+
+    /**
+     * Moves money from the main balance into one of its cash accounts. [rate] is
+     * 1 [from] currency unit expressed in the cash account's currency; when the
+     * currencies match the rate is ignored and the amount moves unchanged.
+     * Requires sufficient main funds so a withdrawal can never overdraw main.
+     */
+    suspend fun withdraw(
+        fromAccountId: Long,
+        toAccountId: Long,
+        amountFrom: BigDecimal,
+        rate: BigDecimal,
+        note: String? = null
+    ): Withdrawal = database.withTransaction {
+        require(amountFrom > BigDecimal.ZERO) { "Amount must be positive" }
+        require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
+        val from = accountDao.getAccountById(fromAccountId) ?: error("Source account not found")
+        val to = accountDao.getAccountById(toAccountId) ?: error("Cash account not found")
+        validateWithdrawal(
+            Withdrawal(
+                fromAccountId = from.id,
+                toAccountId = to.id,
+                amountFrom = amountFrom.toPlainString(),
+                amountTo = BigDecimal.ONE.toPlainString(),
+                currencyFrom = from.currency,
+                currencyTo = to.currency,
+                exchangeRate = rate.toPlainString(),
+                date = System.currentTimeMillis()
+            )
+        )
+        val available = balances()[fromAccountId] ?: BigDecimal.ZERO
+        require(amountFrom <= available) {
+            "Insufficient ${from.currency} balance for this withdrawal (available ${available.toPlainString()})"
+        }
+        val amountTo = if (from.currency == to.currency) amountFrom
+        else amountFrom.multiply(rate).setScale(2, java.math.RoundingMode.HALF_EVEN)
+        val withdrawal = Withdrawal(
+            fromAccountId = from.id,
+            toAccountId = to.id,
+            amountFrom = amountFrom.toPlainString(),
+            amountTo = amountTo.toPlainString(),
+            currencyFrom = from.currency,
+            currencyTo = to.currency,
+            exchangeRate = rate.toPlainString(),
+            date = System.currentTimeMillis(),
+            note = note
+        )
+        withdrawalDao.insert(withdrawal)
+        withdrawal
+    }
+
     suspend fun insertCategory(category: Category): Long = categoryDao.insertCategory(category)
     suspend fun updateCategory(category: Category) = categoryDao.updateCategory(category)
 
@@ -190,6 +282,7 @@ class FinanceRepository @Inject constructor(
         recurringPaymentDao.deleteAll()
         expenseDao.deleteAll()
         topUpDao.deleteAll()
+        withdrawalDao.deleteAll()
         accountDao.getAllAccountsSync().forEach { accountDao.deleteAccount(it) }
         // Keep settings structure but reset; categories are kept (defaults)
         settingsDao.deleteAll()
@@ -213,9 +306,11 @@ class FinanceRepository @Inject constructor(
             if (account.type == "MAIN") require(account.parentAccountId == null)
             else {
                 val parent = byId[account.parentAccountId] ?: error("Missing balance parent")
-                require(parent.type == "MAIN" && parent.currency == account.currency) { "Invalid balance parent/currency" }
+                require(parent.type == "MAIN") { "Invalid balance parent" }
+                // Cards debit main at face value so they must share its currency;
+                // cash may live in a different currency (withdrawals convert).
+                if (account.type == "CREDIT_CARD") require(parent.currency == account.currency) { "Invalid balance currency" }
             }
-            if (account.type == "CASH") require(accounts.count { it.type == "CASH" && it.parentAccountId == account.parentAccountId } == 1)
             require(account.autopayDay in 1..31 && account.autopayMode in listOf("FULL_BALANCE", "FIXED_AMOUNT"))
             if (account.autopayEnabled && account.autopayMode == "FIXED_AMOUNT") require(BigDecimal(account.autopayFixedAmount ?: "0") > BigDecimal.ZERO)
             account.autopayStartDate?.let { LocalDate.parse(it) }
@@ -234,6 +329,13 @@ class FinanceRepository @Inject constructor(
             require(payment.status in listOf("COMPLETED", "FAILED_INSUFFICIENT_FUNDS") && BigDecimal(payment.amount) >= BigDecimal.ZERO)
             payment.autopayPeriod?.let { YearMonth.parse(it) }
         }
+        for (withdrawal in withdrawalDao.getAllSync()) {
+            val from = byId[withdrawal.fromAccountId] ?: error("Missing withdrawal source")
+            val to = byId[withdrawal.toAccountId] ?: error("Missing withdrawal target")
+            require(from.type == "MAIN" && to.type == "CASH" && to.parentAccountId == from.id) { "Invalid withdrawal accounts" }
+            require(withdrawal.currencyFrom == from.currency && withdrawal.currencyTo == to.currency) { "Invalid withdrawal currency" }
+            require(withdrawal.amountFromAsBigDecimal() > BigDecimal.ZERO && withdrawal.amountToAsBigDecimal() >= BigDecimal.ZERO && withdrawal.rateAsBigDecimal() > BigDecimal.ZERO) { "Invalid withdrawal amounts" }
+        }
     }
 
     fun observeBalanceAccounts(): Flow<List<Account>> = accountDao.getAllAccounts()
@@ -242,7 +344,7 @@ class FinanceRepository @Inject constructor(
     suspend fun restoreCardPayment(payment: CreditCardPayment) = paymentDao.insert(payment)
 
     suspend fun balances(): Map<Long, BigDecimal> = AccountBalances.calculate(
-        accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync(), topUpDao.getAllTopUpsSync(), paymentDao.getAll())
+        accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync(), topUpDao.getAllTopUpsSync(), paymentDao.getAll(), withdrawalDao.getAllSync())
 
     private suspend fun validateExpense(expense: Expense, allowOverdraft: Boolean) {
         require(expense.originalAsBigDecimal() > BigDecimal.ZERO && expense.convertedAsBigDecimal() > BigDecimal.ZERO && expense.rateAsBigDecimal() > BigDecimal.ZERO) { "Amount and exchange rate must be positive" }
@@ -251,17 +353,26 @@ class FinanceRepository @Inject constructor(
         require(target.id == main.id || target.parentAccountId == main.id) { "Payment account belongs to another account" }
         require(target.currency == expense.currencyConverted) { "Payment currency mismatch" }
         if (target.type == "CASH" && !allowOverdraft) {
-            val remaining = AccountBalances.calculate(accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync().filter { it.id != expense.id }, topUpDao.getAllTopUpsSync(), paymentDao.getAll())[target.id] ?: BigDecimal.ZERO
+            val remaining = AccountBalances.calculate(accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync().filter { it.id != expense.id }, topUpDao.getAllTopUpsSync(), paymentDao.getAll(), withdrawalDao.getAllSync())[target.id] ?: BigDecimal.ZERO
             require(expense.convertedAsBigDecimal() <= remaining) { "Insufficient cash. Explicitly allow overdraft to continue." }
         }
     }
 
-    suspend fun createBalanceAccount(mainId: Long, name: String, type: String, opening: BigDecimal): Long = database.withTransaction {
+    /**
+     * Creates a CASH or CREDIT_CARD child of [mainId]. Cash accounts may declare
+     * their own [currency] (withdrawals convert automatically); credit cards are
+     * always kept in the main currency because payments debit main at face value.
+     * Any number of cash accounts can exist per main balance.
+     */
+    suspend fun createBalanceAccount(mainId: Long, name: String, type: String, opening: BigDecimal, currency: String? = null): Long = database.withTransaction {
         val main = accountDao.getAccountById(mainId) ?: error("Main account not found")
         require(main.type == "MAIN" && type in listOf("CASH", "CREDIT_CARD") && name.isNotBlank())
         require(opening >= BigDecimal.ZERO) { "Opening amount must not be negative" }
-        require(type != "CASH" || accountDao.getAllAccountsSync().none { it.parentAccountId == mainId && it.type == "CASH" }) { "Cash account already exists" }
-        accountDao.insertAccount(Account(name = name.trim(), currency = main.currency,
+        val accountCurrency = when (type) {
+            "CASH" -> currency?.takeIf { it.isNotBlank() } ?: main.currency
+            else -> main.currency
+        }
+        accountDao.insertAccount(Account(name = name.trim(), currency = accountCurrency,
             startingBalance = (if (type == "CREDIT_CARD") opening.negate() else opening).toPlainString(), type = type, parentAccountId = mainId))
     }
 
