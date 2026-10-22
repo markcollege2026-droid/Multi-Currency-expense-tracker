@@ -27,9 +27,25 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.9.0 — one Add menu, withdrawals and multi-currency cash
+## Current release: 1.9.0 — one Add menu, deposits and cash transfers
 
-See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).
+**[Download v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)**
+— `app-release.apk` (signed, ~2.2 MB), `app-release.aab` for Play, R8 `mapping.txt` and
+`SHA256SUMS.txt`.
+
+Version code **9**, version name **1.9.0**, database **version 5**, JSON backups **schema 5**.
+Same application ID and signing key as 1.8.x, so it installs over an existing release without
+uninstalling. Full details: [release notes and migrations](RELEASE_NOTES.md); design decisions:
+[`.superdesign/design-system.md`](.superdesign/design-system.md).
+
+What this release changes, in one line each:
+
+| Change | Where |
+|---|---|
+| One **Add** control with a 60 ms pop-out — Expense / Deposit / Withdraw, identical on Home and History | `ui/components/AddMenu.kt` |
+| **Deposit** replaces "Income", with an **optional cash source** (external is the default, previewed before save) | `AddTopUpViewModel`, `AddTopUpScreen` |
+| Withdrawals typed in **either** currency; the typed side is stored exactly, only the derived side is rounded | `domain/TransferMath.kt`, `WithdrawDialog` |
+| History rows show the time only today, then `21 Oct` / `31 Dec 2025`; tapping opens **details**, editing is a choice | `TransactionsScreen` |
 
 **File backups:** Settings → Data → Backup files lets you choose a save folder for JSON backups, CSV reports, or password-encrypted `.stbk` backups. Restore accepts JSON or `.stbk` and prompts before replacing existing data. Encryption uses built-in AES-128-GCM with PBKDF2-HMAC-SHA256; no extra library. Remember your password—there is no recovery. CSV reports cannot be restored.
 
@@ -309,19 +325,26 @@ APK split for the device and can install startup/baseline profiles for faster la
 
 ### Option 2: GitHub Actions artifacts (latest build)
 1. Go to **Actions** tab -> **Build APKs** workflow
-2. Click latest successful run
+2. Click the latest successful run
 3. Scroll to **Artifacts** section
 4. Download:
-   - `full-app-apks` -> `app-debug.apk` + `app-release.apk`
-   - `play-app-bundle` -> `app-release.aab` (for Google Play Console)
-   - `release-mapping` -> R8 mapping (crash deobfuscation)
+   - `spending-tracker-apks` -> `app-debug.apk` + `app-release.apk` + `app-release.aab`, plus the
+     R8 `mapping.txt` and the Room schemas
+   - `test-and-lint-reports` -> JUnit and lint reports
 
-Artifacts are generated on every push to `main` or `arena/**` branches.
+Artifacts are generated on every push to `main` or `arena/**` branches. The same run posts its
+test/lint summary as a commit comment.
 
 ### Option 3: GitHub Releases
-1. Go to **Releases** tab
-2. Download from latest release (published via tag `v*` or manual dispatch)
-3. Includes APKs + Play AAB + R8 mapping + keystores + README
+1. Go to the [**Releases**](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases) tab
+2. Take the latest release — [v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)
+3. Each release ships `app-release.apk`, `app-debug.apk`, `app-release.aab`, the R8 `mapping.txt`
+   and `SHA256SUMS.txt`
+
+A push whose commit message contains `[release]` publishes the tag derived from `versionName`
+after tests, lint, APK/AAB builds and the upgrade check against v1.8.0 pass. The
+**Release APKs** workflow dispatches the same job manually with an explicit tag. Signing
+keystores are never attached to a release.
 
 ### Option 4: Build locally
 ```bash
