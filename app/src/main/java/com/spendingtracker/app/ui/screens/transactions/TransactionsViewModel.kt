@@ -7,10 +7,13 @@ import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.data.local.entity.Withdrawal
+import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
+import com.spendingtracker.app.domain.AccountBalances
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 import javax.inject.Inject
 
 data class TransactionsUiState(
@@ -31,12 +34,17 @@ data class TransactionsUiState(
     val dateRangeStart: Long? = null,
     val dateRangeEnd: Long? = null,
     val balanceCurrency: String = "USD",
+    /** Balance of the main account, so a withdrawal can be started from History. */
+    val mainBalance: BigDecimal = BigDecimal.ZERO,
+    val cashAccounts: List<Account> = emptyList(),
+    val message: String? = null,
     val isLoading: Boolean = true
 )
 
 @HiltViewModel
 class TransactionsViewModel @Inject constructor(
-    private val financeRepository: FinanceRepository
+    private val financeRepository: FinanceRepository,
+    private val rateRepository: ExchangeRateRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TransactionsUiState())
@@ -55,6 +63,9 @@ class TransactionsViewModel @Inject constructor(
                 val (payments, withdrawals) = paymentsAndWithdrawals
                 val incomeAccountIds = accounts.filter { it.id == account?.id || it.parentAccountId == account?.id }.map { it.id }.toSet()
                 val accountId = account?.id
+                // Balances for the whole ledger: the withdraw dialog needs the main
+                // figure, and History rows never need a second query.
+                val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals)
                 _uiState.value.copy(
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
@@ -65,6 +76,8 @@ class TransactionsViewModel @Inject constructor(
                     accountsById = accounts.associateBy { it.id },
                     categories = categories,
                     balanceCurrency = account?.currency ?: "USD",
+                    mainBalance = if (accountId == null) BigDecimal.ZERO else balances[accountId] ?: BigDecimal.ZERO,
+                    cashAccounts = accounts.filter { it.parentAccountId == accountId && it.type == "CASH" },
                     isLoading = false
                 )
             }.collect { baseState ->
@@ -169,6 +182,41 @@ class TransactionsViewModel @Inject constructor(
     fun deleteWithdrawal(withdrawal: Withdrawal) {
         viewModelScope.launch { financeRepository.deleteWithdrawal(withdrawal) }
     }
+
+    /**
+     * Withdraws from the active main balance into one of its cash balances. Both
+     * amounts come from the dialog, so whichever currency the user typed is the
+     * one that is stored exactly.
+     */
+    fun withdraw(cashId: Long, amountFrom: String, amountTo: String, note: String?) {
+        viewModelScope.launch {
+            try {
+                val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+                    ?: error("Enter a positive amount")
+                val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+                    ?: error("Enter a positive amount")
+                val mainId = financeRepository.getActiveAccountId()
+                val cash = financeRepository.getAccountById(cashId) ?: error("Cash balance not found")
+                val main = financeRepository.getAccountById(mainId) ?: error("Main account not found")
+                val rate = rateRepository.getConversionRateOrFallback(main.currency, cash.currency)
+                financeRepository.withdraw(mainId, cash.id, from, rate, note, amountTo = to)
+                // Copy the *current* state: the ledger flow may have re-emitted while
+                // the transaction above was running.
+                _uiState.value = _uiState.value.copy(
+                    message = "Withdrew " + com.spendingtracker.app.util.CurrencyFormatter.formatSimple(from, main.currency) +
+                        " to " + cash.name
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(message = e.message ?: "Unable to withdraw")
+            }
+        }
+    }
+
+    fun clearMessage() { _uiState.value = _uiState.value.copy(message = null) }
+
+    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
+        rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
 
     /** Applies a custom date range; null values clear that side of the range. */
     fun onDateRangeChanged(start: Long?, end: Long?) {

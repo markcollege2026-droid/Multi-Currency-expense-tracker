@@ -185,7 +185,7 @@ hr{display:block}
     <div class="btn primary" style="width:100%">Close</div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <div class="btn primary" style="flex:1;transform:scale(1);animation:pop .22s ease-out">Expense</div>
-      <div class="btn ghost" style="flex:1;color:var(--income);animation:pop .22s .06s ease-out both">Income</div>
+      <div class="btn ghost" style="flex:1;color:var(--income);animation:pop .22s .06s ease-out both">Deposit</div>
       <div class="btn ghost" style="flex:1;animation:pop .22s .12s ease-out both">Withdraw</div>
     </div>
     <div class="hint" style="margin-top:8px">Moves money from main into a cash balance, converting it
@@ -208,14 +208,15 @@ hr{display:block}
       <div class="ramt"><b class="num">₪820.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 8px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
     </div>
   </section>
 
   <div style="background:var(--card);color:var(--ink2);border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;font-size:11.5px;line-height:17px">
     <b style="color:var(--ink)">Pop-out menu.</b> The two fixed buttons became one <code>+ Add</code> that
     expands with a staggered scale/fade (60 ms per option). Back closes it; on the 240 dp Qin
-    window the options stack full width so no label is clipped.
+    window the grid wraps to two rows so no label is clipped. Home and History share the same
+    three options, and History renders them as pills.
   </div>
 </main>
 

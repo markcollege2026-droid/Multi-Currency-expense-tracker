@@ -284,20 +284,31 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Withdraws from the active main balance into [toCashId], converting into the
-     * cash account's currency with the cached/fallback rate. The repository
-     * re-checks the main balance, so the UI can never overdraw main.
+     * Withdraws from the active main balance into [toCashId]. [amountFrom] is in
+     * the main currency and [amountTo] in the cash currency - both come from the
+     * dialog so the stored row matches what the user saw, whichever side they
+     * typed. The repository re-checks the main balance, so the UI can never
+     * overdraw main.
      */
-    fun withdraw(toCashId: Long, amount: String, note: String? = null) = action {
-        val value = amount.trim().replace(',', '.').toBigDecimalOrNull()
+    fun withdraw(toCashId: Long, amountFrom: String, amountTo: String, note: String? = null) = action {
+        val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
             ?: error("Enter a positive amount")
-        require(value > BigDecimal.ZERO) { "Enter a positive amount" }
+        val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+            ?: error("Enter a positive amount")
+        require(from > BigDecimal.ZERO && to > BigDecimal.ZERO) { "Enter a positive amount" }
         val main = financeRepository.getAccountById(financeRepository.getActiveAccountId())
             ?: error("Main account not found")
         val cash = financeRepository.getAccountById(toCashId) ?: error("Cash account not found")
-        require(cash.type == "CASH" && cash.parentAccountId == main.id) { "Choose a cash account of this balance" }
+        require(cash.type == "CASH" && cash.parentAccountId == main.id) { "Choose a cash balance of this account" }
         val rate = rateRepository.getConversionRateOrFallback(main.currency, cash.currency)
-        val withdrawal = financeRepository.withdraw(main.id, cash.id, value, rate, note)
+        val withdrawal = financeRepository.withdraw(
+            fromAccountId = main.id,
+            toAccountId = cash.id,
+            amountFrom = from,
+            rate = rate,
+            note = note,
+            amountTo = to
+        )
         _uiState.update {
             it.copy(
                 message = "Withdrew " +

@@ -1,15 +1,6 @@
 package com.spendingtracker.app.ui.screens.home
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -181,7 +172,7 @@ fun HomeScreen(
                         expanded = addMenuOpen,
                         onToggle = { addMenuOpen = !addMenuOpen },
                         onExpense = { addMenuOpen = false; onNavigateToAddExpense() },
-                        onIncome = { addMenuOpen = false; onNavigateToAddTopUp() },
+                        onDeposit = { addMenuOpen = false; onNavigateToAddTopUp() },
                         onWithdraw = { addMenuOpen = false; showWithdraw = true }
                     )
                 }
@@ -216,7 +207,7 @@ fun HomeScreen(
                 val recent = uiState.recentExpenses.take(if (compact) 6 else 10)
                 if (recent.isEmpty()) {
                     item(key = "recent_empty") {
-                        AppEmptyState("No transactions yet.\nAdd an expense or income to get started.")
+                        AppEmptyState("No transactions yet.\nAdd an expense or deposit to get started.")
                     }
                 } else {
                     items(recent, key = { "expense_${it.id}" }) { expense ->
@@ -275,8 +266,8 @@ fun HomeScreen(
             mainBalance = uiState.balance,
             rateLookup = viewModel::conversionRate,
             initialCashId = withdrawTargetId,
-            onConfirm = { cashId, amount, note ->
-                viewModel.withdraw(cashId, amount, note)
+            onConfirm = { cashId, amountFrom, amountTo, note ->
+                viewModel.withdraw(cashId, amountFrom, amountTo, note)
                 showWithdraw = false
                 withdrawTargetId = null
             },
@@ -697,7 +688,7 @@ fun QuickAddBottomSheet(
             )
             Spacer(Modifier.height(4.dp))
             AppButton(onClick = onAddExpense, modifier = Modifier.fillMaxWidth()) { Text("Add expense") }
-            AppOutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Add income") }
+            AppOutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Deposit into main") }
             AppOutlinedButton(onClick = onWithdraw, modifier = Modifier.fillMaxWidth()) { Text("Withdraw to cash") }
             AppOutlinedButton(onClick = onAddRecurring, modifier = Modifier.fillMaxWidth()) { Text("Recurring payment") }
         }
@@ -705,113 +696,41 @@ fun QuickAddBottomSheet(
 }
 
 /**
- * The "+ Add" control from the feature pass, rebuilt on the Ledger tokens.
+ * The "+ Add" control: one primary button that pops out the three ways money
+ * moves - a new expense, a deposit into main, or a withdrawal into cash.
  *
- * Collapsed it is one primary button; opened, three options pop out with a short
- * staggered scale/fade. The row stacks into a column on the 240dp Qin window so
- * no label is truncated and every option stays reachable with the D-pad.
+ * The option row (and its stagger) lives in `AddMenuOptions`, shared with the
+ * History toolbar so both screens behave identically.
  */
 @Composable
 fun AddMenu(
     expanded: Boolean,
     onToggle: () -> Unit,
     onExpense: () -> Unit,
-    onIncome: () -> Unit,
+    onDeposit: () -> Unit,
     onWithdraw: () -> Unit
 ) {
-    val compact = LocalCompactUi.current
-    val palette = LocalAppPalette.current
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         AppButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
             Text(if (expanded) "Close" else "+ Add", maxLines = 1)
         }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(tween(200, easing = FastOutSlowInEasing)) + fadeIn(tween(160)),
-            exit = shrinkVertically(tween(160, easing = FastOutSlowInEasing)) + fadeOut(tween(120))
-        ) {
-            // Each option pops in 60ms after the previous one.
-            if (compact) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    PopOutOption(0, expanded) {
-                        AppButton(onClick = onExpense, modifier = Modifier.fillMaxWidth()) {
-                            Text("Expense", maxLines = 1)
-                        }
-                    }
-                    PopOutOption(1, expanded) {
-                        AppOutlinedButton(
-                            onClick = onIncome,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Income", maxLines = 1, color = palette.income) }
-                    }
-                    PopOutOption(2, expanded) {
-                        AppOutlinedButton(
-                            onClick = onWithdraw,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Withdraw to cash", maxLines = 1) }
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    PopOutOption(0, expanded, modifier = Modifier.weight(1f)) {
-                        AppButton(onClick = onExpense, fillWidth = true) {
-                            Text("Expense", maxLines = 1)
-                        }
-                    }
-                    PopOutOption(1, expanded, modifier = Modifier.weight(1f)) {
-                        AppOutlinedButton(onClick = onIncome, fillWidth = true) {
-                            Text("Income", maxLines = 1, color = palette.income)
-                        }
-                    }
-                    PopOutOption(2, expanded, modifier = Modifier.weight(1f)) {
-                        AppOutlinedButton(onClick = onWithdraw, fillWidth = true) {
-                            Text("Withdraw", maxLines = 1)
-                        }
-                    }
-                }
-            }
-        }
+        AddMenuOptions(
+            expanded = expanded,
+            options = listOf(
+                AddMenuOption(label = "Expense", onClick = onExpense, primary = true),
+                AddMenuOption(label = "Deposit", onClick = onDeposit, emphasized = true),
+                AddMenuOption(label = "Withdraw", onClick = onWithdraw)
+            )
+        )
         if (expanded) {
             Text(
-                text = "Moves money from main into a cash balance, converting it " +
-                    "automatically when that cash balance uses another currency.",
+                text = "Moves money from main into a cash balance, or deposit into main " +
+                    "from a cash balance - converting automatically across currencies.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3
             )
         }
-    }
-}
-
-/** One menu entry: scales up and fades in, with a per-index delay. */
-@Composable
-private fun PopOutOption(
-    index: Int,
-    visible: Boolean,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val delay = index * 60
-    val exitDelay = (2 - index) * 40
-    AnimatedVisibility(
-        visible = visible,
-        modifier = modifier,
-        enter = scaleIn(
-            initialScale = 0.72f,
-            animationSpec = tween(220, delayMillis = delay, easing = FastOutSlowInEasing)
-        ) + fadeIn(animationSpec = tween(180, delayMillis = delay)),
-        exit = scaleOut(
-            targetScale = 0.82f,
-            animationSpec = tween(140, delayMillis = exitDelay, easing = FastOutSlowInEasing)
-        ) + fadeOut(animationSpec = tween(120, delayMillis = exitDelay))
-    ) {
-        content()
     }
 }
 

@@ -74,6 +74,44 @@ class FinanceRepositoryTest {
         assertMoney("1", w.rateAsBigDecimal())
         money("960", mainId); money("140", cashId)
     }
+    @Test fun depositFundedFromCashIsAReverseTransfer() = runBlocking {
+        // Depositing into main out of a cash balance moves money between the two.
+        repository.withdraw(
+            fromAccountId = cashId, toAccountId = mainId,
+            amountFrom = BigDecimal("40"), rate = BigDecimal.ONE, amountTo = BigDecimal("40")
+        )
+        money("1040", mainId); money("60", cashId)
+        val stored = repository.getWithdrawalsSync().single()
+        assertEquals(cashId, stored.fromAccountId)
+        assertEquals(mainId, stored.toAccountId)
+    }
+    @Test fun foreignCashDepositConvertsIntoTheMainCurrency() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("100"), "EUR")
+        // 1 EUR = 4 ILS, depositing ₪100 spends €25 of the wallet.
+        repository.withdraw(
+            fromAccountId = eurCash, toAccountId = mainId,
+            amountFrom = BigDecimal("25"), rate = BigDecimal("4"), amountTo = BigDecimal("100")
+        )
+        money("1100", mainId); money("75", eurCash)
+        assertEquals("EUR", repository.getWithdrawalsSync().single().currencyFrom)
+        assertEquals("ILS", repository.getWithdrawalsSync().single().currencyTo)
+    }
+    @Test fun transfersOutsideMainAndItsCashAreRejected() = runBlocking {
+        // Cash cannot fund a card directly, and main cannot receive from itself.
+        rejected {
+            repository.withdraw(
+                fromAccountId = cashId, toAccountId = cardId,
+                amountFrom = BigDecimal("10"), rate = BigDecimal.ONE
+            )
+        }
+        rejected {
+            repository.withdraw(
+                fromAccountId = mainId, toAccountId = mainId,
+                amountFrom = BigDecimal("10"), rate = BigDecimal.ONE
+            )
+        }
+        money("1000", mainId); money("100", cashId)
+    }
     @Test fun withdrawalRequiresFundsAndValidCashTarget() = runBlocking {
         rejected { repository.withdraw(mainId, cardId, BigDecimal("10"), BigDecimal.ONE) }
         rejected { repository.withdraw(mainId, cashId, BigDecimal("1001"), BigDecimal.ONE) }

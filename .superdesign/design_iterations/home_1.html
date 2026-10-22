@@ -188,11 +188,12 @@ hr{display:block}
     <div class="btn primary" style="width:100%">+ Add</div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <div class="btn primary" style="flex:1">Expense</div>
-      <div class="btn ghost" style="flex:1;color:var(--income)">Income</div>
+      <div class="btn ghost" style="flex:1;color:var(--income)">Deposit</div>
       <div class="btn ghost" style="flex:1">Withdraw</div>
     </div>
-    <div class="hint" style="margin-top:8px">Moves money from main into a cash balance, converting it
-      automatically when that cash balance uses another currency.</div>
+    <div class="hint" style="margin-top:8px">Deposit adds money to main (optionally funded from a cash
+      balance); Withdraw moves main into a cash balance, converting automatically and accepting the
+      amount in either currency.</div>
   </div>
 
   <section class="card">
@@ -211,7 +212,7 @@ hr{display:block}
       <div class="ramt"><b class="num">₪820.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 6px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--amber-cont);color:var(--amber)">€</span>
@@ -219,7 +220,7 @@ hr{display:block}
       <div class="ramt"><b class="num">€140.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 6px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw (₪→€)</span><span class="txt sm">Set aside</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw (₪→€)</span><span class="txt sm">Set aside</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--highest);color:var(--ink2)">🏦</span>
@@ -227,7 +228,7 @@ hr{display:block}
       <div class="ramt"><b class="num muted">₪2,000.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 6px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Count in total</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw</span><span class="txt sm">Count in total</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--error-cont);color:var(--error)">V</span>
@@ -255,7 +256,7 @@ hr{display:block}
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--primary-cont);color:var(--primary-deep)">S</span>
-      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Income · Main / debit</div></div>
+      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Deposit · external</div></div>
       <div class="ramt"><b class="num pos">+₪9,400.00</b><span>19 Oct</span></div>
     </div>
     <div class="rowline">

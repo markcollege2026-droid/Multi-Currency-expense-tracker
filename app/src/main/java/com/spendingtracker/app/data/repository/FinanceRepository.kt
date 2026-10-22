@@ -5,6 +5,7 @@ import com.spendingtracker.app.data.local.entity.*
 import androidx.room.withTransaction
 import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.domain.AccountBalances
+import com.spendingtracker.app.domain.TransferMath
 import java.time.LocalDate
 import java.time.YearMonth
 import kotlinx.coroutines.flow.map
@@ -195,42 +196,53 @@ class FinanceRepository @Inject constructor(
     suspend fun restoreWithdrawal(withdrawal: Withdrawal): Long = withdrawalDao.insert(withdrawal)
 
     /**
-     * Moves money from a main balance into one of its cash accounts. [rate] is
-     * 1 [from] unit expressed in the cash account's currency; when the currencies
-     * match the ratio is stored as 1 and the amount moves unchanged.
+     * Moves money between a main balance and one of its cash accounts, in either
+     * direction: main → cash (a withdrawal) or cash → main (a deposit funded from
+     * cash). [rate] is 1 [from] unit expressed in the destination currency; when
+     * the currencies match the ratio is stored as 1 and the amount moves unchanged.
      *
-     * The main balance is checked inside the transaction, so a withdrawal can
-     * never overdraw main - the same rule cash expenses follow.
+     * [amountTo] may be supplied when the user typed the destination side, so the
+     * stored row is exactly what they saw. The source balance is checked inside
+     * the transaction, so a transfer can never overdraw the account it leaves.
      */
     suspend fun withdraw(
         fromAccountId: Long,
         toAccountId: Long,
         amountFrom: BigDecimal,
         rate: BigDecimal,
-        note: String? = null
+        note: String? = null,
+        amountTo: BigDecimal? = null
     ): Withdrawal = database.withTransaction {
         require(amountFrom > BigDecimal.ZERO) { "Amount must be positive" }
         require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
         val from = accountDao.getAccountById(fromAccountId) ?: error("Source account not found")
-        val to = accountDao.getAccountById(toAccountId) ?: error("Cash account not found")
-        require(from.type == "MAIN") { "Withdrawals start from a main balance" }
-        require(to.type == "CASH" && to.parentAccountId == from.id) { "Withdrawals go to a cash account of the same balance" }
-        require(from.id != to.id) { "Source and cash account must differ" }
+        val to = accountDao.getAccountById(toAccountId) ?: error("Destination account not found")
+        require(from.id != to.id) { "Source and destination must differ" }
+        // One side is the main balance and the other is a cash account of it.
+        val validPair = when {
+            from.type == "MAIN" -> to.type == "CASH" && to.parentAccountId == from.id
+            to.type == "MAIN" -> from.type == "CASH" && from.parentAccountId == to.id
+            else -> false
+        }
+        require(validPair) { "Transfers move money between a main balance and one of its cash accounts" }
 
         val available = balances()[from.id] ?: BigDecimal.ZERO
         require(amountFrom <= available) {
-            "Insufficient ${from.currency} balance for this withdrawal (available ${available.toPlainString()})"
+            "Insufficient ${from.currency} balance (available ${available.toPlainString()})"
         }
         val sameCurrency = from.currency == to.currency
-        val amountTo = if (sameCurrency) amountFrom
-        else amountFrom.multiply(rate).setScale(2, java.math.RoundingMode.HALF_EVEN)
-        require(amountTo > BigDecimal.ZERO) { "Converted amount is too small" }
+        val converted = when {
+            sameCurrency -> amountFrom
+            amountTo != null -> amountTo
+            else -> amountFrom.multiply(rate).setScale(TransferMath.SCALE, java.math.RoundingMode.HALF_EVEN)
+        }
+        require(converted > BigDecimal.ZERO) { "Converted amount is too small" }
 
         val withdrawal = Withdrawal(
             fromAccountId = from.id,
             toAccountId = to.id,
             amountFrom = amountFrom.toPlainString(),
-            amountTo = amountTo.toPlainString(),
+            amountTo = converted.toPlainString(),
             currencyFrom = from.currency,
             currencyTo = to.currency,
             exchangeRate = if (sameCurrency) BigDecimal.ONE.toPlainString() else rate.toPlainString(),
@@ -309,7 +321,9 @@ class FinanceRepository @Inject constructor(
         for (withdrawal in withdrawalDao.getAllSync()) {
             val from = byId[withdrawal.fromAccountId] ?: error("Missing withdrawal source")
             val to = byId[withdrawal.toAccountId] ?: error("Missing withdrawal target")
-            require(from.type == "MAIN" && to.type == "CASH" && to.parentAccountId == from.id) { "Invalid withdrawal accounts" }
+            val validPair = (from.type == "MAIN" && to.type == "CASH" && to.parentAccountId == from.id) ||
+                (to.type == "MAIN" && from.type == "CASH" && from.parentAccountId == to.id)
+            require(validPair) { "Invalid withdrawal accounts" }
             require(withdrawal.currencyFrom == from.currency && withdrawal.currencyTo == to.currency) { "Invalid withdrawal currency" }
             require(
                 withdrawal.amountFromAsBigDecimal() > BigDecimal.ZERO &&

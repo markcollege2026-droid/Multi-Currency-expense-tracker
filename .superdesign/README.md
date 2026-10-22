@@ -113,6 +113,22 @@ reachability, `WithdrawDialogTest` (conversion, over-balance rejection, no-cash 
 multi-destination), plus repository/domain tests for conversion, cascade delete, set-aside
 persistence and the "editing cannot retype money" guard.
 
+## Feature pass 2: one Add menu, two-currency withdrawals, deposits
+
+Four behaviour fixes; the visuals did not change, the *verbs* did.
+
+| Request | Change | Where |
+|---|---|---|
+| History's `− +` pills only covered two of the three transaction types | Replaced with the same **+ Add** affordance as Home: a pill beside the search field that pops out Expense / Deposit / Withdraw with the same 60 ms stagger. One shared `AddMenuOptions` composable now renders both screens, differing only in `AddMenuStyle` (buttons on Home, pills in History). | `ui/components/AddMenu.kt`, `TransactionsScreen` |
+| A withdrawal could only be typed in the main currency | `WithdrawDialog` gained ILS/EUR chips; the typed side is stored exactly and only the derived side is rounded once. Preview reads "≈ €100.00 arrives on cash". | `domain/TransferMath.kt`, `WithdrawDialog`, `FinanceRepository.withdraw(amountTo = …)` |
+| Main's income was called *Income* and could not come from cash | Renamed to **Deposit** everywhere, and the form offers an optional *Source*: **External** is the default, a cash balance is opt-in and shows what leaves it (`€304.00 leaves cash`). Validation blocks an overdraw and a zero/negative amount before save. | `AddTopUpViewModel.depositFormState`, `AddTopUpScreen`, `DepositSourceDialog` |
+| History rows always showed a time, and tapping opened the editor | `historyTimestamp` shows `HH:mm` only for today, `d MMM` this year, `d MMM yyyy` older. A tap opens `TransactionDetailsDialog` (amount, rate, category, account, method, note, date) with **Edit** as an explicit choice; transfers have no Edit. | `TransactionsScreen`, `TransactionDetailsDialog` |
+
+Mockups: `add-deposit_1.html` is new; `history_1.html`, `home_1.html` and `withdraw_1.html`
+were regenerated for the new wording and the date-vs-time rule. Tests:
+`TransferMathTest`, `DepositFormStateTest`, `HistoryTimestampTest`, `HistoryAddMenuTest`,
+plus reverse-direction and rejection cases in `FinanceRepositoryTest`.
+
 ## Constraints the design respects
 
 - **Two densities.** Regular phones/tablets and the Qin F21 Pro (240×320dp) share the

@@ -241,11 +241,12 @@ def home():
     <div class="btn primary" style="width:100%">+ Add</div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <div class="btn primary" style="flex:1">Expense</div>
-      <div class="btn ghost" style="flex:1;color:var(--income)">Income</div>
+      <div class="btn ghost" style="flex:1;color:var(--income)">Deposit</div>
       <div class="btn ghost" style="flex:1">Withdraw</div>
     </div>
-    <div class="hint" style="margin-top:8px">Moves money from main into a cash balance, converting it
-      automatically when that cash balance uses another currency.</div>
+    <div class="hint" style="margin-top:8px">Deposit adds money to main (optionally funded from a cash
+      balance); Withdraw moves main into a cash balance, converting automatically and accepting the
+      amount in either currency.</div>
   </div>
 
   <section class="card">
@@ -264,7 +265,7 @@ def home():
       <div class="ramt"><b class="num">₪820.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 6px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--amber-cont);color:var(--amber)">€</span>
@@ -272,7 +273,7 @@ def home():
       <div class="ramt"><b class="num">€140.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 6px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw (₪→€)</span><span class="txt sm">Set aside</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw (₪→€)</span><span class="txt sm">Set aside</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--highest);color:var(--ink2)">🏦</span>
@@ -280,7 +281,7 @@ def home():
       <div class="ramt"><b class="num muted">₪2,000.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 6px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Count in total</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw</span><span class="txt sm">Count in total</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--error-cont);color:var(--error)">V</span>
@@ -308,7 +309,7 @@ def home():
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--primary-cont);color:var(--primary-deep)">S</span>
-      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Income · Main / debit</div></div>
+      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Deposit · external</div></div>
       <div class="ramt"><b class="num pos">+₪9,400.00</b><span>19 Oct</span></div>
     </div>
     <div class="rowline">
@@ -378,12 +379,18 @@ def history():
   <div class="field" style="display:flex;align-items:center;gap:10px">
     <span style="color:var(--ink2)">⌕</span>
     <span class="muted" style="font-size:14px;flex:1">Search note, amount, person…</span>
-    <span class="pill" style="height:24px;font-size:11px">This month</span>
+    <span class="pill sel">+ Add</span>
+  </div>
+  <div class="chiprow" style="margin-top:6px">
+    <span class="chip on">Expense</span><span class="chip">Deposit</span><span class="chip">Withdraw</span>
   </div>
   <div class="chiprow">
-    <span class="chip on">All</span><span class="chip">Expenses</span><span class="chip">Income</span>
-    <span class="chip">Card pmts</span><span class="chip">Food</span>
+    <span class="chip on">All</span><span class="chip">Expenses</span><span class="chip">Deposits</span>
+    <span class="chip">Card pmts</span><span class="chip">Transfers</span><span class="chip">Food</span>
   </div>
+  <div class="hint" style="padding:0 2px">“+ Add” pops out Expense / Deposit / Withdraw, exactly like Home.
+    Rows show the time only while it is today, then the date. Tapping a row opens its details;
+    editing is a choice, not a side effect of looking.</div>
 
   <div class="sect" style="margin-top:4px"><h2>Today · ₪254.40</h2></div>
   <section class="card tight" style="padding:4px 12px">
@@ -393,23 +400,24 @@ def history():
 
   <div class="sect"><h2>Yesterday · ₪1,026.85</h2></div>
   <section class="card tight" style="padding:4px 12px">
-    {row("R", "#E6E9F2", "#3C4C7A", "Rent — November", "Home · bank transfer", "−₪980.00", "neg", "18:05")}
-    {row("T", "#E9E4F2", "#5B4B86", "Metro card", "Transport · €2.50 → ₪9.90", "−₪9.90", "neg", "09:15")}
-    {row("V", "#F3E7D2", "#8A5A12", "Card payment · Visa 4421", "Paid from main · debit", "−₪318.15", "neg", "08:00")}
-    {row("C", "#D7ECDD", "#08361F", "Refund · Amazon", "Shopping · returned", "+₪281.20", "pos", "07:20")}
+    {row("R", "#E6E9F2", "#3C4C7A", "Rent — November", "Home · bank transfer", "−₪980.00", "neg", "21 Oct")}
+    {row("T", "#E9E4F2", "#5B4B86", "Metro card", "Transport · €2.50 → ₪9.90", "−₪9.90", "neg", "21 Oct")}
+    {row("V", "#F3E7D2", "#8A5A12", "Card payment · Visa 4421", "Paid from main · debit", "−₪318.15", "neg", "21 Oct")}
+    {row("→", "#F2F0E8", "#4C5148", "Withdrawal to Euro wallet", "Transfer · main → cash · ATM", "−₪400.00 ≈ +€100.00", "muted", "21 Oct")}
+    {row("C", "#D7ECDD", "#08361F", "Refund · Amazon", "Shopping · returned", "+₪281.20", "pos", "21 Oct")}
   </section>
 
   <div class="sect"><h2>19 October · ₪9,390.10</h2></div>
   <section class="card tight" style="padding:4px 12px">
-    {row("S", "#D7ECDD", "#08361F", "Salary — October", "Income · Main / debit", "+₪9,400.00", "pos", "10:02")}
-    {row("T", "#E9E4F2", "#5B4B86", "Taxi", "Transport · Gett", "−₪62.00", "neg", "22:31")}
-    {row("F", "#F3E7D2", "#8A5A12", "Lunch", "Food · Miznon", "−₪52.00", "neg", "13:12")}
+    {row("S", "#D7ECDD", "#08361F", "Salary — October", "Deposit · external", "+₪9,400.00", "pos", "19 Oct")}
+    {row("T", "#E9E4F2", "#5B4B86", "Taxi", "Transport · Gett", "−₪62.00", "neg", "19 Oct")}
+    {row("F", "#F3E7D2", "#8A5A12", "Lunch", "Food · Miznon", "−₪52.00", "neg", "19 Oct")}
   </section>
 
   <div class="sect"><h2>18 October · ₪184.00</h2></div>
   <section class="card tight" style="padding:4px 12px">
-    {row("H", "#E3EEDF", "#2F6B44", "Pharmacy", "Health · Super-Pharm", "−₪124.00", "neg", "17:48")}
-    {row("F", "#F3E7D2", "#8A5A12", "Dinner", "Food · HaBasta", "−₪60.00", "neg", "21:10")}
+    {row("H", "#E3EEDF", "#2F6B44", "Pharmacy", "Health · Super-Pharm", "−₪124.00", "neg", "18 Oct")}
+    {row("F", "#F3E7D2", "#8A5A12", "Dinner", "Food · HaBasta", "−₪60.00", "neg", "18 Oct")}
   </section>
 
   <div class="sect"><h2>Earliest this month</h2></div>
@@ -468,6 +476,49 @@ def add_expense():
 </main>
 """
     return page("New expense", body)
+
+
+# ---------------------------------------------------------------- ADD DEPOSIT
+def add_deposit():
+    body = """
+<div class="topbar" style="align-items:center">
+  <span class="roundbtn" style="border:none;background:transparent">""" + ICONS['back'] + """</span>
+  <div class="titles"><h1 style="font-size:18px">Deposit</h1></div>
+  <span class="pill sel">Main · ₪</span>
+</div>
+<main class="content">
+  <section class="card">
+    <div class="eyebrow">Amount</div>
+    <div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-1.2px">₪ 1,200.00</div>
+    <div class="hint" style="margin-top:6px">Goes into the main account.</div>
+  </section>
+
+  <div class="eyebrow" style="padding:0 2px">Source</div>
+  <div class="field sel"><div style="flex:1"><div class="lbl">Funded by</div>
+    <div class="val">External — not from cash</div></div><span class="chev">›</span></div>
+  <div class="chiprow">
+    <span class="chip on">External</span><span class="chip">Cash · ILS</span><span class="chip">Euro wallet · EUR</span>
+  </div>
+  <div class="hint">External is the default: a salary or refund arriving from outside the app.
+    Picking a cash balance turns the deposit into an internal transfer — the preview below
+    shows exactly what leaves that balance.</div>
+
+  <div class="card" style="background:var(--primary-cont);border-color:transparent">
+    <div class="eyebrow" style="color:var(--primary-deep)">If funded from Euro wallet</div>
+    <div class="num" style="font-size:20px;font-weight:700;margin-top:4px">€304.00 leaves cash</div>
+    <div class="hint" style="color:var(--primary-deep)">≈ ₪1,200.00 at 1 EUR = 3.9473 ILS ·
+      stored rate, both sides saved</div>
+  </div>
+
+  <div class="hint" style="color:var(--error)">More than the EUR balance holds</div>
+
+  <div class="field"><div class="lbl">Note</div><div class="val" style="font-weight:400;color:var(--ink2)">October salary</div></div>
+
+  <div class="btn primary">Save deposit</div>
+  <div class="btn ghost">Cancel</div>
+</main>
+"""
+    return page("Add deposit", body)
 
 
 # ---------------------------------------------------------------- CONVERTER
@@ -715,7 +766,7 @@ def delete_confirm():
       <div class="field"><div class="lbl">Name</div><div class="val">Cash</div></div>
       <div class="field"><div class="lbl">Low balance warning (optional)</div><div class="val num">100.00</div></div>
     </div>
-    <div class="hint">Deleting this balance also removes its expenses, income and payments.</div>
+    <div class="hint">Deleting this balance also removes its expenses, deposits and payments.</div>
     <div class="dactions">
       <span class="txt danger">Delete</span>
       <span class="txt">Cancel</span>
@@ -755,7 +806,7 @@ def add_menu():
     <div class="btn primary" style="width:100%">Close</div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <div class="btn primary" style="flex:1;transform:scale(1);animation:pop .22s ease-out">Expense</div>
-      <div class="btn ghost" style="flex:1;color:var(--income);animation:pop .22s .06s ease-out both">Income</div>
+      <div class="btn ghost" style="flex:1;color:var(--income);animation:pop .22s .06s ease-out both">Deposit</div>
       <div class="btn ghost" style="flex:1;animation:pop .22s .12s ease-out both">Withdraw</div>
     </div>
     <div class="hint" style="margin-top:8px">Moves money from main into a cash balance, converting it
@@ -778,14 +829,15 @@ def add_menu():
       <div class="ramt"><b class="num">₪820.00</b></div>
     </div>
     <div style="display:flex;gap:12px;padding:0 0 8px 42px">
-      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
+      <span class="txt sm">Deposit</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
     </div>
   </section>
 
   <div style="background:var(--card);color:var(--ink2);border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;font-size:11.5px;line-height:17px">
     <b style="color:var(--ink)">Pop-out menu.</b> The two fixed buttons became one <code>+ Add</code> that
     expands with a staggered scale/fade (60 ms per option). Back closes it; on the 240 dp Qin
-    window the options stack full width so no label is clipped.
+    window the grid wraps to two rows so no label is clipped. Home and History share the same
+    three options, and History renders them as pills.
   </div>
 </main>
 """
@@ -811,8 +863,14 @@ def withdraw():
         <div class="val" style="flex:1">Euro wallet (EUR)</div>
       </div>
     </div>
+    <div class="eyebrow">Amount in</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <span class="pill sel">ILS</span><span class="pill">EUR</span>
+    </div>
     <div class="field"><div class="lbl">Amount (ILS)</div><div class="val num">400.00</div></div>
-    <div class="hint" style="color:var(--primary)">≈ €100.00 · 1 ILS = 0.25 EUR</div>
+    <div class="hint" style="color:var(--primary)">≈ €100.00 arrives on cash · 1 ILS = 0.25 EUR</div>
+    <div class="hint">Type the amount in either currency — €100 or ₪400 both work, and the
+      side you typed is stored exactly.</div>
     <div class="field"><div class="lbl">Note (optional)</div><div class="val muted">ATM before the trip</div></div>
     <div class="hint">Converted at the cached rate when you confirm. This is a transfer, not
       spending, so category totals are unchanged.</div>
@@ -822,9 +880,9 @@ def withdraw():
     </div>
   </div>
 </div>
-<div class="badge-note"><b>Never a dead end.</b> With no cash balance yet the same dialog says so and
-  its confirm action becomes “Add cash balance”, which opens the create sheet — the dialog can
-  never show Cancel alone.</div>
+<div class="badge-note"><b>Either currency, never a dead end.</b> The amount can be typed in ₪ or €.
+  With no cash balance yet the confirm action becomes “Add cash balance”, so the dialog can never
+  show Cancel alone.</div>
 """
     return page("Withdraw to cash", body, tabs=tabbar("home"))
 
@@ -863,6 +921,7 @@ SCREENS = [
     ("home", "Home", "Hero balance, quick actions, balances, recent activity, categories and a 7-day trend.", home),
     ("history", "History", "Search, filters and day-grouped rows with signed amounts and tabular figures.", history),
     ("add-expense", "New expense", "Amount-first form with currency lock, keypad, category chips and account routing.", add_expense),
+    ("add-deposit", "Add deposit", "Deposit is the default wording; funding it from a cash balance is opt-in and previewed.", add_deposit),
     ("converter", "Converter", "Base and target cards, mid-market rate, 7-day sparkline and quick pairs.", converter),
     ("loans", "Loans &amp; debts", "Net position, partial-repayment progress and overdue reminders.", loans),
     ("settings", "Settings", "Accounts, appearance, backup/restore, rates and about.", settings),

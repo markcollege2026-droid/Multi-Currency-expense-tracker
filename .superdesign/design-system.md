@@ -72,7 +72,7 @@ in tabular figures so columns line up.
 | `outlineVariant` | `#CDD1C6` | Hairlines, card borders |
 | `primary` | `#0F5132` | Primary buttons, active tab, links |
 | `onPrimary` | `#FFFFFF` | Text on primary |
-| `primaryContainer` | `#D7ECDD` | Selected chips, income highlight |
+| `primaryContainer` | `#D7ECDD` | Selected chips, deposit highlight |
 | `onPrimaryContainer` | `#08361F` | Text on primary container |
 | `secondary` / `secondaryContainer` | `#5C6B60` / `#E7EDE4` | Neutral actions, secondary buttons |
 | `tertiary` / `tertiaryContainer` | `#8A5A12` / `#FBE7C6` | Card payments, warnings, rate badges |
@@ -156,8 +156,7 @@ alone.
 
 **Balance hero** — 28dp radius, forest gradient, `overview` eyebrow, 44/36 display
 amount, hairline-divider period tiles (week / month), warning chips in `#FFE1A8` text,
-“Adjust” ghost pill top-right. Below it, one row of two actions (`Add expense` filled,
-`Add income` tonal).
+“Adjust” ghost pill top-right. Below it a single `Add` control (see *One Add control*).
 
 **Section header** — eyebrow label (uppercase, letterspaced, `onSurfaceVariant`) with an
 optional trailing text action (`See all` in `primary`). No underline.
@@ -200,23 +199,44 @@ the error colour *and* a verb label ("Delete expense").
 
 *Transfers are not spending.* A withdrawal between balances keeps the category totals
 untouched, so it gets a neutral accent and an arrow amount ("−₪400.00 ≈ +€100.00") rather
-than the expense/income colours. When a cash balance is *set aside* it is dimmed to the
+than the expense/deposit colours. When a cash balance is *set aside* it is dimmed to the
 muted ink and says so in its meta line, so nobody wonders why the totals do not add up.
 
-*One Add control.* Adding is a single `+ Add` that expands into Expense / Income /
+*One Add control.* Adding is a single `+ Add` that expands into Expense / Deposit /
 Withdraw with a 60 ms stagger (220 ms scale + 180 ms fade). It collapses on Back and on
-choosing an option; on the 240dp window the three options stack so no label truncates.
-Never ship three equal-weight buttons in one row below 300dp.
+choosing an option; the option grid allows three per row and wraps below that, so no
+label truncates on the 240dp window. Home renders it as buttons under the hero, History
+as pills beside the search field — same component (`AddMenuOptions`), same options,
+same wording. Never ship three equal-weight buttons in one row below 300dp, and never
+give two screens different verbs for the same action.
+
+*Deposit, not income.* Money arriving in the main account is a **Deposit**. It is
+external by default (salary, refund); funding it from a cash balance is an opt-in
+*Source* choice that turns it into an internal transfer and previews what leaves that
+balance. The form says “Main · ₪” in the top bar so the destination is never ambiguous.
+
+*Amounts in either currency.* A transfer accepts the amount in the main currency **or**
+the cash account's currency, chosen with the same chips used for expense currencies. The
+side the user typed is stored exactly and only the derived side is rounded, so ₪400 →
+€100 does not come back as ₪399.96. The preview names the side that moves: “≈ €100.00
+arrives on cash”.
+
+*Details before editing.* Reading and editing are separate acts. A tap on a history row
+opens the details (amount, rate, category, account, method, note, date); **Edit** is a
+choice inside that dialog. Transfers have no Edit — a saved rate is a fact. The trailing
+timestamp is `HH:mm` only while the row is from today, then `d MMM`, then
+`d MMM yyyy`; the list is day-grouped, so this reads as detail-within-the-day rather
+than a missing time.
 
 **Confirmations** — anything that rewrites the ledger asks first with a one-line
-consequence: deleting a transaction, income, loan, repayment, recurring payment, cash or
+consequence: deleting a transaction, deposit, loan, repayment, recurring payment, cash or
 card balance. Non-destructive state changes ("Mark settled") confirm too, because they
 are otherwise invisible in balances.
 
 ## 8. Accessibility
 
 - Contrast: body text ≥ 4.5:1, large amounts ≥ 3:1 (verified for every token pair above).
-- Colour is never the only signal: expenses carry `−`, income `+`, overdue rows carry the
+- Colour is never the only signal: expenses carry `−`, deposits `+`, overdue rows carry the
   word `OVERDUE`, low balance carries a warning glyph + text.
 - Amounts are read as words through `contentDescription` (`“minus 42 shekels”`).
 - Focus: amber ring 2dp outside the component, 2dp offset; never clipped.

@@ -169,12 +169,18 @@ hr{display:block}
   <div class="field" style="display:flex;align-items:center;gap:10px">
     <span style="color:var(--ink2)">⌕</span>
     <span class="muted" style="font-size:14px;flex:1">Search note, amount, person…</span>
-    <span class="pill" style="height:24px;font-size:11px">This month</span>
+    <span class="pill sel">+ Add</span>
+  </div>
+  <div class="chiprow" style="margin-top:6px">
+    <span class="chip on">Expense</span><span class="chip">Deposit</span><span class="chip">Withdraw</span>
   </div>
   <div class="chiprow">
-    <span class="chip on">All</span><span class="chip">Expenses</span><span class="chip">Income</span>
-    <span class="chip">Card pmts</span><span class="chip">Food</span>
+    <span class="chip on">All</span><span class="chip">Expenses</span><span class="chip">Deposits</span>
+    <span class="chip">Card pmts</span><span class="chip">Transfers</span><span class="chip">Food</span>
   </div>
+  <div class="hint" style="padding:0 2px">“+ Add” pops out Expense / Deposit / Withdraw, exactly like Home.
+    Rows show the time only while it is today, then the date. Tapping a row opens its details;
+    editing is a choice, not a side effect of looking.</div>
 
   <div class="sect" style="margin-top:4px"><h2>Today · ₪254.40</h2></div>
   <section class="card tight" style="padding:4px 12px">
@@ -195,22 +201,27 @@ hr{display:block}
     <div class="rowline">
       <span class="avatar" style="background:#E6E9F2;color:#3C4C7A">R</span>
       <div style="min-width:0"><div class="rtitle">Rent — November</div><div class="rmeta">Home · bank transfer</div></div>
-      <div class="ramt"><b class="num neg">−₪980.00</b><span>18:05</span></div>
+      <div class="ramt"><b class="num neg">−₪980.00</b><span>21 Oct</span></div>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:#E9E4F2;color:#5B4B86">T</span>
       <div style="min-width:0"><div class="rtitle">Metro card</div><div class="rmeta">Transport · €2.50 → ₪9.90</div></div>
-      <div class="ramt"><b class="num neg">−₪9.90</b><span>09:15</span></div>
+      <div class="ramt"><b class="num neg">−₪9.90</b><span>21 Oct</span></div>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:#F3E7D2;color:#8A5A12">V</span>
       <div style="min-width:0"><div class="rtitle">Card payment · Visa 4421</div><div class="rmeta">Paid from main · debit</div></div>
-      <div class="ramt"><b class="num neg">−₪318.15</b><span>08:00</span></div>
+      <div class="ramt"><b class="num neg">−₪318.15</b><span>21 Oct</span></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:#F2F0E8;color:#4C5148">→</span>
+      <div style="min-width:0"><div class="rtitle">Withdrawal to Euro wallet</div><div class="rmeta">Transfer · main → cash · ATM</div></div>
+      <div class="ramt"><b class="num muted">−₪400.00 ≈ +€100.00</b><span>21 Oct</span></div>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:#D7ECDD;color:#08361F">C</span>
       <div style="min-width:0"><div class="rtitle">Refund · Amazon</div><div class="rmeta">Shopping · returned</div></div>
-      <div class="ramt"><b class="num pos">+₪281.20</b><span>07:20</span></div>
+      <div class="ramt"><b class="num pos">+₪281.20</b><span>21 Oct</span></div>
     </div>
   </section>
 
@@ -218,18 +229,18 @@ hr{display:block}
   <section class="card tight" style="padding:4px 12px">
     <div class="rowline">
       <span class="avatar" style="background:#D7ECDD;color:#08361F">S</span>
-      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Income · Main / debit</div></div>
-      <div class="ramt"><b class="num pos">+₪9,400.00</b><span>10:02</span></div>
+      <div style="min-width:0"><div class="rtitle">Salary — October</div><div class="rmeta">Deposit · external</div></div>
+      <div class="ramt"><b class="num pos">+₪9,400.00</b><span>19 Oct</span></div>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:#E9E4F2;color:#5B4B86">T</span>
       <div style="min-width:0"><div class="rtitle">Taxi</div><div class="rmeta">Transport · Gett</div></div>
-      <div class="ramt"><b class="num neg">−₪62.00</b><span>22:31</span></div>
+      <div class="ramt"><b class="num neg">−₪62.00</b><span>19 Oct</span></div>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:#F3E7D2;color:#8A5A12">F</span>
       <div style="min-width:0"><div class="rtitle">Lunch</div><div class="rmeta">Food · Miznon</div></div>
-      <div class="ramt"><b class="num neg">−₪52.00</b><span>13:12</span></div>
+      <div class="ramt"><b class="num neg">−₪52.00</b><span>19 Oct</span></div>
     </div>
   </section>
 
@@ -238,12 +249,12 @@ hr{display:block}
     <div class="rowline">
       <span class="avatar" style="background:#E3EEDF;color:#2F6B44">H</span>
       <div style="min-width:0"><div class="rtitle">Pharmacy</div><div class="rmeta">Health · Super-Pharm</div></div>
-      <div class="ramt"><b class="num neg">−₪124.00</b><span>17:48</span></div>
+      <div class="ramt"><b class="num neg">−₪124.00</b><span>18 Oct</span></div>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:#F3E7D2;color:#8A5A12">F</span>
       <div style="min-width:0"><div class="rtitle">Dinner</div><div class="rmeta">Food · HaBasta</div></div>
-      <div class="ramt"><b class="num neg">−₪60.00</b><span>21:10</span></div>
+      <div class="ramt"><b class="num neg">−₪60.00</b><span>18 Oct</span></div>
     </div>
   </section>
 

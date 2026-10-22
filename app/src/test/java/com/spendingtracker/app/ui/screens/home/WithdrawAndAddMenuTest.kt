@@ -30,39 +30,68 @@ class WithdrawFormTest {
 
     @Test
     fun validAmountCanBeConfirmed() {
-        val form = withdrawFormState("100", BigDecimal("1000"), hasTarget = true)
-        assertEquals(0, BigDecimal("100").compareTo(requireNotNull(form.parsed)))
+        val form = withdrawFormState("100", BigDecimal("1000"), BigDecimal.ONE, inCashCurrency = false, hasTarget = true)
+        assertEquals(0, BigDecimal("100").compareTo(requireNotNull(form.typed)))
         assertEquals(null, form.error)
         assertTrue(form.canConfirm)
     }
 
     @Test
     fun amountAboveTheMainBalanceIsRejected() {
-        val form = withdrawFormState("100", BigDecimal("50"), hasTarget = true)
+        val form = withdrawFormState("100", BigDecimal("50"), BigDecimal.ONE, inCashCurrency = false, hasTarget = true)
         assertEquals("More than the main balance holds", form.error)
         assertFalse(form.canConfirm)
     }
 
     @Test
     fun blankZeroAndGarbageAmountsCannotBeConfirmed() {
-        assertFalse(withdrawFormState("", BigDecimal("1000"), true).canConfirm)
+        assertFalse(withdrawFormState("", BigDecimal("1000"), BigDecimal.ONE, false, true).canConfirm)
         // A blank field is not an error yet - it is just incomplete.
-        assertEquals(null, withdrawFormState("", BigDecimal("1000"), true).error)
-        assertFalse(withdrawFormState("0", BigDecimal("1000"), true).canConfirm)
-        assertFalse(withdrawFormState("-5", BigDecimal("1000"), true).canConfirm)
-        assertEquals("Enter a positive amount", withdrawFormState("abc", BigDecimal("1000"), true).error)
+        assertEquals(null, withdrawFormState("", BigDecimal("1000"), BigDecimal.ONE, false, true).error)
+        assertFalse(withdrawFormState("0", BigDecimal("1000"), BigDecimal.ONE, false, true).canConfirm)
+        assertFalse(withdrawFormState("-5", BigDecimal("1000"), BigDecimal.ONE, false, true).canConfirm)
+        assertEquals(
+            "Enter a positive amount",
+            withdrawFormState("abc", BigDecimal("1000"), BigDecimal.ONE, false, true).error
+        )
         // Comma decimal separators are accepted (hardware keypad layouts).
         assertEquals(
             0,
             BigDecimal("12.50").compareTo(
-                requireNotNull(withdrawFormState("12,50", BigDecimal("1000"), true).parsed)
+                requireNotNull(withdrawFormState("12,50", BigDecimal("1000"), BigDecimal.ONE, false, true).typed)
             )
         )
     }
 
     @Test
     fun noDestinationMeansNothingCanBeConfirmed() {
-        assertFalse(withdrawFormState("100", BigDecimal("1000"), hasTarget = false).canConfirm)
+        assertFalse(withdrawFormState("100", BigDecimal("1000"), BigDecimal.ONE, false, hasTarget = false).canConfirm)
+    }
+
+    @Test
+    fun amountCanBeTypedInTheCashCurrency() {
+        // 25 EUR at 0.25 EUR per ILS takes 100 ILS out of main.
+        val form = withdrawFormState("25", BigDecimal("1000"), BigDecimal("0.25"), inCashCurrency = true, hasTarget = true)
+        assertEquals(0, BigDecimal("100").compareTo(requireNotNull(form.amountFrom)))
+        assertEquals(0, BigDecimal("25").compareTo(requireNotNull(form.amountTo)))
+        assertEquals(null, form.error)
+        assertTrue(form.canConfirm)
+    }
+
+    @Test
+    fun cashCurrencyAmountIsStillLimitedByTheMainBalance() {
+        // Typing the cash side must not let a withdrawal overdraw main.
+        val form = withdrawFormState("100", BigDecimal("100"), BigDecimal("0.25"), inCashCurrency = true, hasTarget = true)
+        assertEquals(0, BigDecimal("400").compareTo(requireNotNull(form.amountFrom)))
+        assertEquals("More than the main balance holds", form.error)
+        assertFalse(form.canConfirm)
+    }
+
+    @Test
+    fun mainCurrencyAmountDerivesTheCashSide() {
+        val form = withdrawFormState("400", BigDecimal("1000"), BigDecimal("0.25"), inCashCurrency = false, hasTarget = true)
+        assertEquals(0, BigDecimal("400").compareTo(requireNotNull(form.amountFrom)))
+        assertEquals(0, BigDecimal("100.00").compareTo(requireNotNull(form.amountTo)))
     }
 
     @Test
@@ -72,7 +101,7 @@ class WithdrawFormTest {
         assertEquals("Withdraw", withdrawConfirmLabel(cashCount = 1))
         assertEquals("Withdraw", withdrawConfirmLabel(cashCount = 3))
 
-        val emptyForm = withdrawFormState("", BigDecimal("1000"), hasTarget = false)
+        val emptyForm = withdrawFormState("", BigDecimal("1000"), BigDecimal.ONE, false, hasTarget = false)
         // There is a way forward even when no cash balance exists...
         assertTrue(withdrawConfirmEnabled(cashCount = 0, hasCreatePath = true, form = emptyForm))
         // ...and no confirm button at all if the host offers no create path.
@@ -105,15 +134,19 @@ class WithdrawDialogBodyTest {
                     targetId = 7L,
                     amount = "100",
                     note = "",
-                    form = withdrawFormState("100", BigDecimal("1000"), hasTarget = true),
+                    form = withdrawFormState("100", BigDecimal("1000"), BigDecimal("0.25"), false, true),
                     rate = BigDecimal("0.25"),
-                    rateReady = true
+                    rateReady = true,
+                    side = AmountSide.MAIN
                 )
             }
         }
         compose.onNodeWithText("Euro wallet · EUR").assertIsDisplayed()
         // Locale-independent: the rate line is built from toPlainString.
         compose.onNodeWithText("1 ILS = 0.25 EUR", substring = true).assertIsDisplayed()
+        // Both currencies can be chosen for the typed amount.
+        compose.onNodeWithText("ILS").assertIsDisplayed()
+        compose.onNodeWithText("EUR").assertIsDisplayed()
     }
 
     @Test
@@ -127,7 +160,7 @@ class WithdrawDialogBodyTest {
                     targetId = 7L,
                     amount = "100",
                     note = "",
-                    form = withdrawFormState("100", BigDecimal("50"), hasTarget = true),
+                    form = withdrawFormState("100", BigDecimal("50"), BigDecimal.ONE, false, true),
                     rate = BigDecimal.ONE,
                     rateReady = true
                 )
@@ -147,7 +180,7 @@ class WithdrawDialogBodyTest {
                     targetId = 7L,
                     amount = "",
                     note = "",
-                    form = withdrawFormState("", BigDecimal("1000"), hasTarget = true),
+                    form = withdrawFormState("", BigDecimal("1000"), BigDecimal.ONE, false, true),
                     rate = BigDecimal.ONE,
                     rateReady = true
                 )
@@ -168,7 +201,7 @@ class WithdrawDialogBodyTest {
                     targetId = null,
                     amount = "",
                     note = "",
-                    form = withdrawFormState("", BigDecimal("1000"), hasTarget = false),
+                    form = withdrawFormState("", BigDecimal("1000"), BigDecimal.ONE, false, false),
                     rate = BigDecimal.ONE,
                     rateReady = false
                 )
@@ -195,20 +228,21 @@ abstract class AddMenuTestBase {
                     expanded = true,
                     onToggle = {},
                     onExpense = { expense = true },
-                    onIncome = { income = true },
+                    onDeposit = { income = true },
                     onWithdraw = { withdraw = true }
                 )
             }
         }
         compose.onNodeWithText("Expense").assertIsDisplayed()
-        compose.onNodeWithText("Income").assertIsDisplayed()
+        // The main balance's entry point is a deposit, not "income".
+        compose.onNodeWithText("Deposit").assertIsDisplayed()
         compose.onNodeWithText("Withdraw", substring = true).assertIsDisplayed()
 
         compose.onNodeWithText("Expense").performClick()
-        compose.onNodeWithText("Income").performClick()
+        compose.onNodeWithText("Deposit").performClick()
         compose.onNodeWithText("Withdraw", substring = true).performClick()
         assertTrue("Expense option did not navigate", expense)
-        assertTrue("Income option did not navigate", income)
+        assertTrue("Deposit option did not navigate", income)
         assertTrue("Withdraw option did not open the withdraw dialog", withdraw)
     }
 
@@ -221,7 +255,7 @@ abstract class AddMenuTestBase {
                     expanded = false,
                     onToggle = { toggled = true },
                     onExpense = {},
-                    onIncome = {},
+                    onDeposit = {},
                     onWithdraw = {}
                 )
             }
@@ -262,7 +296,7 @@ class WithdrawDialogTest {
                     mainCurrency = "ILS",
                     mainBalance = BigDecimal("1000"),
                     rateLookup = { _, _ -> BigDecimal.ONE },
-                    onConfirm = { _, _, _ -> },
+                    onConfirm = { _, _, _, _ -> },
                     onDismiss = {},
                     onCreateCash = { created = true }
                 )

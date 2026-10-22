@@ -178,8 +178,14 @@ hr{display:block}
         <div class="val" style="flex:1">Euro wallet (EUR)</div>
       </div>
     </div>
+    <div class="eyebrow">Amount in</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <span class="pill sel">ILS</span><span class="pill">EUR</span>
+    </div>
     <div class="field"><div class="lbl">Amount (ILS)</div><div class="val num">400.00</div></div>
-    <div class="hint" style="color:var(--primary)">≈ €100.00 · 1 ILS = 0.25 EUR</div>
+    <div class="hint" style="color:var(--primary)">≈ €100.00 arrives on cash · 1 ILS = 0.25 EUR</div>
+    <div class="hint">Type the amount in either currency — €100 or ₪400 both work, and the
+      side you typed is stored exactly.</div>
     <div class="field"><div class="lbl">Note (optional)</div><div class="val muted">ATM before the trip</div></div>
     <div class="hint">Converted at the cached rate when you confirm. This is a transfer, not
       spending, so category totals are unchanged.</div>
@@ -189,9 +195,9 @@ hr{display:block}
     </div>
   </div>
 </div>
-<div class="badge-note"><b>Never a dead end.</b> With no cash balance yet the same dialog says so and
-  its confirm action becomes “Add cash balance”, which opens the create sheet — the dialog can
-  never show Cancel alone.</div>
+<div class="badge-note"><b>Either currency, never a dead end.</b> The amount can be typed in ₪ or €.
+  With no cash balance yet the confirm action becomes “Add cash balance”, so the dialog can never
+  show Cancel alone.</div>
 
 <nav class="tabbar"><div class="tab on"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg></span>Home</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>History</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></span>Rates</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0M17 5.5a3 3 0 0 1 0 5.8M21 19v-1a4 4 0 0 0-3-3.7"/></svg></span>Loans</div><div class="tab"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 14.9H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 3.1h0A2 2 0 1 1 13 3v.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v0a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>Settings</div></nav>
 </div></div></div>
