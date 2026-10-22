@@ -164,8 +164,13 @@ class AddExpenseViewModel @Inject constructor(
     }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun selectPaymentAccount(id: Long) {
-        val account = _uiState.value.paymentAccounts.first { it.id == id }
-        _uiState.update { it.copy(balanceAccountId = id, paymentMethod = account.type) }
+        val account = _uiState.value.paymentAccounts.firstOrNull { it.id == id } ?: return
+        // The expense must convert into the currency of the account that pays it:
+        // a cash balance can hold a different currency than main.
+        _uiState.update {
+            it.copy(balanceAccountId = id, paymentMethod = account.type, balanceCurrency = account.currency)
+        }
+        calculateConversion()
     }
     fun allowOverdraft(value: Boolean) { _uiState.update { it.copy(allowOverdraft = value) } }
     fun onManualRateChanged(v: String) { _uiState.value = _uiState.value.copy(manualRate = v); calculateConversion() }
@@ -252,6 +257,25 @@ class AddExpenseViewModel @Inject constructor(
                 }
                 _uiState.value = state.copy(isLoading = false)
                 onSaved()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
+            }
+        }
+    }
+
+    /** Deletes the expense being edited; the caller closes the screen on success. */
+    fun deleteExpense(expenseId: Long, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            try {
+                val existing = financeRepository.getExpenseById(expenseId)
+                if (existing == null) {
+                    _uiState.value = _uiState.value.copy(error = "Expense no longer exists", isLoading = false)
+                    return@launch
+                }
+                financeRepository.deleteExpense(existing)
+                _uiState.value = _uiState.value.copy(isLoading = false)
+                onDeleted()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
             }

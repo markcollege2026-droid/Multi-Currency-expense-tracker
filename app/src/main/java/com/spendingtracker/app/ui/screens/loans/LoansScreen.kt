@@ -1,5 +1,6 @@
 package com.spendingtracker.app.ui.screens.loans
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,11 +21,16 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppCard
+import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppEmptyState
 import com.spendingtracker.app.ui.components.AppIconButton
 import com.spendingtracker.app.ui.components.AppSectionHeader
+import com.spendingtracker.app.ui.components.AppStatTile
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.ui.components.AppValueRow
+import com.spendingtracker.app.ui.theme.AppType
+import com.spendingtracker.app.ui.theme.LocalAppPalette
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
@@ -39,6 +45,9 @@ fun LoansScreen(
     val uiState by viewModel.uiState.collectAsState()
     val dims = LocalAppDimens.current
     val compact = LocalCompactUi.current
+
+    var pendingDelete by remember { mutableStateOf<LoanWithBalance?>(null) }
+    var pendingSettle by remember { mutableStateOf<LoanWithBalance?>(null) }
 
     Scaffold(
         topBar = {
@@ -71,27 +80,37 @@ fun LoansScreen(
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
                 item(key = "summary") {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(dims.cardPadding),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = "Summary in ${uiState.balanceCurrency}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
+                    val net = uiState.totalOwedToMe.subtract(uiState.totalOwedByMe)
+                    AppCard {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                AppStatTile(
+                                    label = "I owe",
+                                    value = CurrencyFormatter.format(uiState.totalOwedByMe, uiState.balanceCurrency),
+                                    modifier = Modifier.weight(1f),
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                    labelColor = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                AppStatTile(
+                                    label = "Owed to me",
+                                    value = CurrencyFormatter.format(uiState.totalOwedToMe, uiState.balanceCurrency),
+                                    modifier = Modifier.weight(1f),
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                )
+                            }
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant
                             )
                             AppValueRow(
-                                label = "I owe",
-                                value = CurrencyFormatter.format(uiState.totalOwedByMe, uiState.balanceCurrency)
-                            )
-                            AppValueRow(
-                                label = "Owed to me",
-                                value = CurrencyFormatter.format(uiState.totalOwedToMe, uiState.balanceCurrency)
+                                label = "Net position in ${uiState.balanceCurrency}",
+                                value = CurrencyFormatter.format(net, uiState.balanceCurrency),
+                                valueColor = if (net < java.math.BigDecimal.ZERO) LocalAppPalette.current.expense
+                                else LocalAppPalette.current.income
                             )
                         }
                     }
@@ -124,8 +143,8 @@ fun LoansScreen(
                         LoanItem(
                             item = item,
                             onEdit = { onEditLoan(item.loan.id) },
-                            onDelete = { viewModel.deleteLoan(item.loan) },
-                            onToggleSettled = { viewModel.toggleSettled(item.loan) }
+                            onDelete = { pendingDelete = item },
+                            onToggleSettled = { pendingSettle = item }
                         )
                     }
                 }
@@ -157,32 +176,75 @@ fun LoansScreen(
                         LoanItem(
                             item = item,
                             onEdit = { onEditLoan(item.loan.id) },
-                            onDelete = { viewModel.deleteLoan(item.loan) },
-                            onToggleSettled = { viewModel.toggleSettled(item.loan) }
+                            onDelete = { pendingDelete = item },
+                            onToggleSettled = { pendingSettle = item }
                         )
                     }
                 }
             }
         }
     }
+
+    pendingDelete?.let { item ->
+        AppConfirmDialog(
+            title = "Delete loan?",
+            message = "\"${item.loan.personName}\" and its repayment history will be deleted. " +
+                "Balances in your accounts are not changed by loans.",
+            confirmLabel = "Delete",
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                viewModel.deleteLoan(item.loan)
+                pendingDelete = null
+            }
+        )
+    }
+
+    pendingSettle?.let { item ->
+        val settling = !item.loan.isSettled
+        AppConfirmDialog(
+            title = if (settling) "Mark as settled?" else "Reopen this loan?",
+            message = if (settling) {
+                "\"${item.loan.personName}\" will be marked settled with " +
+                    CurrencyFormatter.format(item.remaining, item.loan.currencyOriginal) + " still outstanding. " +
+                    "You can reopen it later."
+            } else {
+                "The loan will go back to open with " +
+                    CurrencyFormatter.format(item.remaining, item.loan.currencyOriginal) + " remaining."
+            },
+            confirmLabel = if (settling) "Mark settled" else "Reopen",
+            destructive = false,
+            onDismiss = { pendingSettle = null },
+            onConfirm = {
+                viewModel.toggleSettled(item.loan)
+                pendingSettle = null
+            }
+        )
+    }
 }
 
 @Composable
 fun LoanItem(item: LoanWithBalance, onEdit: () -> Unit, onDelete: () -> Unit, onToggleSettled: () -> Unit) {
     val compact = LocalCompactUi.current
-    val container = when {
-        item.isOverdue -> MaterialTheme.colorScheme.errorContainer
-        item.loan.isSettled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+    val accent = when {
+        item.isOverdue -> MaterialTheme.colorScheme.error
+        item.loan.isSettled -> MaterialTheme.colorScheme.outline
+        else -> MaterialTheme.colorScheme.primary
     }
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(container)
-            .clickable(onClick = onEdit)
-            .padding(horizontal = if (compact) 9.dp else 12.dp, vertical = if (compact) 6.dp else 10.dp),
-        verticalArrangement = Arrangement.spacedBy(1.dp)
+            .clickable(onClick = onEdit),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(
+            1.dp,
+            if (item.isOverdue) MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
+            else MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+    Column(
+        modifier = Modifier.padding(horizontal = if (compact) 10.dp else 12.dp, vertical = if (compact) 8.dp else 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -196,29 +258,32 @@ fun LoanItem(item: LoanWithBalance, onEdit: () -> Unit, onDelete: () -> Unit, on
             if (item.isOverdue) {
                 Text(
                     text = "OVERDUE",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.Bold
+                    style = AppType.eyebrow,
+                    color = MaterialTheme.colorScheme.error
                 )
             } else if (item.loan.isSettled) {
                 Text(
                     text = "SETTLED",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
+                    style = AppType.eyebrow,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
         Text(
             text = CurrencyFormatter.formatSimple(item.loan.amountAsBigDecimal(), item.loan.currencyOriginal) +
                 " · left " + CurrencyFormatter.formatSimple(item.remaining, item.loan.currencyOriginal),
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.bodySmall.merge(AppType.tabular),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         LinearProgressIndicator(
             progress = { item.progress },
-            modifier = Modifier.fillMaxWidth().height(3.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .clip(RoundedCornerShape(50)),
+            color = accent,
+            trackColor = MaterialTheme.colorScheme.surfaceContainer
         )
         Text(
             text = "Made " + SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(item.loan.date)) +
@@ -255,8 +320,10 @@ fun LoanItem(item: LoanWithBalance, onEdit: () -> Unit, onDelete: () -> Unit, on
                 onClick = onDelete,
                 icon = Icons.Default.Delete,
                 contentDescription = "Delete loan",
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(30.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
     }
 }

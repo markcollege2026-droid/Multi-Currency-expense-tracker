@@ -21,7 +21,12 @@ data class Account(
     @ColumnInfo(defaultValue = "1") val autopayDay: Int = 1,
     @ColumnInfo(defaultValue = "'FULL_BALANCE'") val autopayMode: String = "FULL_BALANCE",
     val autopayFixedAmount: String? = null,
-    val autopayStartDate: String? = null
+    val autopayStartDate: String? = null,
+    /**
+     * Cash accounts only: when false this balance is "set aside" and is not
+     * counted into total available money. Cards and main are always included.
+     */
+    @ColumnInfo(defaultValue = "1") val includedInTotal: Boolean = true
 ) {
     fun startingBalanceAsBigDecimal(): BigDecimal = try {
         BigDecimal(startingBalance)

@@ -2,6 +2,22 @@
 
 Offline-first personal finance app with multi-currency expense tracking and loan/debt management.
 
+## UI and design system (Ledger)
+
+The interface is built on a single design system, **Ledger**: warm bone paper,
+one forest accent, amber reserved for warnings and the hardware focus ring, hairline
+cards instead of shadows, and money always in tabular figures. Light and dark themes
+are both defined in code (Material You dynamic colour is available but off by
+default), and the compact Qin F21 layout shares the same tokens at a smaller scale.
+
+- Design source of truth: [`.superdesign/design-system.md`](.superdesign/design-system.md)
+- Screen mockups (390×844, self-contained HTML): [`.superdesign/design_iterations/`](.superdesign/design_iterations/)
+- Component library: `ui/components/AppCards.kt` (`AppCard`, `AppSectionCard`,
+  `AppStatTile`, `AppAvatar`, `AppListRow`) and `ui/components/CompactControls.kt`
+- Tokens: `ui/theme/Color.kt`, `ui/theme/Type.kt`, `ui/theme/Shapes.kt`, `ui/theme/Theme.kt`
+- How the design was produced and how each screen maps to code:
+  [`.superdesign/README.md`](.superdesign/README.md)
+
 ## Qin F21 Pro build
 
 This branch adds a compact layout for the 480×640 Qin F21 Pro and full physical-key
@@ -11,26 +27,50 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.8.1 — file backups, encryption and multiple balances
+## Current release: 1.9.0 — one Add menu, deposits and cash transfers
 
-See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).
+**[Download v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)**
+— `app-release.apk` (signed, ~2.2 MB), `app-release.aab` for Play, R8 `mapping.txt` and
+`SHA256SUMS.txt`.
+
+Version code **9**, version name **1.9.0**, database **version 5**, JSON backups **schema 5**.
+Same application ID and signing key as 1.8.x, so it installs over an existing release without
+uninstalling. Full details: [release notes and migrations](RELEASE_NOTES.md); design decisions:
+[`.superdesign/design-system.md`](.superdesign/design-system.md).
+
+What this release changes, in one line each:
+
+| Change | Where |
+|---|---|
+| One **Add** control with a 60 ms pop-out — Expense / Deposit / Withdraw, identical on Home and History | `ui/components/AddMenu.kt` |
+| **Deposit** replaces "Income", with an **optional cash source** (external is the default, previewed before save) | `AddTopUpViewModel`, `AddTopUpScreen` |
+| Withdrawals typed in **either** currency; the typed side is stored exactly, only the derived side is rounded | `domain/TransferMath.kt`, `WithdrawDialog` |
+| History rows show the time only today, then `21 Oct` / `31 Dec 2025`; tapping opens **details**, editing is a choice | `TransactionsScreen` |
 
 **File backups:** Settings → Data → Backup files lets you choose a save folder for JSON backups, CSV reports, or password-encrypted `.stbk` backups. Restore accepts JSON or `.stbk` and prompts before replacing existing data. Encryption uses built-in AES-128-GCM with PBKDF2-HMAC-SHA256; no extra library. Remember your password—there is no recovery. CSV reports cannot be restored.
 
-Each existing account is a main/debit ledger with an optional cash sub-account and any number of credit cards. Home → **Set up cash balance / Add credit card** sets opening amounts; these do not transfer funds from main. **Add cash income** records external cash income. The expense form selects the exact payment account. Main/debit remains the default for income and expenses.
+Each existing account is a main/debit ledger with **any number of cash balances** and any number of credit cards. Home and History both have one **+ Add** control that pops out **Expense**, **Deposit** and **Withdraw** — same words, same options, same animation on both screens; Home → **Add cash balance / Add credit card** sets opening amounts, which do not transfer funds from main. **Add cash income** records external cash income. The expense form selects the exact payment account. Main/debit remains the default for deposits and expenses.
+
+Money arriving in main is a **Deposit**. It is external by default (salary, refund, a transfer in from a bank); the form's optional *Source* lets you fund it from a cash balance instead, which records the reverse of a withdrawal and previews what leaves that balance before you save. A deposit that would overdraw the chosen cash balance, or a zero/negative amount, cannot be saved.
+
+A cash balance may use a **different currency** from main. **Withdraw** moves money from main into any cash balance and converts it at the cached rate (1 ILS = 0.25 EUR, say), storing both sides — the main side in its currency, the cash side in the cash currency. The amount can be typed in **either** currency: type ₪400 and €100 arrives, or type €100 and ₪400 leaves. The side you typed is stored exactly and only the derived side is rounded, so a round-trip never loses a cent. Withdrawals are transfers: they never count as spending or deposits, they appear in History under **Transfers**, and deleting one returns the money.
+
+History rows show the **time only while it is today**; older rows show `21 Oct`, and rows from previous years show `31 Dec 2025`. Tapping a row opens its **details** — amount and rate, category, account, method, note and date — and editing is a separate choice inside that dialog (transfers cannot be edited: their saved rate is a fact).
+
+Each cash balance can be **set aside**, so its money is excluded from *total available* without deleting it (for savings you do not want counted as spendable). Foreign-currency cash and cards are converted into the main currency when totals are summed, and Home's week/month/category stats convert expenses paid from foreign cash back into the main currency.
 
 All balances are derived by `AccountBalances` from immutable amounts and payment records:
 
 - Main = opening + main income − main expenses − completed card payments.
-- Cash = opening + cash income − cash expenses.
+- Cash (per balance) = opening + cash income − cash expenses + withdrawals in − withdrawals out, in that balance's own currency.
 - Card signed balance = opening signed balance − card expenses + completed payments (debt is negative).
-- Total available = main + cash + signed card balances.
+- Total available = main + cash balances not set aside (converted to main currency) + signed card balances.
 
 Card payments are separate history entries and do not inflate category spending. Autopay is a **local ledger operation, not a bank transfer**, checked hourly by WorkManager and when Home opens; Android may defer execution. Failed attempts leave balances unchanged and provide retry/partial-payment/ignore controls. Fixed autopay is capped at debt; manual overpayment and cash overdraft require explicit consent.
 
-Historical payment labels are not reinterpreted during migration, so existing balances stay unchanged. JSON backup format 4 includes the new data and still accepts older backups. Existing ledger currencies are fixed: create another account instead of rewriting mixed-currency history.
+Historical payment labels are not reinterpreted during migration, so existing balances stay unchanged. JSON backup format 5 includes withdrawals and the set-aside flag and still accepts older backups (schema 1–4). Existing ledger currencies are fixed: create another balance instead of rewriting mixed-currency history. Database version 5 adds the `withdrawals` table and `accounts.includedInTotal` through an explicit migration.
 
-GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.8.0. An explicitly marked `[release]` push publishes v1.8.1 only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
+GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.8.0. An explicitly marked `[release]` push publishes the release only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
 
 ## Features (earlier releases)
 
@@ -285,19 +325,26 @@ APK split for the device and can install startup/baseline profiles for faster la
 
 ### Option 2: GitHub Actions artifacts (latest build)
 1. Go to **Actions** tab -> **Build APKs** workflow
-2. Click latest successful run
+2. Click the latest successful run
 3. Scroll to **Artifacts** section
 4. Download:
-   - `full-app-apks` -> `app-debug.apk` + `app-release.apk`
-   - `play-app-bundle` -> `app-release.aab` (for Google Play Console)
-   - `release-mapping` -> R8 mapping (crash deobfuscation)
+   - `spending-tracker-apks` -> `app-debug.apk` + `app-release.apk` + `app-release.aab`, plus the
+     R8 `mapping.txt` and the Room schemas
+   - `test-and-lint-reports` -> JUnit and lint reports
 
-Artifacts are generated on every push to `main` or `arena/**` branches.
+Artifacts are generated on every push to `main` or `arena/**` branches. The same run posts its
+test/lint summary as a commit comment.
 
 ### Option 3: GitHub Releases
-1. Go to **Releases** tab
-2. Download from latest release (published via tag `v*` or manual dispatch)
-3. Includes APKs + Play AAB + R8 mapping + keystores + README
+1. Go to the [**Releases**](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases) tab
+2. Take the latest release — [v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)
+3. Each release ships `app-release.apk`, `app-debug.apk`, `app-release.aab`, the R8 `mapping.txt`
+   and `SHA256SUMS.txt`
+
+A push whose commit message contains `[release]` publishes the tag derived from `versionName`
+after tests, lint, APK/AAB builds and the upgrade check against v1.8.0 pass. The
+**Release APKs** workflow dispatches the same job manually with an explicit tag. Signing
+keystores are never attached to a release.
 
 ### Option 4: Build locally
 ```bash

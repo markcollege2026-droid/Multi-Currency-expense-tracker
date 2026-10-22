@@ -1,6 +1,9 @@
 package com.spendingtracker.app.ui.screens.home
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,10 +13,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -26,10 +32,13 @@ import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.*
+import com.spendingtracker.app.ui.theme.AppType
+import com.spendingtracker.app.ui.theme.LocalAppPalette
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
@@ -46,9 +55,22 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showQuickAdd by remember { mutableStateOf(false) }
     var showAdjustBalance by remember { mutableStateOf(false) }
+    var showWithdraw by remember { mutableStateOf(false) }
+    // The pop-out Add menu doubles as the primary "what happened?" entry point.
+    var addMenuOpen by rememberSaveable { mutableStateOf(false) }
+    // Hoisted so both the accounts panel and the withdraw dialog can open the
+    // create-balance sheet (a dialog must never dead-end on Cancel).
+    var createType by remember { mutableStateOf<String?>(null) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
     val compact = LocalCompactUi.current
     val dims = LocalAppDimens.current
+    val cashAccounts = remember(uiState.balanceAccounts) {
+        uiState.balanceAccounts.filter { it.type == "CASH" }
+    }
+    var withdrawTargetId by remember { mutableStateOf<Long?>(null) }
+
+    // While the pop-out menu is open, Back closes it instead of leaving the screen.
+    BackHandler(enabled = addMenuOpen) { addMenuOpen = false }
 
     Scaffold(
         topBar = {
@@ -65,20 +87,24 @@ fun HomeScreen(
                         DropdownMenu(
                             expanded = accountMenuExpanded,
                             onDismissRequest = { accountMenuExpanded = false },
-                            modifier = Modifier.widthIn(max = 220.dp)
+                            modifier = Modifier
+                                .widthIn(max = 240.dp)
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                         ) {
                             uiState.accounts.forEach { account ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             "${account.name} (${account.currency})",
-                                            style = MaterialTheme.typography.bodySmall,
+                                            style = MaterialTheme.typography.bodyMedium,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     },
                                     trailingIcon = {
-                                        if (account.id == uiState.activeAccount?.id) Text("✓")
+                                        if (account.id == uiState.activeAccount?.id) {
+                                            Text("✓", color = MaterialTheme.colorScheme.primary)
+                                        }
                                     },
                                     onClick = {
                                         viewModel.switchAccount(account.id)
@@ -86,8 +112,12 @@ fun HomeScreen(
                                     }
                                 )
                             }
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
                             DropdownMenuItem(
-                                text = { Text("Manage accounts…", style = MaterialTheme.typography.bodySmall) },
+                                text = { Text("Manage accounts…", style = MaterialTheme.typography.bodyMedium) },
                                 onClick = {
                                     accountMenuExpanded = false
                                     onNavigateToSettings()
@@ -119,13 +149,13 @@ fun HomeScreen(
                 contentPadding = PaddingValues(
                     start = dims.screenPadding,
                     end = dims.screenPadding,
-                    top = 4.dp,
-                    bottom = 10.dp
+                    top = 8.dp,
+                    bottom = 12.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
                 item(key = "balance") {
-                    BalanceSummaryCard(
+                    BalanceHero(
                         balance = uiState.balance,
                         currency = uiState.balanceCurrency,
                         isNegative = uiState.isNegativeBalance,
@@ -138,56 +168,51 @@ fun HomeScreen(
                 }
 
                 item(key = "quick_actions") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        AppButton(
-                            onClick = onNavigateToAddExpense,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("+ Expense", maxLines = 1) }
-                        AppButton(
-                            onClick = onNavigateToAddTopUp,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        ) { Text("+ Money", maxLines = 1) }
-                    }
+                    AddMenu(
+                        expanded = addMenuOpen,
+                        onToggle = { addMenuOpen = !addMenuOpen },
+                        onExpense = { addMenuOpen = false; onNavigateToAddExpense() },
+                        onDeposit = { addMenuOpen = false; onNavigateToAddTopUp() },
+                        onWithdraw = { addMenuOpen = false; showWithdraw = true }
+                    )
                 }
 
-                item(key = "accounts") { BalanceAccountsPanel(uiState, viewModel) }
+                item(key = "accounts") {
+                    BalanceAccountsPanel(
+                        state = uiState,
+                        viewModel = viewModel,
+                        createType = createType,
+                        onCreateTypeChange = { createType = it },
+                        onWithdraw = { cashId ->
+                            showWithdraw = true
+                            // Remember which cash row started it.
+                            withdrawTargetId = cashId
+                        }
+                    )
+                }
 
                 item(key = "recent_header") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Recent transactions",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        AppPill(
-                            text = "See all",
-                            onClick = onNavigateToTransactions,
-                            contentDescription = "See all transactions"
-                        )
-                    }
+                    AppSectionHeader(
+                        title = "Recent",
+                        trailing = {
+                            AppPill(
+                                text = "See all",
+                                onClick = onNavigateToTransactions,
+                                contentDescription = "See all transactions"
+                            )
+                        }
+                    )
                 }
 
                 val recent = uiState.recentExpenses.take(if (compact) 6 else 10)
                 if (recent.isEmpty()) {
                     item(key = "recent_empty") {
-                        AppEmptyState("No transactions yet. Add an expense or income above.")
+                        AppEmptyState("No transactions yet.\nAdd an expense or deposit to get started.")
                     }
                 } else {
                     items(recent, key = { "expense_${it.id}" }) { expense ->
                         ExpenseItem(
                             expense = expense,
-                            balanceCurrency = uiState.balanceCurrency,
                             onEdit = { onEditExpense(expense.id) },
                             categoryName = uiState.categories.firstOrNull { it.id == expense.categoryId }?.name
                         )
@@ -195,43 +220,11 @@ fun HomeScreen(
                 }
 
                 if (uiState.topCategories.isNotEmpty()) {
-                    item(key = "categories_header") {
-                        Text(
-                            text = "Top categories",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                    item(key = "categories") {
+                        TopCategoriesCard(
+                            entries = uiState.topCategories.take(if (compact) 4 else 5),
+                            currency = uiState.balanceCurrency
                         )
-                    }
-                    items(uiState.topCategories.take(if (compact) 4 else 5), key = { "cat_${it.first?.id ?: -1}" }) { (category, amount) ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                                .padding(horizontal = 9.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AppDot(
-                                color = try {
-                                    androidx.compose.ui.graphics.Color(category?.color ?: 0xFF888888.toInt())
-                                } catch (e: Exception) {
-                                    androidx.compose.ui.graphics.Color.Gray
-                                }
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = category?.name ?: "Uncategorized",
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = CurrencyFormatter.format(amount, uiState.balanceCurrency),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
                     }
                 }
 
@@ -244,19 +237,10 @@ fun HomeScreen(
                     }
                 }
 
-                item(key = "recurring") {
-                    AppSelectorRow(
-                        label = "Recurring",
-                        value = "Manage repeating payments",
-                        onClick = onNavigateToRecurring
-                    )
-                }
-
-                item(key = "loans") {
-                    AppSelectorRow(
-                        label = "Loans",
-                        value = "I owe / owed to me",
-                        onClick = onNavigateToLoans
+                item(key = "tools") {
+                    ToolsCard(
+                        onRecurring = onNavigateToRecurring,
+                        onLoans = onNavigateToLoans
                     )
                 }
 
@@ -270,7 +254,32 @@ fun HomeScreen(
             onDismiss = { showQuickAdd = false },
             onAddExpense = { showQuickAdd = false; onNavigateToAddExpense() },
             onAddMoney = { showQuickAdd = false; onNavigateToAddTopUp() },
+            onWithdraw = { showQuickAdd = false; withdrawTargetId = null; showWithdraw = true },
             onAddRecurring = { showQuickAdd = false; onNavigateToRecurring() }
+        )
+    }
+
+    if (showWithdraw) {
+        WithdrawDialog(
+            cashAccounts = cashAccounts,
+            mainCurrency = uiState.balanceCurrency,
+            mainBalance = uiState.balance,
+            rateLookup = viewModel::conversionRate,
+            initialCashId = withdrawTargetId,
+            onConfirm = { cashId, amountFrom, amountTo, note ->
+                viewModel.withdraw(cashId, amountFrom, amountTo, note)
+                showWithdraw = false
+                withdrawTargetId = null
+            },
+            onCreateCash = {
+                showWithdraw = false
+                withdrawTargetId = null
+                createType = "CASH"
+            },
+            onDismiss = {
+                showWithdraw = false
+                withdrawTargetId = null
+            }
         )
     }
 
@@ -287,8 +296,12 @@ fun HomeScreen(
     }
 }
 
+/**
+ * The single gradient surface in the app: total balance, the two spend windows and
+ * any warnings, with the adjust action kept on the card itself.
+ */
 @Composable
-private fun BalanceSummaryCard(
+private fun BalanceHero(
     balance: BigDecimal,
     currency: String,
     isNegative: Boolean,
@@ -299,64 +312,87 @@ private fun BalanceSummaryCard(
     onAdjust: () -> Unit
 ) {
     val compact = LocalCompactUi.current
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    val palette = LocalAppPalette.current
+    val shape = RoundedCornerShape(if (compact) 20.dp else 28.dp)
+    val warnings = buildList {
+        if (isLow) add("Low balance")
+        if (isNegative) add("Negative balance")
+        if (ratesStale) add("Rates stale")
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(palette.heroStart, palette.heroEnd)))
+            .padding(if (compact) 14.dp else 20.dp)
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Main balance",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.weight(1f)
-                )
-                AppPill(
-                    text = "Adjust",
-                    onClick = onAdjust,
-                    contentDescription = "Adjust balance"
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = CurrencyFormatter.format(balance, currency),
-                fontSize = if (compact) 24.sp else 25.sp,
-                lineHeight = if (compact) 27.sp else 28.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false,
-                color = if (isNegative) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onPrimaryContainer
+                text = "TOTAL BALANCE",
+                style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                color = palette.onHeroMuted,
+                modifier = Modifier.weight(1f)
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .border(1.dp, palette.onHeroFaint, RoundedCornerShape(50))
+                    .clickable(onClick = onAdjust)
+                    .padding(horizontal = 11.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = "Week ${CurrencyFormatter.formatSimple(week, currency)}",
+                    text = "Adjust",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "Month ${CurrencyFormatter.formatSimple(month, currency)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = FontWeight.Bold,
+                    color = palette.onHero
                 )
             }
-            val warnings = buildList {
-                if (isLow) add("Low balance")
-                if (isNegative) add("Negative balance")
-                if (ratesStale) add("Rates stale")
-            }
-            if (warnings.isNotEmpty()) {
+        }
+        Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
+        Text(
+            text = CurrencyFormatter.format(balance, currency),
+            fontSize = if (compact) 32.sp else 42.sp,
+            lineHeight = if (compact) 36.sp else 48.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-1).sp,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            color = palette.onHero,
+            style = MaterialTheme.typography.headlineLarge.merge(AppType.tabular)
+        )
+        Spacer(Modifier.height(if (compact) 8.dp else 14.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(0.5.dp)
+                .background(palette.onHeroFaint)
+        )
+        Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            HeroFigure(
+                label = "This week",
+                value = CurrencyFormatter.formatSimple(week, currency),
+                modifier = Modifier.weight(1f)
+            )
+            HeroFigure(
+                label = "This month",
+                value = CurrencyFormatter.formatSimple(month, currency),
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (warnings.isNotEmpty()) {
+            Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(palette.onHeroFaint)
+                    .padding(horizontal = 9.dp, vertical = 3.dp)
+            ) {
                 Text(
                     text = "⚠ " + warnings.joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = palette.onHero,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -366,37 +402,145 @@ private fun BalanceSummaryCard(
 }
 
 @Composable
+private fun HeroFigure(label: String, value: String, modifier: Modifier = Modifier) {
+    val compact = LocalCompactUi.current
+    val palette = LocalAppPalette.current
+    Column(modifier = modifier) {
+        Text(
+            text = label.uppercase(),
+            style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+            color = palette.onHeroMuted,
+            maxLines = 1
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
+            fontWeight = FontWeight.SemiBold,
+            color = palette.onHero,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun TopCategoriesCard(entries: List<Pair<com.spendingtracker.app.data.local.entity.Category?, BigDecimal>>, currency: String) {
+    val total = remember(entries) {
+        entries.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.second }
+    }
+    AppSectionCard(trailing = { Text("October", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }, title = "Top categories") {
+        entries.forEachIndexed { index, (category, amount) ->
+            if (index > 0) {
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            val dotColor = try {
+                Color(category?.color ?: 0xFF888888.toInt())
+            } catch (e: Exception) {
+                Color.Gray
+            }
+            val share = if (total <= BigDecimal.ZERO) 0f else (amount.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AppDot(color = dotColor, sizeDp = 8)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = category?.name ?: "Uncategorized",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = CurrencyFormatter.format(amount, currency),
+                        style = MaterialTheme.typography.bodyMedium.merge(AppType.tabular),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(share)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(50))
+                            .background(dotColor)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SpendingTrendCard(trend: List<Pair<Long, BigDecimal>>, currency: String) {
+    val compact = LocalCompactUi.current
+    val palette = LocalAppPalette.current
     val max = remember(trend) { trend.maxOfOrNull { it.second.toDouble() } ?: 0.0 }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(
-                text = "Spending · last 7 days",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(3.dp))
+    val average = remember(trend) {
+        if (trend.isEmpty()) BigDecimal.ZERO
+        else trend.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.second }
+            .divide(BigDecimal(trend.size), 2, java.math.RoundingMode.HALF_UP)
+    }
+    val barMax = if (compact) 34.dp else 56.dp
+    AppCard {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "LAST 7 DAYS",
+                    style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "avg ${CurrencyFormatter.formatSimple(average, currency)}/day",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
                 trend.forEach { (date, amount) ->
-                    val height = if (max <= 0.0) 3.dp
-                    else ((amount.toDouble() / max) * 26).dp.coerceAtLeast(3.dp)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val ratio = if (max <= 0.0) 0.08f else (amount.toDouble() / max).toFloat().coerceIn(0.08f, 1f)
+                    val isToday = trend.lastOrNull()?.first == date
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Box(
                             modifier = Modifier
-                                .width(10.dp)
-                                .height(height)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                        Spacer(Modifier.height(2.dp))
+                                .fillMaxWidth()
+                                .height(barMax),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(ratio)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (isToday) palette.heroStart
+                                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                    )
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
                         Text(
-                            text = SimpleDateFormat("MM/dd", Locale.getDefault()).format(Date(date)),
-                            fontSize = 7.sp,
-                            lineHeight = 8.sp,
+                            text = SimpleDateFormat("d", Locale.getDefault()).format(Date(date)),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
@@ -408,52 +552,101 @@ private fun SpendingTrendCard(trend: List<Pair<Long, BigDecimal>>, currency: Str
 }
 
 @Composable
-fun StatCard(modifier: Modifier = Modifier, title: String, amount: String) {
-    Card(modifier = modifier) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(amount, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+private fun ToolsCard(onRecurring: () -> Unit, onLoans: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        AppSectionHeader(title = "Tools")
+        Spacer(Modifier.height(6.dp))
+        AppCard(padding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
+            AppListRow(
+                title = "Recurring payments",
+                meta = "Manage repeating payments",
+                leading = {
+                    AppAvatar(
+                        text = "↻",
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                },
+                showChevron = true,
+                onClick = onRecurring
+            )
+            HorizontalDivider(
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)
+            )
+            AppListRow(
+                title = "Loans & debts",
+                meta = "I owe / owed to me",
+                leading = {
+                    AppAvatar(
+                        text = "⇄",
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                },
+                showChevron = true,
+                onClick = onLoans
+            )
         }
     }
+}
+
+/** Compact summary tile kept for reuse by other screens. */
+@Composable
+fun StatCard(modifier: Modifier = Modifier, title: String, amount: String) {
+    AppStatTile(label = title, value = amount, modifier = modifier)
 }
 
 @Composable
 fun ExpenseItem(
     expense: Expense,
-    balanceCurrency: String,
     onEdit: () -> Unit,
     categoryName: String? = null
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 9.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    val compact = LocalCompactUi.current
+    val palette = LocalAppPalette.current
+    val name = categoryName ?: expense.note ?: "Expense"
+    AppCard(
+        onClick = onEdit,
+        padding = PaddingValues(
+            horizontal = if (compact) 10.dp else 12.dp,
+            vertical = if (compact) 8.dp else 10.dp
+        ),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AppAvatar(
+                text = name,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                size = if (compact) 32.dp else 38.dp
+            )
+            Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = categoryName ?: expense.note ?: "Expense",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = name,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(expense.date))} · " +
-                        CurrencyFormatter.formatSimple(expense.originalAsBigDecimal(), expense.currencyOriginal),
+                    text = SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()).format(Date(expense.date)) +
+                        " · " + CurrencyFormatter.formatSimple(expense.originalAsBigDecimal(), expense.currencyOriginal),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.width(5.dp))
+            Spacer(Modifier.width(6.dp))
             Text(
-                text = "-${CurrencyFormatter.formatSimple(expense.convertedAsBigDecimal(), balanceCurrency)}",
-                style = MaterialTheme.typography.bodyMedium,
+                // The deduction is stored in the paying account's currency: normally
+                // main, but a cash balance can hold a different currency.
+                text = "-" + CurrencyFormatter.formatSimple(expense.convertedAsBigDecimal(), expense.currencyConverted),
+                style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
+                color = palette.expense,
                 maxLines = 1
             )
         }
@@ -466,25 +659,77 @@ fun QuickAddBottomSheet(
     onDismiss: () -> Unit,
     onAddExpense: () -> Unit,
     onAddMoney: () -> Unit,
+    onWithdraw: () -> Unit = {},
     onAddRecurring: () -> Unit = {}
 ) {
     val compact = LocalCompactUi.current
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (compact) 15.dp else 20.dp)
-                .padding(bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = if (compact) 16.dp else 20.dp)
+                .padding(bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Quick add", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            AppButton(onClick = onAddExpense, modifier = Modifier.fillMaxWidth()) { Text("Expense") }
-            AppOutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Income / add money") }
+            Text(
+                text = "QUICK ADD",
+                style = if (compact) AppType.eyebrowCompact else AppType.eyebrow,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "What happened?",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+            AppButton(onClick = onAddExpense, modifier = Modifier.fillMaxWidth()) { Text("Add expense") }
+            AppOutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Deposit into main") }
+            AppOutlinedButton(onClick = onWithdraw, modifier = Modifier.fillMaxWidth()) { Text("Withdraw to cash") }
             AppOutlinedButton(onClick = onAddRecurring, modifier = Modifier.fillMaxWidth()) { Text("Recurring payment") }
+        }
+    }
+}
+
+/**
+ * The "+ Add" control: one primary button that pops out the three ways money
+ * moves - a new expense, a deposit into main, or a withdrawal into cash.
+ *
+ * The option row (and its stagger) lives in `AddMenuOptions`, shared with the
+ * History toolbar so both screens behave identically.
+ */
+@Composable
+fun AddMenu(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onExpense: () -> Unit,
+    onDeposit: () -> Unit,
+    onWithdraw: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        AppButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
+            Text(if (expanded) "Close" else "+ Add", maxLines = 1)
+        }
+        AddMenuOptions(
+            expanded = expanded,
+            options = listOf(
+                AddMenuOption(label = "Expense", onClick = onExpense, primary = true),
+                AddMenuOption(label = "Deposit", onClick = onDeposit, emphasized = true),
+                AddMenuOption(label = "Withdraw", onClick = onWithdraw)
+            )
+        )
+        if (expanded) {
+            Text(
+                text = "Moves money from main into a cash balance, or deposit into main " +
+                    "from a cash balance - converting automatically across currencies.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3
+            )
         }
     }
 }
@@ -527,7 +772,8 @@ fun AdjustBalanceDialog(
     ) {
         Text(
             text = "Current: $currentFormatted",
-            style = MaterialTheme.typography.labelMedium
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         AppTextField(
             value = input,
@@ -544,9 +790,9 @@ fun AdjustBalanceDialog(
             Text(
                 text = (if (positive) "Will add " else "Will deduct ") +
                     CurrencyFormatter.format(diff.abs(), balanceCurrency) +
-                    " as ${if (positive) "top-up" else "expense"} (balance adjustment)",
+                    " as ${if (positive) "income" else "expense"} (balance adjustment)",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (positive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                color = if (positive) LocalAppPalette.current.income else LocalAppPalette.current.expense
             )
         } else {
             Text(

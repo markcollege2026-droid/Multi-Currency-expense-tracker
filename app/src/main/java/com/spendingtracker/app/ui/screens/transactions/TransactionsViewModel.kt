@@ -2,10 +2,14 @@ package com.spendingtracker.app.ui.screens.transactions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
+import com.spendingtracker.app.data.local.entity.Withdrawal
+import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
+import com.spendingtracker.app.domain.AccountBalances
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,22 +20,31 @@ data class TransactionsUiState(
     val allExpenses: List<Expense> = emptyList(),
     val cardPayments: List<com.spendingtracker.app.data.local.entity.CreditCardPayment> = emptyList(),
     val allTopUps: List<TopUp> = emptyList(),
+    val allWithdrawals: List<Withdrawal> = emptyList(),
     val categories: List<Category> = emptyList(),
     val filteredExpenses: List<Expense> = emptyList(),
     val filteredTopUps: List<TopUp> = emptyList(),
+    val filteredWithdrawals: List<Withdrawal> = emptyList(),
+    /** Every account of the active main balance, so rows can show their own currency. */
+    val accountsById: Map<Long, Account> = emptyMap(),
     val searchQuery: String = "",
     val selectedCategoryId: Long? = null,
     val selectedCurrency: String? = null,
-    val selectedType: String? = null, // EXPENSE, TOPUP
+    val selectedType: String? = null, // EXPENSE, TOPUP, CARD_PAYMENT, WITHDRAWAL
     val dateRangeStart: Long? = null,
     val dateRangeEnd: Long? = null,
     val balanceCurrency: String = "USD",
+    /** Balance of the main account, so a withdrawal can be started from History. */
+    val mainBalance: BigDecimal = BigDecimal.ZERO,
+    val cashAccounts: List<Account> = emptyList(),
+    val message: String? = null,
     val isLoading: Boolean = true
 )
 
 @HiltViewModel
 class TransactionsViewModel @Inject constructor(
-    private val financeRepository: FinanceRepository
+    private val financeRepository: FinanceRepository,
+    private val rateRepository: ExchangeRateRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TransactionsUiState())
@@ -44,23 +57,34 @@ class TransactionsViewModel @Inject constructor(
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
                 combine(financeRepository.observeActiveAccount(), financeRepository.observeBalanceAccounts()) { active, all -> active to all },
-                financeRepository.observeCardPayments()
-            ) { expenses, topUps, categories, wallet, payments ->
+                combine(financeRepository.observeCardPayments(), financeRepository.observeWithdrawals()) { payments, withdrawals -> payments to withdrawals }
+            ) { expenses, topUps, categories, wallet, paymentsAndWithdrawals ->
                 val (account, accounts) = wallet
+                val (payments, withdrawals) = paymentsAndWithdrawals
                 val incomeAccountIds = accounts.filter { it.id == account?.id || it.parentAccountId == account?.id }.map { it.id }.toSet()
                 val accountId = account?.id
+                // Balances for the whole ledger: the withdraw dialog needs the main
+                // figure, and History rows never need a second query.
+                val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals)
                 _uiState.value.copy(
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
                     allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId in incomeAccountIds },
+                    // A transfer belongs to the balance it moves money inside.
+                    allWithdrawals = if (accountId == null) emptyList()
+                    else withdrawals.filter { it.fromAccountId == accountId || it.toAccountId in incomeAccountIds },
+                    accountsById = accounts.associateBy { it.id },
                     categories = categories,
                     balanceCurrency = account?.currency ?: "USD",
+                    mainBalance = if (accountId == null) BigDecimal.ZERO else balances[accountId] ?: BigDecimal.ZERO,
+                    cashAccounts = accounts.filter { it.parentAccountId == accountId && it.type == "CASH" },
                     isLoading = false
                 )
             }.collect { baseState ->
                 _uiState.value = baseState.copy(
                     filteredExpenses = filterExpenses(baseState.allExpenses, baseState),
-                    filteredTopUps = filterTopUps(baseState.allTopUps, baseState)
+                    filteredTopUps = filterTopUps(baseState.allTopUps, baseState),
+                    filteredWithdrawals = filterWithdrawals(baseState.allWithdrawals, baseState)
                 )
             }
         }
@@ -94,40 +118,56 @@ class TransactionsViewModel @Inject constructor(
         }
     }
 
-    fun onSearchChanged(query: String) {
+    private fun filterWithdrawals(withdrawals: List<Withdrawal>, state: TransactionsUiState): List<Withdrawal> {
+        return withdrawals.filter { withdrawal ->
+            if (state.searchQuery.isNotBlank()) {
+                val q = state.searchQuery.lowercase()
+                if (!(withdrawal.note?.lowercase()?.contains(q) == true ||
+                        withdrawal.currencyFrom.lowercase().contains(q) ||
+                        withdrawal.currencyTo.lowercase().contains(q))
+                ) return@filter false
+            }
+            // Transfers have no category, so a category filter hides them.
+            if (state.selectedCategoryId != null) return@filter false
+            if (state.selectedType != null && state.selectedType != "WITHDRAWAL") return@filter false
+            if (state.selectedCurrency != null &&
+                state.selectedCurrency != withdrawal.currencyFrom &&
+                state.selectedCurrency != withdrawal.currencyTo
+            ) return@filter false
+            if (state.dateRangeStart != null && withdrawal.date < state.dateRangeStart) return@filter false
+            if (state.dateRangeEnd != null && withdrawal.date > state.dateRangeEnd) return@filter false
+            true
+        }
+    }
+
+    /** Re-runs all three filters after one of them changed. */
+    private fun refilter() {
         val current = _uiState.value
         _uiState.value = current.copy(
-            searchQuery = query,
-            filteredExpenses = filterExpenses(current.allExpenses, current.copy(searchQuery = query)),
-            filteredTopUps = filterTopUps(current.allTopUps, current.copy(searchQuery = query))
+            filteredExpenses = filterExpenses(current.allExpenses, current),
+            filteredTopUps = filterTopUps(current.allTopUps, current),
+            filteredWithdrawals = filterWithdrawals(current.allWithdrawals, current)
         )
+    }
+
+    fun onSearchChanged(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query)
+        refilter()
     }
 
     fun onCategorySelected(id: Long?) {
-        val current = _uiState.value
-        val newState = current.copy(selectedCategoryId = id)
-        _uiState.value = newState.copy(
-            filteredExpenses = filterExpenses(current.allExpenses, newState),
-            filteredTopUps = filterTopUps(current.allTopUps, newState)
-        )
+        _uiState.value = _uiState.value.copy(selectedCategoryId = id)
+        refilter()
     }
 
     fun onCurrencySelected(currency: String?) {
-        val current = _uiState.value
-        val newState = current.copy(selectedCurrency = currency)
-        _uiState.value = newState.copy(
-            filteredExpenses = filterExpenses(current.allExpenses, newState),
-            filteredTopUps = filterTopUps(current.allTopUps, newState)
-        )
+        _uiState.value = _uiState.value.copy(selectedCurrency = currency)
+        refilter()
     }
 
     fun onTypeSelected(type: String?) {
-        val current = _uiState.value
-        val newState = current.copy(selectedType = type)
-        _uiState.value = newState.copy(
-            filteredExpenses = filterExpenses(current.allExpenses, newState),
-            filteredTopUps = filterTopUps(current.allTopUps, newState)
-        )
+        _uiState.value = _uiState.value.copy(selectedType = type)
+        refilter()
     }
 
     fun deleteExpense(expense: Expense) {
@@ -137,4 +177,62 @@ class TransactionsViewModel @Inject constructor(
     fun deleteTopUp(topUp: TopUp) {
         viewModelScope.launch { financeRepository.deleteTopUp(topUp) }
     }
+
+    /** Removing a transfer moves the money back to main and off the cash balance. */
+    fun deleteWithdrawal(withdrawal: Withdrawal) {
+        viewModelScope.launch { financeRepository.deleteWithdrawal(withdrawal) }
+    }
+
+    /**
+     * Withdraws from the active main balance into one of its cash balances. Both
+     * amounts come from the dialog, so whichever currency the user typed is the
+     * one that is stored exactly.
+     */
+    fun withdraw(cashId: Long, amountFrom: String, amountTo: String, note: String?) {
+        viewModelScope.launch {
+            try {
+                val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+                    ?: error("Enter a positive amount")
+                val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+                    ?: error("Enter a positive amount")
+                val mainId = financeRepository.getActiveAccountId()
+                val cash = financeRepository.getAccountById(cashId) ?: error("Cash balance not found")
+                val main = financeRepository.getAccountById(mainId) ?: error("Main account not found")
+                val rate = rateRepository.getConversionRateOrFallback(main.currency, cash.currency)
+                financeRepository.withdraw(mainId, cash.id, from, rate, note, amountTo = to)
+                // Copy the *current* state: the ledger flow may have re-emitted while
+                // the transaction above was running.
+                _uiState.value = _uiState.value.copy(
+                    message = "Withdrew " + com.spendingtracker.app.util.CurrencyFormatter.formatSimple(from, main.currency) +
+                        " to " + cash.name
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(message = e.message ?: "Unable to withdraw")
+            }
+        }
+    }
+
+    fun clearMessage() { _uiState.value = _uiState.value.copy(message = null) }
+
+    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
+        rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
+
+    /** Applies a custom date range; null values clear that side of the range. */
+    fun onDateRangeChanged(start: Long?, end: Long?) {
+        _uiState.value = _uiState.value.copy(dateRangeStart = start, dateRangeEnd = end)
+        refilter()
+    }
+
+    /** Resets every filter except the search query. */
+    fun clearFilters() {
+        _uiState.value = _uiState.value.copy(
+            selectedCategoryId = null,
+            selectedCurrency = null,
+            dateRangeStart = null,
+            dateRangeEnd = null
+        )
+        refilter()
+    }
+
 }

@@ -55,6 +55,27 @@ class AccountBalancesTest {
         val result = AccountBalances.calculate(listOf(main, card, other), listOf(expense(1, 3, "30"), expense(2, 4, "40")), emptyList(), emptyList())
         assertMoney("-30", result[3]); assertMoney("-40", result[4])
     }
+    @Test fun withdrawalMovesFundsWithConversionBetweenCurrencies() {
+        val eurCash = Account(id = 4, name = "EUR", currency = "EUR", startingBalance = "10", type = "CASH", parentAccountId = 1)
+        val withdrawal = Withdrawal(
+            fromAccountId = 1, toAccountId = 4, amountFrom = "100", amountTo = "25",
+            currencyFrom = "ILS", currencyTo = "EUR", exchangeRate = "0.25", date = 0
+        )
+        val result = AccountBalances.calculate(listOf(main, eurCash), emptyList(), emptyList(), emptyList(), listOf(withdrawal))
+        assertMoney("900", result[1])
+        assertMoney("35", result[4])
+        // Setting a balance aside changes totals, never its own ledger balance.
+        assertMoney("35", AccountBalances.calculate(
+            listOf(eurCash.copy(includedInTotal = false)), emptyList(), emptyList(), emptyList(), listOf(withdrawal)
+        )[4])
+    }
+    @Test fun withdrawalDoesNotCountAsSpending() {
+        // A withdrawal moves money: the two balances change, but no expense row exists.
+        val w = Withdrawal(fromAccountId = 1, toAccountId = 2, amountFrom = "40", amountTo = "40",
+            currencyFrom = "ILS", currencyTo = "ILS", exchangeRate = "1", date = 0)
+        val result = AccountBalances.calculate(listOf(main, cash), emptyList(), emptyList(), emptyList(), listOf(w))
+        assertMoney("960", result[1]); assertMoney("140", result[2])
+    }
     @Test fun deletingOrEditingExpenseRecalculatesFromLedger() {
         val result = AccountBalances.calculate(listOf(main, card), listOf(expense(1, 3, "5")), emptyList(), emptyList())
         assertMoney("-5", result[3])

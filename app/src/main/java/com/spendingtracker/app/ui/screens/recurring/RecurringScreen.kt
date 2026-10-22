@@ -27,6 +27,7 @@ import com.spendingtracker.app.data.local.entity.RecurringPayment
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.*
+import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.screens.transactions.CategoryPickerDialog
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
@@ -41,6 +42,7 @@ fun RecurringScreen(
     val uiState by viewModel.uiState.collectAsState()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val dims = LocalAppDimens.current
+    var pendingDelete by remember { mutableStateOf<RecurringPayment?>(null) }
 
     Scaffold(
         topBar = {
@@ -74,11 +76,13 @@ fun RecurringScreen(
             ) {
                 if (uiState.payments.isEmpty()) {
                     item(key = "empty") {
-                        Text(
-                            text = "No recurring payments yet. Add rent, subscriptions or any repeating payment. " +
-                                "They post automatically to ${uiState.account?.name ?: "your account"} on their due dates.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppEmptyState(
+                                "No recurring payments yet.\nRent, subscriptions or any repeating payment posts " +
+                                    "automatically to ${uiState.account?.name ?: "your account"}."
+                            )
+                            AppButton(onClick = viewModel::openAdd) { Text("Add recurring payment", maxLines = 1) }
+                        }
                     }
                 }
                 items(uiState.payments, key = { it.id }) { payment ->
@@ -86,7 +90,7 @@ fun RecurringScreen(
                         payment = payment,
                         dateFormat = dateFormat,
                         onEdit = { viewModel.openEdit(payment) },
-                        onDelete = { viewModel.delete(payment) },
+                        onDelete = { pendingDelete = payment },
                         onToggleActive = { viewModel.toggleActive(payment) }
                     )
                 }
@@ -111,6 +115,20 @@ fun RecurringScreen(
             }
         }
     }
+
+    pendingDelete?.let { payment ->
+        AppConfirmDialog(
+            title = "Delete recurring payment?",
+            message = "\"${payment.title}\" stops posting to " +
+                (uiState.account?.name ?: "your account") + ". Payments already recorded stay in the history.",
+            confirmLabel = "Delete",
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                viewModel.delete(payment)
+                pendingDelete = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -125,10 +143,10 @@ private fun RecurringItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(
-                if (payment.isActive) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                if (payment.isActive) MaterialTheme.colorScheme.surfaceContainer
+                else MaterialTheme.colorScheme.surfaceContainerLow
             )
             .clickable(onClick = onEdit)
             .padding(horizontal = if (compact) 9.dp else 12.dp, vertical = if (compact) 6.dp else 10.dp),

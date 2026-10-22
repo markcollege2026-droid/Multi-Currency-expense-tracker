@@ -1,42 +1,64 @@
-# Spending Tracker 1.8.1 — File backups and lightweight encryption
+# Spending Tracker 1.9.0 — One Add menu, deposits and cash transfers
 
-## Save and restore
-Open **Settings → Data → Backup files**:
-- **Save JSON backup to file**: choose an actual filename/folder using Android's file picker (Downloads, device storage or a supported cloud document provider).
-- **Save CSV report to file**: saves a transaction report. CSV is not a restorable backup.
-- **Save encrypted backup**: enter and confirm a password, then choose the save location. Produces a portable `.stbk` file.
-- **Restore from backup file**: select a JSON or encrypted `.stbk` backup. Review the replace-all confirmation; encrypted files additionally require their password.
+## One way to add anything
+Adding is now a single **Add** control that pops out the three ways money moves — **Expense**,
+**Deposit**, **Withdraw** — with a 60 ms staggered scale/fade. It is the same control, the same
+words and the same behaviour on Home and in History (Home draws it as buttons, History as a pill
+next to the search field). Back closes the menu before it leaves the tab. On the 240×320dp Qin
+window the options wrap instead of squeezing their labels.
 
-There is no hidden export folder. Android's document provider controls the actual file location; the app confirms the document name only after writing and closing it successfully. Existing share-as-text options remain, but their messages now distinguish prepared text from a saved file.
+The old History `− / +` pills only covered two of the three transaction types and gave the same
+actions different names on different screens; that is gone.
 
-## Encryption
-Uses built-in Java/Android crypto only: **AES-128-GCM**, with a fresh random 16-byte salt and 12-byte nonce per backup, and **PBKDF2-HMAC-SHA256 (600,000 iterations)** deriving the key from the password. No extra crypto dependency, no custom cipher, no device-bound key, and only 49 bytes of format overhead. The deliberately slower password derivation resists guessing; encryption/file work runs off the UI thread.
+## Deposits
+Money arriving in the main account is now a **Deposit** (it was called "Income"). The form is
+unchanged apart from the wording and one addition: an optional **Source**.
 
-AES-GCM authenticates the header and contents. Wrong passwords, changed contents, unsupported versions and truncated files are rejected before importing data. Passwords are not persisted or logged. Use a long passphrase; the UI requires at least 8 characters and confirmation. **Forgotten passwords cannot be recovered.** The encryption format is versioned independently of the existing JSON backup format.
+- **External** is the default: a salary, a refund, money from a bank — nothing else in the app moves.
+- Picking a **cash balance** funds the deposit from it. That is recorded as the reverse of a
+  withdrawal (cash ↓, main ↑, converted at the cached rate), and the form previews exactly what
+  leaves the balance — "≈ −€304.00 from Euro wallet" — before you save.
 
-Encrypted backup creation does not write a plaintext temporary file. Decrypted data is held in memory during restore. On a JVM, clearing byte/character arrays is best-effort memory hygiene, not a guarantee that all runtime copies are erased.
+Zero, negative and over-balance amounts cannot be saved; the button stays disabled instead of
+failing after the fact.
 
-## Data safety and fixes
-- Export reads from a consistent Room transaction snapshot.
-- Restore prompts before replacing data and uses the existing atomic import transaction. Invalid data, wrong passwords and failed imports leave current data unchanged.
-- Restore now replaces categories and the exchange-rate cache too, rather than leaving unrelated old entries behind; these changes participate in the same rollback transaction.
-- Files are bounded to 20 MiB to prevent unbounded memory consumption.
-- Save/read/restore failures are displayed instead of being silently ignored. Interrupted or failed writes may leave an incomplete document; delete that document and save again.
-- Busy indicators prevent duplicate backup operations. Cancelling the file picker does not perform an export or restore.
+## Withdrawals in either currency
+A withdrawal between main and a cash balance of another currency can now be typed in **either**
+currency: enter ₪400 and €100 arrives, or enter €100 and ₪400 leaves. The side you typed is stored
+exactly and only the derived side is rounded once, so a round trip never loses a cent (the old
+behaviour could turn €100 into ₪399.96). The dialog shows the other side live, and the main balance
+is still checked against the amount that will actually leave it.
 
-## Compatibility / migrations
-Same application ID and release signing key. Version code **7**, Android **8+** (minSdk 26), targetSdk 35. Install `app-release.apk` over an existing release-signed app without uninstalling. The database stays at **version 4** and JSON backups stay at **schema 4**: **no new database migration is needed**. Existing plain JSON backups remain importable. Encrypted `.stbk` backups require this version or later; older app versions cannot decrypt them.
+## History: details first, then edit
+- Tapping a row no longer jumps into the editor. It opens **details** — amount and saved rate,
+  category, account, method, note and date — with **Edit** offered as an explicit choice.
+  Transfers have no editor: their saved rate is a fact, so they are deleted and re-created.
+- A row shows the **time only while it is today**. After that it shows `21 Oct`, and older rows
+  show `31 Dec 2025`. The list is still grouped by day, so this reads as detail within the day
+  rather than a missing timestamp.
+- Delete still asks for confirmation with a one-line consequence before touching balances.
+
+## Carried in from 1.9.0's first pass
+Multiple cash balances per main account, cash balances in their own currency, set-aside balances
+excluded from the total, withdrawals listed as transfers (never spending), category/currency/
+"last 30 days" filters that the view model already supported but the UI never exposed, and
+confirmation dialogs on every destructive action.
+
+## Compatibility and migrations
+Same application ID and release signing key; install `app-release.apk` over 1.8.x without
+uninstalling. Version code **9**, version name **1.9.0**, minSdk 26, targetSdk 35. Database
+version **5** adds the `withdrawals` table and `accounts.includedInTotal` through an explicit
+migration; JSON backups are format **5** and still import schema 1–4. The withdrawals table stores
+both directions (`fromAccountId` / `toAccountId` may be the main or the cash side), so deposits
+funded from cash restore correctly.
 
 ## Testing
-Unit tests cover encryption round-trip/Unicode, random salt/nonce, wrong passwords, tampering, truncation, unsupported versions and weak-password rejection. Room/Robolectric tests save actual JSON and encrypted files, restore account balances, verify wrong-password/no-data-loss behavior, and reject empty or invalid backups. GitHub Actions gates APK/AAB publication on the full test suite, lint and compatibility checks against v1.8.0.
+GitHub Actions runs the full unit suite (25 suites, **149 tests**, real Room/Robolectric repository
+and migration tests), lint, debug + signed release APKs, the AAB, and upgrade checks against
+v1.8.0 (application id, version code, minSdk, signing certificate).
 
-Android's interactive file-picker/provider UI still requires physical-device or emulator smoke testing; local file tests do not simulate every cloud provider or interrupted device write.
-
-## Verified release
-- **64 tests passed, with zero failures/errors/skips**, including 17 Room-backed repository/file-backup tests and 6 encryption tests.
-- Lint, debug APK, signed release APK, and AAB compilation passed in GitHub Actions.
-- Actual APK signing/application-ID/version/minSdk checks against v1.8.0 passed.
-- Build: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/actions/runs/38720929602
-- Release: https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.8.1
-- APK SHA-256: `sha256:14283c118154fc040353e28a36c5a464a5a2c5893b2e82bd76e102536f16cce3`
-- Android application source built from commit `76fa0ea73a0172876fc0addfd34011f0c01dc705`; subsequent documentation-only updates do not change the APK.
+New coverage for this release: `TransferMathTest` (both typed sides, rounding, parity fallback),
+`DepositFormStateTest` (external default, over-balance, conversion by rate, invalid input),
+`HistoryTimestampTest` (today / same year / earlier), `HistoryAddMenuTest` (collapsed and expanded
+pill menu), plus reverse-transfer and invalid-pair cases in `FinanceRepositoryTest` and updated
+withdraw/Add-menu UI tests on regular and 240dp windows.

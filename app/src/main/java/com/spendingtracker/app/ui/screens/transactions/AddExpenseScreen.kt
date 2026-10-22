@@ -30,6 +30,7 @@ import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.*
+import com.spendingtracker.app.ui.components.DueDatePickerDialog
 import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
@@ -45,6 +46,8 @@ fun AddExpenseScreen(
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAccountPicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(expenseId) { viewModel.loadExpense(expenseId) }
@@ -66,7 +69,11 @@ fun AddExpenseScreen(
         onOpenAccount = { showAccountPicker = true },
         onManualRateToggle = viewModel::onUseManualRateChanged,
         onManualRateChanged = viewModel::onManualRateChanged,
-        onAllowOverdraft = viewModel::allowOverdraft
+        onAllowOverdraft = viewModel::allowOverdraft,
+        onOpenDate = { showDatePicker = true },
+        onDelete = if (uiState.isEditMode) {
+            { showDeleteConfirm = true }
+        } else null
     )
 
     if (showCurrencyPicker) {
@@ -90,6 +97,29 @@ fun AddExpenseScreen(
             },
             onDeleteCategory = { viewModel.deleteCategory(it) },
             onCreateCategory = { name, color -> viewModel.createCategory(name, color) }
+        )
+    }
+    if (showDatePicker) {
+        DueDatePickerDialog(
+            initialDateMillis = uiState.date,
+            onDismiss = { showDatePicker = false },
+            onConfirm = { millis ->
+                viewModel.onDateChanged(millis)
+                showDatePicker = false
+            }
+        )
+    }
+    if (showDeleteConfirm && expenseId != null) {
+        AppConfirmDialog(
+            title = "Delete expense?",
+            message = "The expense will be removed and the balance restored. This cannot be undone.",
+            confirmLabel = "Delete",
+            onDismiss = { showDeleteConfirm = false },
+            onConfirm = {
+                showDeleteConfirm = false
+                keyboard?.hide()
+                viewModel.deleteExpense(expenseId, onBack)
+            }
         )
     }
     if (showAccountPicker) {
@@ -118,6 +148,8 @@ fun AddExpenseContent(
     onManualRateToggle: (Boolean) -> Unit,
     onManualRateChanged: (String) -> Unit,
     onAllowOverdraft: (Boolean) -> Unit,
+    onOpenDate: () -> Unit = {},
+    onDelete: (() -> Unit)? = null,
     hardwareKeypad: Boolean = LocalHardwareKeypad.current
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -135,8 +167,12 @@ fun AddExpenseContent(
     val selectedAccount = state.paymentAccounts.firstOrNull {
         it.id == (state.balanceAccountId ?: state.accountId)
     }
+    // The paying account can be a cash balance in another currency; show it so the
+    // resulting conversion is not a surprise.
+    val mainCurrency = state.paymentAccounts.firstOrNull { it.id == state.accountId }?.currency
     val accountLabel = selectedAccount?.let {
-        "${it.name} · ${it.type.replace('_', ' ').lowercase(Locale.getDefault())}"
+        "${it.name} · ${it.type.replace('_', ' ').lowercase(Locale.getDefault())}" +
+            if (mainCurrency != null && it.currency != mainCurrency) " · ${it.currency}" else ""
     } ?: "Main"
     val category = state.categories.firstOrNull { it.id == state.categoryId }
 
@@ -151,7 +187,17 @@ fun AddExpenseContent(
         topBar = {
             AppTopBar(
                 title = if (state.isEditMode) "Edit expense" else "New expense",
-                onBack = onBack
+                onBack = onBack,
+                actions = {
+                    if (onDelete != null) {
+                        AppIconButton(
+                            onClick = onDelete,
+                            icon = Icons.Default.Delete,
+                            contentDescription = "Delete expense",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             )
         },
         bottomBar = {
@@ -207,112 +253,122 @@ fun AddExpenseContent(
                 .padding(horizontal = if (LocalCompactUi.current) 11.dp else 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(if (LocalCompactUi.current) 7.dp else 10.dp)
         ) {
-            AppTextField(
-                value = state.amount,
-                onValueChange = onAmountChanged,
-                label = "Amount (${state.currency})",
-                placeholder = "0.00",
-                keyboardType = KeyboardType.Decimal,
-                isError = amountError || rateError,
-                supportingText = supporting,
-                focusRequester = amountFocus
-            )
-
-            AppSelectorRow(
-                label = "Currency",
-                value = "${state.currency} · ${CurrencyProvider.getSymbol(state.currency)}",
-                onClick = onOpenCurrency
-            )
-            AppSelectorRow(
-                label = "Category",
-                value = category?.name ?: "None",
-                onClick = onOpenCategory,
-                leadingColor = category?.let { safeColor(it.color) }
-            )
-
-            if (state.currency != state.balanceCurrency) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onManualRateToggle(!state.useManualRate) }
-                        .padding(vertical = 1.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = state.useManualRate,
-                        onCheckedChange = onManualRateToggle,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("Manual rate", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.weight(1f))
-                    if (!state.useManualRate) {
-                        Text(
-                            "automatic",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (state.useManualRate) {
-                    AppTextField(
-                        value = state.manualRate,
-                        onValueChange = onManualRateChanged,
-                        label = "1 ${state.currency} = ? ${state.balanceCurrency}",
-                        keyboardType = KeyboardType.Decimal,
-                        placeholder = "0.00"
-                    )
-                }
-            }
-
-            AppSelectorRow(
-                label = "Pay from",
-                value = accountLabel,
-                onClick = onOpenAccount,
-                enabled = state.paymentAccounts.isNotEmpty()
-            )
-            if (state.paymentAccounts.none { it.type == "CASH" || it.type == "CREDIT_CARD" }) {
-                Text(
-                    text = "Create cash or credit cards on Home to use them here.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2
+            AppCard {
+                AppTextField(
+                    value = state.amount,
+                    onValueChange = onAmountChanged,
+                    label = "Amount (${state.currency})",
+                    placeholder = "0.00",
+                    keyboardType = KeyboardType.Decimal,
+                    isError = amountError || rateError,
+                    supportingText = supporting,
+                    focusRequester = amountFocus
                 )
             }
-            if (selectedAccount?.type == "CASH") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onAllowOverdraft(!state.allowOverdraft) }
-                        .padding(vertical = 1.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = state.allowOverdraft,
-                        onCheckedChange = onAllowOverdraft,
-                        modifier = Modifier.size(28.dp)
+
+            AppSectionHeader("Details")
+            AppCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppSelectorRow(
+                        label = "Currency",
+                        value = "${state.currency} · ${CurrencyProvider.getSymbol(state.currency)}",
+                        onClick = onOpenCurrency
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Allow cash overdraft",
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1
+                    AppSelectorRow(
+                        label = "Category",
+                        value = category?.name ?: "None",
+                        onClick = onOpenCategory,
+                        leadingColor = category?.let { safeColor(it.color) }
                     )
+                    if (state.currency != state.balanceCurrency) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onManualRateToggle(!state.useManualRate) }
+                                .padding(vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = state.useManualRate,
+                                onCheckedChange = onManualRateToggle,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Manual rate", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.weight(1f))
+                            if (!state.useManualRate) {
+                                Text(
+                                    "automatic",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (state.useManualRate) {
+                            AppTextField(
+                                value = state.manualRate,
+                                onValueChange = onManualRateChanged,
+                                label = "1 ${state.currency} = ? ${state.balanceCurrency}",
+                                keyboardType = KeyboardType.Decimal,
+                                placeholder = "0.00"
+                            )
+                        }
+                    }
                 }
             }
 
-            AppValueRow(
-                label = "Date",
-                value = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(state.date))
-            )
-
-            AppTextField(
-                value = state.note,
-                onValueChange = onNoteChanged,
-                label = "Note (optional)",
-                placeholder = "e.g. lunch",
-                imeAction = androidx.compose.ui.text.input.ImeAction.Next
-            )
+            AppSectionHeader("Payment")
+            AppCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppSelectorRow(
+                        label = "Pay from",
+                        value = accountLabel,
+                        onClick = onOpenAccount,
+                        enabled = state.paymentAccounts.isNotEmpty()
+                    )
+                    if (state.paymentAccounts.none { it.type == "CASH" || it.type == "CREDIT_CARD" }) {
+                        Text(
+                            text = "Create cash or credit cards on Home to use them here.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
+                    }
+                    if (selectedAccount?.type == "CASH") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onAllowOverdraft(!state.allowOverdraft) }
+                                .padding(vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = state.allowOverdraft,
+                                onCheckedChange = onAllowOverdraft,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Allow cash overdraft",
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    AppSelectorRow(
+                        label = "Date",
+                        value = SimpleDateFormat("EEE d MMM yyyy · HH:mm", Locale.getDefault()).format(Date(state.date)),
+                        onClick = onOpenDate
+                    )
+                    AppTextField(
+                        value = state.note,
+                        onValueChange = onNoteChanged,
+                        label = "Note (optional)",
+                        placeholder = "e.g. lunch",
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Next
+                    )
+                }
+            }
             Spacer(Modifier.height(2.dp))
         }
     }
@@ -374,10 +430,10 @@ fun CurrencyPickerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(5.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(
                             if (isBalance) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.surfaceContainerLow
                         )
                         .clickable { onCurrencySelected(currency.code) }
                         .padding(horizontal = 7.dp, vertical = 4.dp),
@@ -450,8 +506,8 @@ fun CategoryPickerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .clickable { onCategorySelected(null) }
                         .padding(horizontal = 7.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -463,8 +519,8 @@ fun CategoryPickerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .clickable { onCategorySelected(category.id) }
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -583,10 +639,10 @@ fun AccountPickerDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                else MaterialTheme.colorScheme.surfaceContainerLow
                             )
                             .clickable { onAccountSelected(account.id) }
                             .padding(horizontal = 7.dp, vertical = 5.dp),

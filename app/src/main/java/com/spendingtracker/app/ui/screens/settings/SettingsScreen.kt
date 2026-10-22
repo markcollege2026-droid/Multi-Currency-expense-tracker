@@ -24,6 +24,7 @@ import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppButton
+import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppDialog
 import com.spendingtracker.app.ui.components.AppFilterChip
 import com.spendingtracker.app.ui.components.AppHairline
@@ -75,7 +76,7 @@ fun SettingsScreen(
                 if (uiState.message != null || uiState.error != null) {
                     item(key = "messages") {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(12.dp),
                             color = if (uiState.error != null) MaterialTheme.colorScheme.errorContainer
                             else MaterialTheme.colorScheme.primaryContainer
                         ) {
@@ -473,14 +474,10 @@ private fun SettingsSection(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(7.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    AppCard {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(7.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             AppSectionHeader(title)
             content()
@@ -575,8 +572,8 @@ fun CurrencyOrderDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .padding(horizontal = 6.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New expense · Ledger</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --paper:#F7F5EF; --surface:#FBF9F4; --card:#FFFFFF; --low:#F7F5EE; --cont:#F2F0E8;
+  --high:#ECE9E0; --highest:#E6E3D9; --ink:#171B15; --ink2:#4C5148; --line:#CDD1C6;
+  --primary:#0F5132; --primary-ink:#FFFFFF; --primary-cont:#D7ECDD; --primary-deep:#08361F;
+  --sage:#5C6B60; --sage-cont:#E7EDE4; --amber:#8A5A12; --amber-cont:#FBE7C6;
+  --error:#B3261E; --error-cont:#F9DEDC; --income:#1F7A4C; --warn:#B97C10; --focus:#FFC400;
+  --r-xs:6px; --r-sm:10px; --r-md:14px; --r-lg:20px; --r-xl:28px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+html,body{background:#171B17;color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased}
+body{padding:40px 20px}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* ---------- device ---------- */
+.stage{display:flex;justify-content:center}
+.phone{width:390px;height:844px;background:#0B0F0C;border-radius:46px;padding:10px;
+  box-shadow:0 40px 80px -24px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.06)}
+.screen{position:relative;width:100%;height:100%;background:var(--paper);border-radius:37px;
+  overflow:hidden;display:flex;flex-direction:column}
+.statusbar{height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 26px;font-size:12.5px;font-weight:600;color:var(--ink);letter-spacing:.2px}
+.statusbar .right{display:flex;align-items:center;gap:5px}
+.bars{display:flex;align-items:flex-end;gap:2px}
+.bars i{display:block;width:3px;background:var(--ink);border-radius:1px}
+.bars i:nth-child(1){height:4px}.bars i:nth-child(2){height:6px}
+.bars i:nth-child(3){height:8px}.bars i:nth-child(4){height:10px}
+.batt{width:22px;height:11px;border:1.5px solid var(--ink);border-radius:3px;position:relative;opacity:.9}
+.batt:before{content:"";position:absolute;inset:1.5px 6px 1.5px 1.5px;background:var(--ink);border-radius:1px}
+
+/* ---------- chrome ---------- */
+.topbar{flex:0 0 auto;padding:2px 16px 12px;display:flex;align-items:flex-end;gap:10px;background:var(--paper)}
+.topbar .titles{flex:1;min-width:0}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--ink2)}
+.topbar h1{font-size:24px;line-height:30px;font-weight:700;letter-spacing:-.3px;margin-top:2px}
+.topbar .who{font-size:12px;color:var(--ink2);margin-top:1px}
+.roundbtn{width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--line);
+  display:grid;place-items:center;color:var(--ink)}
+.roundbtn.solid{background:var(--primary);border-color:var(--primary);color:#fff}
+.pill{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;
+  background:var(--card);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink)}
+.pill.sel{background:var(--primary-cont);border-color:rgba(15,81,50,.22);color:var(--primary-deep)}
+.content{flex:1;overflow-y:auto;padding:0 16px 18px;scrollbar-width:none}
+.content::-webkit-scrollbar{display:none}
+.content>*+*{margin-top:12px}
+
+/* ---------- tabbar ---------- */
+.tabbar{flex:0 0 76px;background:var(--surface);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(5,1fr);align-items:center;padding-bottom:6px}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink2);font-size:10px;font-weight:600}
+.tab .ico{width:56px;height:26px;border-radius:999px;display:grid;place-items:center}
+.tab.on{color:var(--primary)}
+.tab.on .ico{background:var(--primary-cont)}
+.tab svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- primitives ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px}
+.card.tight{padding:12px}
+.sect{display:flex;align-items:center;gap:10px;margin:16px 2px 0}
+.sect h2{font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--ink2);flex:1}
+.sect a{font-size:12px;font-weight:700;color:var(--primary);text-decoration:none}
+.hero{border-radius:var(--r-xl);padding:20px;color:#fff;position:relative;overflow:hidden;
+  background:linear-gradient(145deg,#0F5132 0%,#1D6B45 100%)}
+.hero .glow{position:absolute;width:220px;height:220px;border-radius:50%;right:-70px;top:-90px;
+  background:radial-gradient(circle,rgba(255,255,255,.16),transparent 62%)}
+.hero .eyebrow{color:rgba(255,255,255,.72)}
+.hero .amount{font-size:44px;line-height:48px;font-weight:700;letter-spacing:-1.2px;margin-top:6px}
+.hero .amount small{font-size:24px;font-weight:600;letter-spacing:-.4px;opacity:.9;margin-right:4px}
+.hero .stats{display:flex;gap:16px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.18)}
+.hero .stats div{flex:1}
+.hero .stats span{display:block;font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:rgba(255,255,255,.66)}
+.hero .stats b{display:block;font-size:15px;margin-top:3px;font-weight:600}
+.hero .foot{display:flex;align-items:center;gap:8px;margin-top:14px}
+.hero .tag{font-size:11px;font-weight:600;color:#FFE7B4;background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:4px 10px;display:inline-flex;gap:5px}
+.hero .adjust{margin-left:auto;font-size:12px;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.35);
+  border-radius:999px;padding:6px 12px;text-decoration:none}
+.btn{height:46px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;gap:8px;
+  font-size:14px;font-weight:700;letter-spacing:.1px;border:1px solid transparent}
+.btn.primary{background:var(--primary);color:#fff}
+.btn.tonal{background:var(--primary-cont);color:var(--primary-deep)}
+.btn.ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
+.btn.sm{height:34px;font-size:12px;border-radius:var(--r-sm);padding:0 12px}
+.rowline{display:flex;align-items:center;gap:12px;padding:10px 0}
+.rowline+.rowline{border-top:.5px solid rgba(205,209,198,.75)}
+.avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:13px;font-weight:800;flex:0 0 38px}
+.rtitle{font-size:14px;font-weight:600;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rmeta{font-size:11.5px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ramt{margin-left:auto;text-align:right}
+.ramt b{display:block;font-size:14px;font-weight:700;letter-spacing:-.1px}
+.ramt span{font-size:10.5px;color:var(--ink2)}
+.neg{color:var(--error)}
+.pos{color:var(--income)}
+.muted{color:var(--ink2)}
+.bar{height:6px;border-radius:999px;background:var(--cont);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--primary)}
+.chip{height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:transparent;
+  display:inline-flex;align-items:center;font-size:12px;font-weight:600;color:var(--ink2);white-space:nowrap}
+.chip.on{background:var(--primary-cont);border-color:rgba(15,81,50,.22);color:var(--primary-deep);font-weight:700}
+.chiprow{display:flex;gap:6px;overflow:hidden}
+.field{background:var(--low);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 12px}
+.field .lbl{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink2)}
+.field .val{font-size:15px;font-weight:600;margin-top:2px}
+.field.sel{display:flex;align-items:center;gap:10px}
+.field.sel .val{flex:1}
+.chev{color:var(--ink2);font-size:16px;font-weight:700}
+.tile{background:var(--low);border-radius:var(--r-md);padding:12px;flex:1}
+.tile .k{font-size:10.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--ink2)}
+.tile .v{font-size:18px;font-weight:700;margin-top:3px;letter-spacing:-.3px}
+.empty{background:var(--low);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--ink2);font-size:12px}
+
+/* ---------- dialog ---------- */
+.scrim{position:absolute;inset:0;background:rgba(23,27,21,.42);backdrop-filter:blur(1.5px);
+  display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}
+.dialog{width:100%;max-width:330px;background:var(--card);border-radius:20px;padding:20px;
+  box-shadow:0 24px 48px -12px rgba(0,0,0,.35)}
+.dialog h2{font-size:18px;line-height:24px;font-weight:700;letter-spacing:-.2px}
+.dialog .hint{font-size:11.5px;color:var(--ink2);margin-top:6px;line-height:17px}
+.dialog .stack{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.dactions{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center}
+.dactions .btn{width:auto;padding:0 16px;height:40px}
+.dactions .txt{font-size:13px;font-weight:700;color:var(--primary);padding:0 8px;height:40px;
+  display:flex;align-items:center}
+.dactions .txt.danger{color:var(--error)}
+.dactions .btn.danger{background:var(--error);color:#fff}
+.addmenu{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:12px}
+.txt.sm{font-size:11.5px;font-weight:600;color:var(--primary)}
+hr{display:block}
+@keyframes pop{from{transform:scale(.72);opacity:0}to{transform:scale(1);opacity:1}}
+.badge-note{position:absolute;left:16px;right:16px;bottom:96px;background:rgba(255,255,255,.94);
+  border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:11px;color:var(--ink2);
+  line-height:16px;z-index:6}
+.badge-note b{color:var(--ink)}
+
+/* ---------- gallery ---------- */
+.gallery{max-width:1500px;margin:0 auto}
+.gallery header{color:#F4F2EA;text-align:center;margin-bottom:34px}
+.gallery header .eyebrow{color:#A9B6AA}
+.gallery header h1{font-size:40px;line-height:44px;letter-spacing:-1.2px;margin:8px 0 10px;color:#F7F5EF}
+.gallery header p{color:#AEBBAF;font-size:14px;max-width:620px;margin:0 auto;line-height:22px}
+.grid{display:flex;flex-wrap:wrap;gap:56px 44px;justify-content:center}
+.item{width:390px}
+.frame{width:390px;height:767px;overflow:hidden;border-radius:38px}
+.frame iframe{width:470px;height:924px;border:0;transform:scale(.83);transform-origin:top left}
+.item h3{color:#E9E7DE;font-size:14px;font-weight:700;margin-top:18px;letter-spacing:.2px}
+.item p{color:#9FAAA2;font-size:12px;margin-top:4px;line-height:18px}
+.tokens{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0 auto 40px;max-width:900px}
+.sw{display:flex;align-items:center;gap:8px;color:#C9D2C9;font-size:11px;
+  border:1px solid rgba(255,255,255,.10);border-radius:999px;padding:6px 12px}
+.sw i{width:10px;height:10px;border-radius:3px;display:block}
+.note{color:#8E9A90;font-size:11px;text-align:center;margin-top:34px;line-height:18px}
+@media(max-width:520px){body{padding:20px 8px}.phone{width:100%;height:auto;aspect-ratio:390/844}
+  .item{width:100%}.gallery header h1{font-size:28px;line-height:32px}}
+</style></head>
+<body>
+<div class="stage"><div class="phone"><div class="screen">
+<div class="statusbar"><span>9:41</span><div class="right">
+<span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+
+<div class="topbar" style="align-items:center">
+  <span class="roundbtn" style="border:none;background:transparent"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></span>
+  <div class="titles"><h1 style="font-size:18px">New expense</h1></div>
+  <span class="pill sel">ILS ₪</span>
+</div>
+<main class="content">
+  <section class="card" style="padding:18px 16px;background:var(--card)">
+    <div class="eyebrow" style="text-align:center">Amount in ILS</div>
+    <div class="num" style="font-size:46px;line-height:54px;font-weight:700;letter-spacing:-1.4px;text-align:center">₪ 42.00</div>
+    <div style="display:flex;justify-content:center;gap:8px;margin-top:8px">
+      <span class="chip">€ EUR</span><span class="chip on">₪ ILS</span><span class="chip">$ USD</span>
+    </div>
+    <div style="display:flex;justify-content:center;gap:6px;margin-top:10px">
+      <span class="muted" style="font-size:11px">rate 1 EUR = 3.7240 ILS · locked at save</span>
+    </div>
+  </section>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">1</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">2</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">3</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">4</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">5</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">6</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">7</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">8</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">9</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--cont);color:var(--ink)">.</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--low);color:var(--ink)">0</div><div style="height:52px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:600;background:var(--cont);color:var(--ink)">⌫</div></div>
+
+  <div class="sect" style="margin-top:2px"><h2>Category</h2><a href="#">Manage</a></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip on" style="height:34px;padding:0 12px;gap:6px"><b style="font-weight:800">F</b>Food</span><span class="chip " style="height:34px;padding:0 12px;gap:6px"><b style="font-weight:800">T</b>Transport</span><span class="chip " style="height:34px;padding:0 12px;gap:6px"><b style="font-weight:800">H</b>Home</span><span class="chip " style="height:34px;padding:0 12px;gap:6px"><b style="font-weight:800">S</b>Shopping</span><span class="chip " style="height:34px;padding:0 12px;gap:6px"><b style="font-weight:800">C</b>Health</span><span class="chip " style="height:34px;padding:0 12px;gap:6px"><b style="font-weight:800">+</b>New</span></div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div class="field sel"><div style="flex:1"><div class="lbl">Paid from</div><div class="val">Main / debit</div></div><span class="chev">›</span></div>
+    <div class="field sel"><div style="flex:1"><div class="lbl">Date</div><div class="val">Today, 21 Oct · 09:41</div></div><span class="chev">›</span></div>
+    <div class="field"><div class="lbl">Note</div><div class="val" style="font-weight:400;color:var(--ink2)">Lunch with Dana</div></div>
+  </div>
+  <div class="btn primary" style="margin-top:4px">Save expense</div>
+  <div class="btn ghost">Cancel</div>
+</main>
+
+
+</div></div></div>
+</body></html>
