@@ -136,6 +136,10 @@ body{padding:40px 20px}
   display:flex;align-items:center}
 .dactions .txt.danger{color:var(--error)}
 .dactions .btn.danger{background:var(--error);color:#fff}
+.addmenu{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:12px}
+.txt.sm{font-size:11.5px;font-weight:600;color:var(--primary)}
+hr{display:block}
+@keyframes pop{from{transform:scale(.72);opacity:0}to{transform:scale(1);opacity:1}}
 .badge-note{position:absolute;left:16px;right:16px;bottom:96px;background:rgba(255,255,255,.94);
   border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:11px;color:var(--ink2);
   line-height:16px;z-index:6}
@@ -233,9 +237,15 @@ def home():
     </div>
   </section>
 
-  <div style="display:flex;gap:8px">
-    <div class="btn primary" style="flex:1">+ Add expense</div>
-    <div class="btn tonal" style="flex:1">+ Add income</div>
+  <div class="addmenu">
+    <div class="btn primary" style="width:100%">+ Add</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <div class="btn primary" style="flex:1">Expense</div>
+      <div class="btn ghost" style="flex:1;color:var(--income)">Income</div>
+      <div class="btn ghost" style="flex:1">Withdraw</div>
+    </div>
+    <div class="hint" style="margin-top:8px">Moves money from main into a cash balance, converting it
+      automatically when that cash balance uses another currency.</div>
   </div>
 
   <section class="card">
@@ -250,8 +260,27 @@ def home():
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--amber-cont);color:var(--amber)">C</span>
-      <div style="min-width:0"><div class="rtitle">Cash</div><div class="rmeta">Wallet</div></div>
+      <div style="min-width:0"><div class="rtitle">Cash</div><div class="rmeta">Cash · ILS · tap to edit</div></div>
       <div class="ramt"><b class="num">₪820.00</b></div>
+    </div>
+    <div style="display:flex;gap:12px;padding:0 0 6px 42px">
+      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:var(--amber-cont);color:var(--amber)">€</span>
+      <div style="min-width:0"><div class="rtitle">Euro wallet</div><div class="rmeta">Cash · EUR · tap to edit</div></div>
+      <div class="ramt"><b class="num">€140.00</b></div>
+    </div>
+    <div style="display:flex;gap:12px;padding:0 0 6px 42px">
+      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw (₪→€)</span><span class="txt sm">Set aside</span>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:var(--highest);color:var(--ink2)">🏦</span>
+      <div style="min-width:0"><div class="rtitle">Savings jar</div><div class="rmeta">Cash · ILS · set aside · not counted in total</div></div>
+      <div class="ramt"><b class="num muted">₪2,000.00</b></div>
+    </div>
+    <div style="display:flex;gap:12px;padding:0 0 6px 42px">
+      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Count in total</span>
     </div>
     <div class="rowline">
       <span class="avatar" style="background:var(--error-cont);color:var(--error)">V</span>
@@ -259,9 +288,10 @@ def home():
       <div class="ramt"><b class="num neg">−₪318.15</b></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <div class="btn ghost sm" style="flex:1">Cash income</div>
-      <div class="btn ghost sm" style="flex:1">Add credit card</div>
+      <div class="btn ghost sm" style="flex:1">+ Add cash balance</div>
+      <div class="btn ghost sm" style="flex:1">+ Add credit card</div>
     </div>
+    <div class="hint" style="margin-top:10px">Total available = main + cash counted in totals (converted) − card debt.</div>
   </section>
 
   <div class="sect"><h2>Recent</h2><a href="#">See all</a></div>
@@ -699,6 +729,106 @@ def delete_confirm():
     return page("Confirmations", body, tabs=tabbar("home"))
 
 
+def add_menu():
+    body = """
+<div class="topbar">
+  <div class="titles">
+    <div class="eyebrow">Tue, 21 Oct</div>
+    <h1>Spending</h1>
+  </div>
+  <span class="pill sel">Main · ₪</span>
+  <span class="roundbtn">${ICONS['plus']}</span>
+</div>
+<main class="content">
+  <section class="hero">
+    <div class="glow"></div>
+    <div class="eyebrow">Total balance</div>
+    <div class="amount num"><small>₪</small>12,480.25</div>
+    <div class="stats">
+      <div><span>This week</span><b class="num">₪1,284.50</b></div>
+      <div><span>This month</span><b class="num">₪4,912.80</b></div>
+    </div>
+    <div class="foot"><span class="tag">● Rates updated 3h ago</span><a class="adjust" href="#">Adjust</a></div>
+  </section>
+
+  <div class="addmenu">
+    <div class="btn primary" style="width:100%">Close</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <div class="btn primary" style="flex:1;transform:scale(1);animation:pop .22s ease-out">Expense</div>
+      <div class="btn ghost" style="flex:1;color:var(--income);animation:pop .22s .06s ease-out both">Income</div>
+      <div class="btn ghost" style="flex:1;animation:pop .22s .12s ease-out both">Withdraw</div>
+    </div>
+    <div class="hint" style="margin-top:8px">Moves money from main into a cash balance, converting it
+      automatically when that cash balance uses another currency.</div>
+  </div>
+
+  <section class="card">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <div class="eyebrow" style="flex:1">Total available</div>
+      <div class="num" style="font-size:15px;font-weight:700">₪12,980.10</div>
+    </div>
+    <div class="rowline" style="padding-top:12px">
+      <span class="avatar" style="background:var(--primary-cont);color:var(--primary-deep)">M</span>
+      <div style="min-width:0"><div class="rtitle">Main / debit</div><div class="rmeta">Everyday spending</div></div>
+      <div class="ramt"><b class="num">₪12,480.25</b></div>
+    </div>
+    <div class="rowline">
+      <span class="avatar" style="background:var(--amber-cont);color:var(--amber)">C</span>
+      <div style="min-width:0"><div class="rtitle">Cash</div><div class="rmeta">Cash · ILS · tap to edit</div></div>
+      <div class="ramt"><b class="num">₪820.00</b></div>
+    </div>
+    <div style="display:flex;gap:12px;padding:0 0 8px 42px">
+      <span class="txt sm">+ Income</span><span class="txt sm">Withdraw</span><span class="txt sm">Set aside</span>
+    </div>
+  </section>
+
+  <div style="background:var(--card);color:var(--ink2);border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;font-size:11.5px;line-height:17px">
+    <b style="color:var(--ink)">Pop-out menu.</b> The two fixed buttons became one <code>+ Add</code> that
+    expands with a staggered scale/fade (60 ms per option). Back closes it; on the 240 dp Qin
+    window the options stack full width so no label is clipped.
+  </div>
+</main>
+"""
+    return page("Add menu", body, tabs=tabbar("home"))
+
+
+def withdraw():
+    body = """
+<div class="scrim">
+  <div class="dialog">
+    <h2>Withdraw to cash</h2>
+    <div class="eyebrow">Main / debit</div>
+    <div class="num" style="font-size:16px;font-weight:700">₪12,480.25 available</div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+    <div class="eyebrow">To</div>
+    <div class="stack">
+      <div class="field" style="display:flex;align-items:center;gap:8px">
+        <span style="width:14px;height:14px;border-radius:50%;border:2px solid var(--primary);display:inline-block"></span>
+        <div class="val" style="flex:1">Cash (ILS)</div>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px">
+        <span style="width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line);display:inline-block"></span>
+        <div class="val" style="flex:1">Euro wallet (EUR)</div>
+      </div>
+    </div>
+    <div class="field"><div class="lbl">Amount (ILS)</div><div class="val num">400.00</div></div>
+    <div class="hint" style="color:var(--primary)">≈ €100.00 · 1 ILS = 0.25 EUR</div>
+    <div class="field"><div class="lbl">Note (optional)</div><div class="val muted">ATM before the trip</div></div>
+    <div class="hint">Converted at the cached rate when you confirm. This is a transfer, not
+      spending, so category totals are unchanged.</div>
+    <div class="dactions">
+      <span class="txt">Cancel</span>
+      <span class="btn primary">Withdraw</span>
+    </div>
+  </div>
+</div>
+<div class="badge-note"><b>Never a dead end.</b> With no cash balance yet the same dialog says so and
+  its confirm action becomes “Add cash balance”, which opens the create sheet — the dialog can
+  never show Cancel alone.</div>
+"""
+    return page("Withdraw to cash", body, tabs=tabbar("home"))
+
+
 # ---------------------------------------------------------------- GALLERY
 def gallery(files):
     swatches = [("#F7F5EF", "Background"), ("#FFFFFF", "Card"), ("#0F5132", "Forest primary"),
@@ -738,6 +868,8 @@ SCREENS = [
     ("settings", "Settings", "Accounts, appearance, backup/restore, rates and about.", settings),
     ("add-cash", "Add cash balance", "Dialog actions: Cancel and Create are both always rendered and reachable.", add_cash),
     ("dialogs", "Confirmations", "Destructive actions ask first: one-tap delete is now a two-step confirm.", delete_confirm),
+    ("add-menu", "Add menu", "One + Add opens Expense / Income / Withdraw with a staggered pop-out.", add_menu),
+    ("withdraw", "Withdraw to cash", "Main to cash with a live conversion preview and a way forward when no cash exists.", withdraw),
 ]
 
 def main():

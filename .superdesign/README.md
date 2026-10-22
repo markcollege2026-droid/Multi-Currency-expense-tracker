@@ -89,6 +89,30 @@ on 240dp), buttons gained `fillWidth`, and `AppDialogActionsTest` (Robolectric, 
 | History / Recurring / Loans / Loan edit | Confirmation dialogs before delete; settle/reopen confirmation |
 | Recurring empty state | Real call to action instead of a paragraph |
 
+## Feature pass: Add menu, withdrawals, multi-currency cash
+
+Ported from `arena/55d85c7d-multi-currency-expense-tracker` onto this design system. The
+feature set is the same; the presentation is rebuilt on the Ledger tokens, and three
+defects from that branch were corrected on the way in (see the last column).
+
+| Feature | Where it lives now | Notes / fixes vs. the source branch |
+|---|---|---|
+| One `+ Add` pop-out instead of two fixed buttons | `HomeScreen.AddMenu` + `PopOutOption` | Expense / Income / Withdraw arrive with a 60 ms stagger. Back closes the menu. On 240dp the options **stack** instead of a `Row` of `weight(1f)` buttons that squeezed labels. |
+| Withdraw main → cash | `WithdrawDialog`, `HomeViewModel.withdraw`, `FinanceRepository.withdraw` | Live conversion preview from the cached rate; main balance re-checked inside the transaction; the rate is normalised to 1 when both sides share a currency. |
+| No dead-end dialogs | `WithdrawDialog(onCreateCash = …)` | With no cash balance the confirm action becomes **Add cash balance** and opens the create sheet. Confirm is never the only invisible option (the original bug). |
+| Multiple cash balances per main | `BalanceAccountsPanel` | The single-cash assumption is gone from the panel, the repository and `validateRestoredLedger`. |
+| Cash in its own currency | `CreateAccountDialog` currency picker, `AddExpenseViewModel.selectPaymentAccount` | Cards stay in the main currency (they debit main at face value). Expenses paid from foreign cash convert into the cash currency, and Home stats convert back for week/month/category totals. |
+| Set a cash balance aside | `CashActions` + *Edit balance* toggle | Excluded from total available, never from its own ledger. |
+| Transfers in History | `TransactionsScreen.WithdrawalRow`, *Transfers* chip | Deletable — through the same `AppConfirmDialog` every other delete uses, not a one-tap icon. |
+| Backup / restore | `ExportImportManager` schema 5 | Withdrawals and `includedInTotal` round-trip; schema 1–4 still import. |
+| Database | `MIGRATION_4_5` | Adds `withdrawals` + `accounts.includedInTotal` with defaults; existing accounts become *counted in totals*. |
+
+Mockups: `add-menu_1.html` and `withdraw_1.html` (plus the updated `home_1.html`) show the
+final composition. Tests: `WithdrawAndAddMenuTest` (regular + 240×320dp), `AddMenu`
+reachability, `WithdrawDialogTest` (conversion, over-balance rejection, no-cash path,
+multi-destination), plus repository/domain tests for conversion, cascade delete, set-aside
+persistence and the "editing cannot retype money" guard.
+
 ## Constraints the design respects
 
 - **Two densities.** Regular phones/tablets and the Qin F21 Pro (240×320dp) share the

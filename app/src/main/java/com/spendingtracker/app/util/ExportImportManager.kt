@@ -21,12 +21,13 @@ import javax.inject.Singleton
 
 /**
  * JSON export/import schema. Version 3 adds [accounts] and [recurringPayments];
- * every added field has a default so files exported by older app versions
- * (schema 1/2) still import cleanly.
+ * version 5 adds [withdrawals] and per-account `includedInTotal`. Every added
+ * field has a default so files exported by older app versions (schema 1..4)
+ * still import cleanly.
  */
 @Serializable
 data class ExportData(
-    val schemaVersion: Int = 4,
+    val schemaVersion: Int = 5,
     val settings: ExportSettings? = null,
     val categories: List<ExportCategory> = emptyList(),
     val expenses: List<ExportExpense> = emptyList(),
@@ -36,7 +37,8 @@ data class ExportData(
     val repayments: List<ExportRepayment> = emptyList(),
     val accounts: List<ExportAccount> = emptyList(),
     val recurringPayments: List<ExportRecurringPayment> = emptyList(),
-    val creditCardPayments: List<com.spendingtracker.app.data.local.entity.CreditCardPayment> = emptyList()
+    val creditCardPayments: List<com.spendingtracker.app.data.local.entity.CreditCardPayment> = emptyList(),
+    val withdrawals: List<com.spendingtracker.app.data.local.entity.Withdrawal> = emptyList()
 )
 
 @Serializable
@@ -140,7 +142,8 @@ data class ExportAccount(
     val autopayDay: Int = 1,
     val autopayMode: String = "FULL_BALANCE",
     val autopayFixedAmount: String? = null,
-    val autopayStartDate: String? = null
+    val autopayStartDate: String? = null,
+    val includedInTotal: Boolean = true
 )
 
 @Serializable
@@ -191,6 +194,7 @@ class ExportImportManager @Inject constructor(
 
         val export = ExportData(
             creditCardPayments = financeRepository.getCardPayments(),
+            withdrawals = financeRepository.getWithdrawalsSync(),
             settings = settings?.let {
                 ExportSettings(
                     balanceCurrency = it.balanceCurrency,
@@ -260,7 +264,8 @@ class ExportImportManager @Inject constructor(
                     createdAt = it.createdAt,
                     type = it.type, parentAccountId = it.parentAccountId, creditLimit = it.creditLimit,
                     autopayEnabled = it.autopayEnabled, autopayDay = it.autopayDay, autopayMode = it.autopayMode,
-                    autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate
+                    autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate,
+                    includedInTotal = it.includedInTotal
                 )
             },
             recurringPayments = recurring.map {
@@ -295,7 +300,7 @@ class ExportImportManager @Inject constructor(
     suspend fun importAll(jsonString: String): Result<Unit> {
         return try {
             val data = json.decodeFromString<ExportData>(jsonString)
-            require(data.schemaVersion in 1..4) { "Unsupported backup version" }
+            require(data.schemaVersion in 1..5) { "Unsupported backup version" }
             require(data.accounts.all { it.id > 0 }) { "Invalid backup account ID" }
             financeRepository.atomic {
                 financeRepository.eraseAll()
@@ -328,7 +333,8 @@ class ExportImportManager @Inject constructor(
                             createdAt = if (it.createdAt == 0L) System.currentTimeMillis() else it.createdAt,
                             type = it.type, parentAccountId = it.parentAccountId, creditLimit = it.creditLimit,
                             autopayEnabled = it.autopayEnabled, autopayDay = it.autopayDay, autopayMode = it.autopayMode,
-                            autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate
+                            autopayFixedAmount = it.autopayFixedAmount, autopayStartDate = it.autopayStartDate,
+                            includedInTotal = it.includedInTotal
                         )
                     )
                 }
@@ -455,6 +461,13 @@ class ExportImportManager @Inject constructor(
                 }
 
                 data.creditCardPayments.forEach { financeRepository.restoreCardPayment(it) }
+                data.withdrawals.forEach { w ->
+                    // Skip rows whose accounts did not survive the import instead of
+                    // failing the whole restore.
+                    if (w.fromAccountId in validAccountIds && w.toAccountId in validAccountIds) {
+                        financeRepository.restoreWithdrawal(w)
+                    }
+                }
                 financeRepository.validateRestoredLedger()
             } // Transaction rolls back the entire replace-all import on any failure.
             Result.success(Unit)
@@ -482,6 +495,12 @@ class ExportImportManager @Inject constructor(
             val currency = accounts[it.sourceAccountId]?.currency ?: ""
             row("CARD_PAYMENT", it.id, it.amount, currency, it.amount, currency, "1", null, it.date,
                 "Credit card payment", "MAIN", it.sourceAccountId, it.cardId, it.status)
+        }
+        // Transfers between balances are exported too so a CSV tells the whole story.
+        financeRepository.getWithdrawalsSync().forEach {
+            row("WITHDRAWAL", it.id, it.amountFrom, it.currencyFrom, it.amountTo, it.currencyTo,
+                it.exchangeRate, null, it.date, it.note ?: "Withdrawal to cash", "MAIN",
+                it.fromAccountId, it.toAccountId, "COMPLETED")
         }
         output.toString()
     }

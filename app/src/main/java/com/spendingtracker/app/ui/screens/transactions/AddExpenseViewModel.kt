@@ -164,8 +164,13 @@ class AddExpenseViewModel @Inject constructor(
     }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun selectPaymentAccount(id: Long) {
-        val account = _uiState.value.paymentAccounts.first { it.id == id }
-        _uiState.update { it.copy(balanceAccountId = id, paymentMethod = account.type) }
+        val account = _uiState.value.paymentAccounts.firstOrNull { it.id == id } ?: return
+        // The expense must convert into the currency of the account that pays it:
+        // a cash balance can hold a different currency than main.
+        _uiState.update {
+            it.copy(balanceAccountId = id, paymentMethod = account.type, balanceCurrency = account.currency)
+        }
+        calculateConversion()
     }
     fun allowOverdraft(value: Boolean) { _uiState.update { it.copy(allowOverdraft = value) } }
     fun onManualRateChanged(v: String) { _uiState.value = _uiState.value.copy(manualRate = v); calculateConversion() }

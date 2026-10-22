@@ -45,6 +45,8 @@ data class HomeUiState(
     val balanceAccounts: List<Account> = emptyList(),
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
     val totalAvailable: BigDecimal = BigDecimal.ZERO,
+    /** Cash balances that count toward [totalAvailable], converted into [balanceCurrency]. */
+    val cashTotal: BigDecimal = BigDecimal.ZERO,
     val cardPayments: List<CreditCardPayment> = emptyList(),
     val message: String? = null
 )
@@ -74,7 +76,11 @@ class HomeViewModel @Inject constructor(
             financeRepository.ensureDefaultCategories()
             val accountAndList = combine(
                 financeRepository.observeActiveAccount(),
-                combine(financeRepository.observeBalanceAccounts(), financeRepository.observeCardPayments()) { accounts, payments -> accounts to payments }
+                combine(
+                    financeRepository.observeBalanceAccounts(),
+                    financeRepository.observeCardPayments(),
+                    financeRepository.observeWithdrawals()
+                ) { accounts, payments, withdrawals -> Triple(accounts, payments, withdrawals) }
             ) { active, ledger -> active to ledger }
 
             combine(
@@ -84,8 +90,8 @@ class HomeViewModel @Inject constructor(
                 financeRepository.getCategories(),
                 financeRepository.getSettings()
             ) { (account, ledger), allExpenses, allTopUps, categories, settings ->
-                val (accounts, payments) = ledger
-                val balances = AccountBalances.calculate(accounts, allExpenses, allTopUps, payments)
+                val (accounts, payments, withdrawals) = ledger
+                val balances = AccountBalances.calculate(accounts, allExpenses, allTopUps, payments, withdrawals)
                 val appSettings = settings ?: AppSettings()
                 val accountId = account?.id
                 val expenses = if (accountId == null) emptyList() else allExpenses.filter { it.accountId == accountId }
@@ -108,21 +114,35 @@ class HomeViewModel @Inject constructor(
                     lowBalanceNotified = false
                 }
 
+                // An expense paid from a foreign-currency cash account stores its
+                // amount in that cash currency; translate back into the main currency
+                // with cached rates so week/month/category stats still add up.
+                val ratesToMain: Map<String, BigDecimal> = expenses
+                    .map { it.currencyConverted }
+                    .distinct()
+                    .filter { it != balanceCurrency }
+                    .associateWith { cur -> rateRepository.getConversionRateOrFallback(cur, balanceCurrency) }
+                fun inMain(e: Expense): BigDecimal {
+                    val value = e.convertedAsBigDecimal()
+                    val rate = ratesToMain[e.currencyConverted] ?: return value
+                    return value.multiply(rate)
+                }
+
                 // Weekly and monthly
                 val now = System.currentTimeMillis()
                 val weekAgo = now - 7 * 24 * 60 * 60 * 1000L
                 val monthAgo = now - 30 * 24 * 60 * 60 * 1000L
 
                 val spentWeek = expenses.filter { it.date >= weekAgo }
-                    .fold(BigDecimal.ZERO) { acc, e -> acc + try { BigDecimal(e.amountConverted) } catch (ex: Exception) { BigDecimal.ZERO } }
+                    .fold(BigDecimal.ZERO) { acc, e -> acc + inMain(e) }
                 val spentMonth = expenses.filter { it.date >= monthAgo }
-                    .fold(BigDecimal.ZERO) { acc, e -> acc + try { BigDecimal(e.amountConverted) } catch (ex: Exception) { BigDecimal.ZERO } }
+                    .fold(BigDecimal.ZERO) { acc, e -> acc + inMain(e) }
 
                 // Top categories
                 val byCategory = expenses.groupBy { it.categoryId }
                     .map { (catId, list) ->
                         val cat = categories.find { it.id == catId }
-                        val total = list.fold(BigDecimal.ZERO) { acc, e -> acc + try { BigDecimal(e.amountConverted) } catch (ex: Exception) { BigDecimal.ZERO } }
+                        val total = list.fold(BigDecimal.ZERO) { acc, e -> acc + inMain(e) }
                         cat to total
                     }
                     .sortedByDescending { it.second }
@@ -141,13 +161,34 @@ class HomeViewModel @Inject constructor(
                     cal.set(Calendar.SECOND, 59)
                     val end = cal.timeInMillis
                     val dayTotal = expenses.filter { it.date in start..end }
-                        .fold(BigDecimal.ZERO) { acc, e -> acc + try { BigDecimal(e.amountConverted) } catch (ex: Exception) { BigDecimal.ZERO } }
+                        .fold(BigDecimal.ZERO) { acc, e -> acc + inMain(e) }
                     start to dayTotal
                 }.reversed()
 
                 val isStale = appSettings.lastRatesUpdate?.let {
                     System.currentTimeMillis() - it > Constants.RATE_REFRESH_INTERVAL_HOURS * 60 * 60 * 1000L * 2
                 } ?: true
+
+                // Available money in the main currency: main + child balances. Cash
+                // explicitly set aside is excluded; foreign-currency cash is converted
+                // with cached rates so mixed-currency totals stay meaningful.
+                val childAccounts = if (accountId == null) emptyList() else accounts.filter { it.parentAccountId == accountId }
+                val includedChildren = childAccounts.filter { it.type != "CASH" || it.includedInTotal }
+                val childRates: Map<String, BigDecimal> = includedChildren
+                    .map { it.currency }
+                    .distinct()
+                    .filter { it != balanceCurrency }
+                    .associateWith { cur -> rateRepository.getConversionRateOrFallback(cur, balanceCurrency) }
+                fun inBalanceCurrency(amount: BigDecimal, currency: String): BigDecimal =
+                    if (currency == balanceCurrency) amount
+                    else amount.multiply(childRates[currency] ?: BigDecimal.ONE)
+                val cashChildren = includedChildren.filter { it.type == "CASH" }
+                val cashTotal = cashChildren.fold(BigDecimal.ZERO) { sum, a ->
+                    sum + inBalanceCurrency(balances[a.id] ?: BigDecimal.ZERO, a.currency)
+                }
+                val totalAvailable = mainBalance + includedChildren.fold(BigDecimal.ZERO) { sum, a ->
+                    sum + inBalanceCurrency(balances[a.id] ?: BigDecimal.ZERO, a.currency)
+                }
 
                 HomeUiState(
                     balance = mainBalance,
@@ -169,7 +210,8 @@ class HomeViewModel @Inject constructor(
                     activeAccount = account,
                     balanceAccounts = accounts.filter { it.parentAccountId == accountId },
                     accountBalances = balances,
-                    totalAvailable = accounts.filter { it.id == accountId || it.parentAccountId == accountId }.fold(BigDecimal.ZERO) { sum, a -> sum + (balances[a.id] ?: BigDecimal.ZERO) },
+                    totalAvailable = totalAvailable,
+                    cashTotal = cashTotal,
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     message = _uiState.value.message
                 )
@@ -200,8 +242,15 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun createBalanceAccount(name: String, type: String, opening: String) = action {
-        financeRepository.createBalanceAccount(financeRepository.getActiveAccountId(), name, type, BigDecimal(opening))
+    fun createBalanceAccount(name: String, type: String, opening: String, currency: String = "") = action {
+        financeRepository.createBalanceAccount(
+            financeRepository.getActiveAccountId(),
+            name,
+            type,
+            BigDecimal(opening),
+            currency.ifBlank { null }
+        )
+        _uiState.update { it.copy(message = "$name added") }
     }
     fun fundCash(cashId: Long, amount: String) = action {
         val value = BigDecimal(amount)
@@ -219,9 +268,49 @@ class HomeViewModel @Inject constructor(
     fun configureAutopay(card: Account) = action { financeRepository.configureAutopay(card); runAutopay() }
     /** Renames a balance account or changes its warning threshold / credit limit. */
     fun updateBalanceAccount(account: Account) = action {
-        financeRepository.updateAccount(account)
+        financeRepository.updateBalanceAccountFields(account)
         _uiState.update { it.copy(message = "${account.name} updated") }
     }
+
+    /** Marks a cash balance as set aside (excluded from totals) or counted again. */
+    fun setCashIncluded(cash: Account, included: Boolean) = action {
+        financeRepository.updateBalanceAccountFields(cash.copy(includedInTotal = included))
+        _uiState.update {
+            it.copy(
+                message = if (included) "${cash.name} counted in totals"
+                else "${cash.name} set aside - excluded from totals"
+            )
+        }
+    }
+
+    /**
+     * Withdraws from the active main balance into [toCashId], converting into the
+     * cash account's currency with the cached/fallback rate. The repository
+     * re-checks the main balance, so the UI can never overdraw main.
+     */
+    fun withdraw(toCashId: Long, amount: String, note: String? = null) = action {
+        val value = amount.trim().replace(',', '.').toBigDecimalOrNull()
+            ?: error("Enter a positive amount")
+        require(value > BigDecimal.ZERO) { "Enter a positive amount" }
+        val main = financeRepository.getAccountById(financeRepository.getActiveAccountId())
+            ?: error("Main account not found")
+        val cash = financeRepository.getAccountById(toCashId) ?: error("Cash account not found")
+        require(cash.type == "CASH" && cash.parentAccountId == main.id) { "Choose a cash account of this balance" }
+        val rate = rateRepository.getConversionRateOrFallback(main.currency, cash.currency)
+        val withdrawal = financeRepository.withdraw(main.id, cash.id, value, rate, note)
+        _uiState.update {
+            it.copy(
+                message = "Withdrew " +
+                    CurrencyFormatter.formatSimple(withdrawal.amountFromAsBigDecimal(), withdrawal.currencyFrom) +
+                    " to ${cash.name} · " +
+                    CurrencyFormatter.formatSimple(withdrawal.amountToAsBigDecimal(), withdrawal.currencyTo)
+            )
+        }
+    }
+
+    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
+        rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
     /** Removes a cash or card balance together with its own transactions. */
     fun deleteBalanceAccount(account: Account) = action {
         financeRepository.deleteAccountCascade(account)

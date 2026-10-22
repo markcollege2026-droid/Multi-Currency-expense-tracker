@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.CreditCardPayment
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.TopUp
+import com.spendingtracker.app.data.local.entity.Withdrawal
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppAvatar
@@ -75,6 +76,7 @@ fun TransactionsScreen(
     val grouped = remember(
         uiState.filteredExpenses,
         uiState.filteredTopUps,
+        uiState.filteredWithdrawals,
         uiState.cardPayments,
         uiState.selectedType,
         uiState.searchQuery,
@@ -87,6 +89,7 @@ fun TransactionsScreen(
         (
             uiState.filteredExpenses.map { it.date to it } +
                 uiState.filteredTopUps.map { it.date to it } +
+                uiState.filteredWithdrawals.map { it.date to it } +
                 uiState.cardPayments.filter {
                     (uiState.selectedType == null || uiState.selectedType == "CARD_PAYMENT") &&
                         uiState.selectedCategoryId == null &&
@@ -168,6 +171,11 @@ fun TransactionsScreen(
                         onClick = { viewModel.onTypeSelected("CARD_PAYMENT") },
                         label = "Card pmts"
                     )
+                    AppFilterChip(
+                        selected = uiState.selectedType == "WITHDRAWAL",
+                        onClick = { viewModel.onTypeSelected("WITHDRAWAL") },
+                        label = "Transfers"
+                    )
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -221,7 +229,8 @@ fun TransactionsScreen(
                     }
                 }
 
-                val shownCount = uiState.filteredExpenses.size + uiState.filteredTopUps.size
+                val shownCount = uiState.filteredExpenses.size + uiState.filteredTopUps.size +
+                    uiState.filteredWithdrawals.size
                 if (shownCount > 0) {
                     Text(
                         text = "$shownCount entries · spent " +
@@ -272,7 +281,9 @@ fun TransactionsScreen(
                                     )
                                     is Expense -> ExpenseRow(
                                         expense = item,
-                                        currency = uiState.balanceCurrency,
+                                        // An expense paid from a foreign cash balance is stored
+                                        // in that cash currency.
+                                        currency = item.currencyConverted,
                                         onEdit = { onEditExpense(item.id) },
                                         onDelete = {
                                             pendingDelete = "This expense of " +
@@ -283,13 +294,32 @@ fun TransactionsScreen(
                                     )
                                     is TopUp -> TopUpRow(
                                         topUp = item,
-                                        currency = uiState.balanceCurrency,
+                                        // Cash income is stored in the cash account's currency.
+                                        currency = uiState.accountsById[item.accountId]?.currency
+                                            ?: uiState.balanceCurrency,
                                         onEdit = { onEditTopUp(item.id) },
                                         onDelete = {
                                             pendingDelete = "This income of " +
-                                                CurrencyFormatter.format(item.amountAsBigDecimal(), uiState.balanceCurrency) +
+                                                CurrencyFormatter.format(
+                                                    item.amountAsBigDecimal(),
+                                                    uiState.accountsById[item.accountId]?.currency
+                                                        ?: uiState.balanceCurrency
+                                                ) +
                                                 " will be removed and the balance reduced." to
                                                 { viewModel.deleteTopUp(item) }
+                                        }
+                                    )
+                                    is Withdrawal -> WithdrawalRow(
+                                        withdrawal = item,
+                                        toName = uiState.accountsById[item.toAccountId]?.name,
+                                        onDelete = {
+                                            pendingDelete = "This transfer of " +
+                                                CurrencyFormatter.format(
+                                                    item.amountFromAsBigDecimal(),
+                                                    item.currencyFrom
+                                                ) + " returns to main and is removed from " +
+                                                (uiState.accountsById[item.toAccountId]?.name ?: "the cash balance") +
+                                                "." to { viewModel.deleteWithdrawal(item) }
                                         }
                                     )
                                 }
@@ -453,6 +483,62 @@ private fun TopUpRow(
             contentDescription = "Delete top-up",
             modifier = Modifier.size(32.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun WithdrawalRow(
+    withdrawal: Withdrawal,
+    toName: String?,
+    onDelete: () -> Unit
+) {
+    val compact = LocalCompactUi.current
+    val palette = LocalAppPalette.current
+    TransactionCard {
+        AppAvatar(
+            text = "→",
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            size = if (compact) 30.dp else 34.dp
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "-" + CurrencyFormatter.formatSimple(
+                        withdrawal.amountFromAsBigDecimal(),
+                        withdrawal.currencyFrom
+                    ) + (if (withdrawal.isSameCurrency()) " → +" else " ≈ +") +
+                        CurrencyFormatter.formatSimple(withdrawal.amountToAsBigDecimal(), withdrawal.currencyTo),
+                    style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(withdrawal.date)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Transfer · main → " + (toName ?: "cash") +
+                    (if (!withdrawal.note.isNullOrBlank()) " · " + withdrawal.note else ""),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        AppIconButton(
+            onClick = onDelete,
+            icon = Icons.Default.Delete,
+            contentDescription = "Delete transfer",
+            modifier = Modifier.size(32.dp),
+            tint = palette.expense.copy(alpha = 0.75f)
         )
     }
 }

@@ -27,26 +27,30 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.8.1 — file backups, encryption and multiple balances
+## Current release: 1.9.0 — one Add menu, withdrawals and multi-currency cash
 
 See [release notes and migrations](RELEASE_NOTES.md) and the [codebase review](CODEBASE_REVIEW.md).
 
 **File backups:** Settings → Data → Backup files lets you choose a save folder for JSON backups, CSV reports, or password-encrypted `.stbk` backups. Restore accepts JSON or `.stbk` and prompts before replacing existing data. Encryption uses built-in AES-128-GCM with PBKDF2-HMAC-SHA256; no extra library. Remember your password—there is no recovery. CSV reports cannot be restored.
 
-Each existing account is a main/debit ledger with an optional cash sub-account and any number of credit cards. Home → **Set up cash balance / Add credit card** sets opening amounts; these do not transfer funds from main. **Add cash income** records external cash income. The expense form selects the exact payment account. Main/debit remains the default for income and expenses.
+Each existing account is a main/debit ledger with **any number of cash balances** and any number of credit cards. Home → **+ Add** opens one pop-out menu with **Expense**, **Income** and **Withdraw**; Home → **Add cash balance / Add credit card** sets opening amounts, which do not transfer funds from main. **Add cash income** records external cash income. The expense form selects the exact payment account. Main/debit remains the default for income and expenses.
+
+A cash balance may use a **different currency** from main. **Withdraw** moves money from main into any cash balance and converts it at the cached rate (1 ILS = 0.25 EUR, say), storing both sides — the main side in its currency, the cash side in the cash currency. Withdrawals are transfers: they never count as spending or income, they appear in History under **Transfers**, and deleting one returns the money to main.
+
+Each cash balance can be **set aside**, so its money is excluded from *total available* without deleting it (for savings you do not want counted as spendable). Foreign-currency cash and cards are converted into the main currency when totals are summed, and Home's week/month/category stats convert expenses paid from foreign cash back into the main currency.
 
 All balances are derived by `AccountBalances` from immutable amounts and payment records:
 
 - Main = opening + main income − main expenses − completed card payments.
-- Cash = opening + cash income − cash expenses.
+- Cash (per balance) = opening + cash income − cash expenses + withdrawals in − withdrawals out, in that balance's own currency.
 - Card signed balance = opening signed balance − card expenses + completed payments (debt is negative).
-- Total available = main + cash + signed card balances.
+- Total available = main + cash balances not set aside (converted to main currency) + signed card balances.
 
 Card payments are separate history entries and do not inflate category spending. Autopay is a **local ledger operation, not a bank transfer**, checked hourly by WorkManager and when Home opens; Android may defer execution. Failed attempts leave balances unchanged and provide retry/partial-payment/ignore controls. Fixed autopay is capped at debt; manual overpayment and cash overdraft require explicit consent.
 
-Historical payment labels are not reinterpreted during migration, so existing balances stay unchanged. JSON backup format 4 includes the new data and still accepts older backups. Existing ledger currencies are fixed: create another account instead of rewriting mixed-currency history.
+Historical payment labels are not reinterpreted during migration, so existing balances stay unchanged. JSON backup format 5 includes withdrawals and the set-aside flag and still accepts older backups (schema 1–4). Existing ledger currencies are fixed: create another balance instead of rewriting mixed-currency history. Database version 5 adds the `withdrawals` table and `accounts.includedInTotal` through an explicit migration.
 
-GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.8.0. An explicitly marked `[release]` push publishes v1.8.1 only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
+GitHub Actions runs unit tests (including real Room/Robolectric repository and migration tests), lint, debug/release APK and AAB builds. It verifies upgrade identifiers and the release signing certificate against v1.8.0. An explicitly marked `[release]` push publishes the release only after successful verification; the manual Release APKs workflow is also available to users with workflow-dispatch permission. The Gradle wrapper never falls back to stub APKs or simulated test success.
 
 ## Features (earlier releases)
 

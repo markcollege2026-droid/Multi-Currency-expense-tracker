@@ -167,8 +167,12 @@ fun AddExpenseContent(
     val selectedAccount = state.paymentAccounts.firstOrNull {
         it.id == (state.balanceAccountId ?: state.accountId)
     }
+    // The paying account can be a cash balance in another currency; show it so the
+    // resulting conversion is not a surprise.
+    val mainCurrency = state.paymentAccounts.firstOrNull { it.id == state.accountId }?.currency
     val accountLabel = selectedAccount?.let {
-        "${it.name} · ${it.type.replace('_', ' ').lowercase(Locale.getDefault())}"
+        "${it.name} · ${it.type.replace('_', ' ').lowercase(Locale.getDefault())}" +
+            if (mainCurrency != null && it.currency != mainCurrency) " · ${it.currency}" else ""
     } ?: "Main"
     val category = state.categories.firstOrNull { it.id == state.categoryId }
 

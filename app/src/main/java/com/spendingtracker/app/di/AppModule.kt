@@ -122,8 +122,35 @@ object AppModule {
         }
     }
 
+    /**
+     * v5: cash balances may hold their own currency, be "set aside" (excluded
+     * from totals) and money can be withdrawn from main into any of them.
+     */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE accounts ADD COLUMN includedInTotal INTEGER NOT NULL DEFAULT 1")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `withdrawals` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`fromAccountId` INTEGER NOT NULL, " +
+                    "`toAccountId` INTEGER NOT NULL, " +
+                    "`amountFrom` TEXT NOT NULL, " +
+                    "`amountTo` TEXT NOT NULL, " +
+                    "`currencyFrom` TEXT NOT NULL, " +
+                    "`currencyTo` TEXT NOT NULL, " +
+                    "`exchangeRate` TEXT NOT NULL, " +
+                    "`date` INTEGER NOT NULL, " +
+                    "`note` TEXT, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+        }
+    }
+
     @Provides
     fun provideCreditCardPaymentDao(db: AppDatabase) = db.creditCardPaymentDao()
+
+    @Provides
+    fun provideWithdrawalDao(db: AppDatabase) = db.withdrawalDao()
 
     @Provides
     @Singleton
@@ -133,7 +160,7 @@ object AppModule {
             AppDatabase::class.java,
             Constants.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
     }
 

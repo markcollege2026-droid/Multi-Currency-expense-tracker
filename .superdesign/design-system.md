@@ -198,6 +198,16 @@ consumes the line and later children measure at 0dp, which silently removes the 
 button. A dialog always offers a way forward **and** a way out; destructive confirms use
 the error colour *and* a verb label ("Delete expense").
 
+*Transfers are not spending.* A withdrawal between balances keeps the category totals
+untouched, so it gets a neutral accent and an arrow amount ("−₪400.00 ≈ +€100.00") rather
+than the expense/income colours. When a cash balance is *set aside* it is dimmed to the
+muted ink and says so in its meta line, so nobody wonders why the totals do not add up.
+
+*One Add control.* Adding is a single `+ Add` that expands into Expense / Income /
+Withdraw with a 60 ms stagger (220 ms scale + 180 ms fade). It collapses on Back and on
+choosing an option; on the 240dp window the three options stack so no label truncates.
+Never ship three equal-weight buttons in one row below 300dp.
+
 **Confirmations** — anything that rewrites the ledger asks first with a one-line
 consequence: deleting a transaction, income, loan, repayment, recurring payment, cash or
 card balance. Non-destructive state changes ("Mark settled") confirm too, because they

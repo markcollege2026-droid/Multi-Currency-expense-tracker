@@ -16,7 +16,7 @@ import javax.inject.Singleton
 
 data class TransactionItem(
     val id: Long,
-    val type: String, // "EXPENSE" or "TOPUP"
+    val type: String, // "EXPENSE", "TOPUP", "CARD_PAYMENT" or "WITHDRAWAL"
     val amountOriginal: BigDecimal,
     val currencyOriginal: String,
     val amountConverted: BigDecimal,
@@ -37,6 +37,7 @@ class FinanceRepository @Inject constructor(
     private val accountDao: AccountDao,
     private val recurringPaymentDao: RecurringPaymentDao,
     private val paymentDao: CreditCardPaymentDao,
+    private val withdrawalDao: WithdrawalDao,
     private val database: AppDatabase
 ) {
     // ---- Accounts ----
@@ -68,11 +69,13 @@ class FinanceRepository @Inject constructor(
         accountDao.getAllAccountsSync().filter { it.parentAccountId == account.id }.forEach { child ->
             paymentDao.deleteForAccount(child.id)
             topUpDao.deleteForAccount(child.id)
+            withdrawalDao.deleteInvolving(child.id)
             accountDao.deleteAccount(child)
         }
         paymentDao.deleteForAccount(account.id)
         recurringPaymentDao.deleteForAccount(account.id)
         topUpDao.deleteForAccount(account.id)
+        withdrawalDao.deleteInvolving(account.id)
         expenseDao.deleteForAccount(account.id)
         accountDao.deleteAccount(account)
     }
@@ -96,8 +99,9 @@ class FinanceRepository @Inject constructor(
             expenseDao.getAllExpenses(),
             topUpDao.getAllTopUps(),
             accountDao.getAllAccounts(),
-            paymentDao.observeAll()
-        ) { expenses, topups, accounts, payments ->
+            paymentDao.observeAll(),
+            withdrawalDao.observeAll()
+        ) { expenses, topups, accounts, payments, withdrawals ->
             val currencyByAccount = accounts.associate { it.id to it.currency }
             val expenseItems = expenses.map {
                 TransactionItem(
@@ -136,7 +140,22 @@ class FinanceRepository @Inject constructor(
                 TransactionItem(it.id, "CARD_PAYMENT", BigDecimal(it.amount), currency, BigDecimal(it.amount), currency,
                     null, null, it.date, "Credit card payment · ${it.status}", "MAIN")
             }
-            (expenseItems + topUpItems + paymentItems).sortedByDescending { it.date }
+            val withdrawalItems = withdrawals.map {
+                TransactionItem(
+                    id = it.id,
+                    type = "WITHDRAWAL",
+                    amountOriginal = it.amountFromAsBigDecimal(),
+                    currencyOriginal = it.currencyFrom,
+                    amountConverted = it.amountToAsBigDecimal(),
+                    currencyConverted = it.currencyTo,
+                    rateUsed = it.rateAsBigDecimal(),
+                    categoryId = null,
+                    date = it.date,
+                    note = it.note ?: "Withdrawal to cash",
+                    paymentMethod = "MAIN"
+                )
+            }
+            (expenseItems + topUpItems + paymentItems + withdrawalItems).sortedByDescending { it.date }
         }
     }
 
@@ -166,6 +185,62 @@ class FinanceRepository @Inject constructor(
     suspend fun deleteTopUp(topUp: TopUp) = topUpDao.deleteTopUp(topUp)
     suspend fun getTopUpById(id: Long): TopUp? = topUpDao.getTopUpById(id)
 
+    // ---- Withdrawals (main -> cash, converted when currencies differ) ----
+    fun observeWithdrawals(): Flow<List<Withdrawal>> = withdrawalDao.observeAll()
+    suspend fun getWithdrawalsSync(): List<Withdrawal> = withdrawalDao.getAllSync()
+
+    /** Deleting a withdrawal returns the money to main and removes it from the cash balance. */
+    suspend fun deleteWithdrawal(withdrawal: Withdrawal) = withdrawalDao.delete(withdrawal)
+
+    suspend fun restoreWithdrawal(withdrawal: Withdrawal): Long = withdrawalDao.insert(withdrawal)
+
+    /**
+     * Moves money from a main balance into one of its cash accounts. [rate] is
+     * 1 [from] unit expressed in the cash account's currency; when the currencies
+     * match the ratio is stored as 1 and the amount moves unchanged.
+     *
+     * The main balance is checked inside the transaction, so a withdrawal can
+     * never overdraw main - the same rule cash expenses follow.
+     */
+    suspend fun withdraw(
+        fromAccountId: Long,
+        toAccountId: Long,
+        amountFrom: BigDecimal,
+        rate: BigDecimal,
+        note: String? = null
+    ): Withdrawal = database.withTransaction {
+        require(amountFrom > BigDecimal.ZERO) { "Amount must be positive" }
+        require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
+        val from = accountDao.getAccountById(fromAccountId) ?: error("Source account not found")
+        val to = accountDao.getAccountById(toAccountId) ?: error("Cash account not found")
+        require(from.type == "MAIN") { "Withdrawals start from a main balance" }
+        require(to.type == "CASH" && to.parentAccountId == from.id) { "Withdrawals go to a cash account of the same balance" }
+        require(from.id != to.id) { "Source and cash account must differ" }
+
+        val available = balances()[from.id] ?: BigDecimal.ZERO
+        require(amountFrom <= available) {
+            "Insufficient ${from.currency} balance for this withdrawal (available ${available.toPlainString()})"
+        }
+        val sameCurrency = from.currency == to.currency
+        val amountTo = if (sameCurrency) amountFrom
+        else amountFrom.multiply(rate).setScale(2, java.math.RoundingMode.HALF_EVEN)
+        require(amountTo > BigDecimal.ZERO) { "Converted amount is too small" }
+
+        val withdrawal = Withdrawal(
+            fromAccountId = from.id,
+            toAccountId = to.id,
+            amountFrom = amountFrom.toPlainString(),
+            amountTo = amountTo.toPlainString(),
+            currencyFrom = from.currency,
+            currencyTo = to.currency,
+            exchangeRate = if (sameCurrency) BigDecimal.ONE.toPlainString() else rate.toPlainString(),
+            date = System.currentTimeMillis(),
+            note = note
+        )
+        withdrawalDao.insert(withdrawal)
+        withdrawal
+    }
+
     suspend fun insertCategory(category: Category): Long = categoryDao.insertCategory(category)
     suspend fun updateCategory(category: Category) = categoryDao.updateCategory(category)
 
@@ -190,6 +265,7 @@ class FinanceRepository @Inject constructor(
         recurringPaymentDao.deleteAll()
         expenseDao.deleteAll()
         topUpDao.deleteAll()
+        withdrawalDao.deleteAll()
         accountDao.getAllAccountsSync().forEach { accountDao.deleteAccount(it) }
         // Keep settings structure but reset; categories are kept (defaults)
         settingsDao.deleteAll()
@@ -213,9 +289,11 @@ class FinanceRepository @Inject constructor(
             if (account.type == "MAIN") require(account.parentAccountId == null)
             else {
                 val parent = byId[account.parentAccountId] ?: error("Missing balance parent")
-                require(parent.type == "MAIN" && parent.currency == account.currency) { "Invalid balance parent/currency" }
+                require(parent.type == "MAIN") { "Invalid balance parent" }
+                // Cards debit main at face value so they must share its currency;
+                // cash may live in another currency (withdrawals convert).
+                if (account.type == "CREDIT_CARD") require(parent.currency == account.currency) { "Invalid balance currency" }
             }
-            if (account.type == "CASH") require(accounts.count { it.type == "CASH" && it.parentAccountId == account.parentAccountId } == 1)
             require(account.autopayDay in 1..31 && account.autopayMode in listOf("FULL_BALANCE", "FIXED_AMOUNT"))
             if (account.autopayEnabled && account.autopayMode == "FIXED_AMOUNT") require(BigDecimal(account.autopayFixedAmount ?: "0") > BigDecimal.ZERO)
             account.autopayStartDate?.let { LocalDate.parse(it) }
@@ -228,6 +306,17 @@ class FinanceRepository @Inject constructor(
             require(expense.originalAsBigDecimal() > BigDecimal.ZERO && expense.convertedAsBigDecimal() >= BigDecimal.ZERO && expense.rateAsBigDecimal() > BigDecimal.ZERO)
         }
         topUpDao.getAllTopUpsSync().forEach { validateIncome(it) }
+        for (withdrawal in withdrawalDao.getAllSync()) {
+            val from = byId[withdrawal.fromAccountId] ?: error("Missing withdrawal source")
+            val to = byId[withdrawal.toAccountId] ?: error("Missing withdrawal target")
+            require(from.type == "MAIN" && to.type == "CASH" && to.parentAccountId == from.id) { "Invalid withdrawal accounts" }
+            require(withdrawal.currencyFrom == from.currency && withdrawal.currencyTo == to.currency) { "Invalid withdrawal currency" }
+            require(
+                withdrawal.amountFromAsBigDecimal() > BigDecimal.ZERO &&
+                    withdrawal.amountToAsBigDecimal() >= BigDecimal.ZERO &&
+                    withdrawal.rateAsBigDecimal() > BigDecimal.ZERO
+            ) { "Invalid withdrawal amounts" }
+        }
         for (payment in paymentDao.getAll()) {
             val card = byId[payment.cardId] ?: error("Missing card")
             require(card.type == "CREDIT_CARD" && card.parentAccountId == payment.sourceAccountId && byId[payment.sourceAccountId]?.type == "MAIN") { "Invalid payment accounts" }
@@ -242,7 +331,8 @@ class FinanceRepository @Inject constructor(
     suspend fun restoreCardPayment(payment: CreditCardPayment) = paymentDao.insert(payment)
 
     suspend fun balances(): Map<Long, BigDecimal> = AccountBalances.calculate(
-        accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync(), topUpDao.getAllTopUpsSync(), paymentDao.getAll())
+        accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync(), topUpDao.getAllTopUpsSync(),
+        paymentDao.getAll(), withdrawalDao.getAllSync())
 
     private suspend fun validateExpense(expense: Expense, allowOverdraft: Boolean) {
         require(expense.originalAsBigDecimal() > BigDecimal.ZERO && expense.convertedAsBigDecimal() > BigDecimal.ZERO && expense.rateAsBigDecimal() > BigDecimal.ZERO) { "Amount and exchange rate must be positive" }
@@ -251,18 +341,67 @@ class FinanceRepository @Inject constructor(
         require(target.id == main.id || target.parentAccountId == main.id) { "Payment account belongs to another account" }
         require(target.currency == expense.currencyConverted) { "Payment currency mismatch" }
         if (target.type == "CASH" && !allowOverdraft) {
-            val remaining = AccountBalances.calculate(accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync().filter { it.id != expense.id }, topUpDao.getAllTopUpsSync(), paymentDao.getAll())[target.id] ?: BigDecimal.ZERO
+            val remaining = AccountBalances.calculate(
+                accountDao.getAllAccountsSync(),
+                expenseDao.getAllExpensesSync().filter { it.id != expense.id },
+                topUpDao.getAllTopUpsSync(),
+                paymentDao.getAll(),
+                withdrawalDao.getAllSync()
+            )[target.id] ?: BigDecimal.ZERO
             require(expense.convertedAsBigDecimal() <= remaining) { "Insufficient cash. Explicitly allow overdraft to continue." }
         }
     }
 
-    suspend fun createBalanceAccount(mainId: Long, name: String, type: String, opening: BigDecimal): Long = database.withTransaction {
+    /**
+     * Creates a CASH or CREDIT_CARD child of [mainId]. Cash accounts may declare
+     * their own [currency] - withdrawals into them convert automatically - and a
+     * main balance may own any number of them. Credit cards always stay in the
+     * main currency because card payments debit main at face value.
+     */
+    suspend fun createBalanceAccount(
+        mainId: Long,
+        name: String,
+        type: String,
+        opening: BigDecimal,
+        currency: String? = null
+    ): Long = database.withTransaction {
         val main = accountDao.getAccountById(mainId) ?: error("Main account not found")
         require(main.type == "MAIN" && type in listOf("CASH", "CREDIT_CARD") && name.isNotBlank())
         require(opening >= BigDecimal.ZERO) { "Opening amount must not be negative" }
-        require(type != "CASH" || accountDao.getAllAccountsSync().none { it.parentAccountId == mainId && it.type == "CASH" }) { "Cash account already exists" }
-        accountDao.insertAccount(Account(name = name.trim(), currency = main.currency,
-            startingBalance = (if (type == "CREDIT_CARD") opening.negate() else opening).toPlainString(), type = type, parentAccountId = mainId))
+        val requested = currency?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val accountCurrency = when (type) {
+            "CASH" -> requested ?: main.currency
+            else -> main.currency
+        }
+        require(type != "CREDIT_CARD" || accountCurrency == main.currency) { "Cards must use the main currency" }
+        accountDao.insertAccount(Account(
+            name = name.trim(),
+            currency = accountCurrency,
+            startingBalance = (if (type == "CREDIT_CARD") opening.negate() else opening).toPlainString(),
+            type = type,
+            parentAccountId = mainId
+        ))
+    }
+
+    /**
+     * Updates an existing balance. Currency and parent are immutable - changing
+     * them would silently re-value historical rows - so only editable fields are
+     * copied onto the stored account.
+     */
+    suspend fun updateBalanceAccountFields(account: Account) = database.withTransaction {
+        val saved = accountDao.getAccountById(account.id) ?: error("Balance not found")
+        require(account.name.isNotBlank()) { "Name is required" }
+        require(account.lowBalanceThreshold == null || BigDecimal(account.lowBalanceThreshold) >= BigDecimal.ZERO) { "Threshold must not be negative" }
+        require(account.type != "CREDIT_CARD" || account.creditLimit == null || BigDecimal(account.creditLimit) >= BigDecimal.ZERO) { "Credit limit must not be negative" }
+        accountDao.updateAccount(
+            saved.copy(
+                name = account.name.trim(),
+                lowBalanceThreshold = account.lowBalanceThreshold,
+                creditLimit = if (saved.type == "CREDIT_CARD") account.creditLimit else saved.creditLimit,
+                // Only cash balances can be set aside.
+                includedInTotal = if (saved.type == "CASH") account.includedInTotal else true
+            )
+        )
     }
 
     suspend fun configureAutopay(card: Account) {
