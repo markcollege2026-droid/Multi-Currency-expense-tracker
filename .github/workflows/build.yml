@@ -47,13 +47,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/verify_upgrade.sh
+      # The tag used to be hardcoded, so any later [release] push would overwrite
+      # v1.8.1. Read it from the module instead.
+      - name: Read app version
+        id: appver
+        run: |
+          version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - name: Publish requested release
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.8.1
+          tag_name: ${{ steps.appver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Spending Tracker v1.8.1 — File Backups & Encryption
+          name: Spending Tracker v${{ steps.appver.outputs.version }} — One Add menu, deposits and cash transfers
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |
