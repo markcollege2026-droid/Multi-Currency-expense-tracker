@@ -90,8 +90,11 @@ class FinanceRepositoryTest {
         assertTrue(repository.getWithdrawalsSync().isEmpty())
         money("1000", mainId)
     }
-    @Test fun deletingAWithdrawalReturnsMoneyToMain() = runBlocking {
+    @Test fun withdrawReturnsTheStoredRowSoItCanBeDeleted() = runBlocking {
         val w = repository.withdraw(mainId, cashId, BigDecimal("40"), BigDecimal.ONE)
+        // @Insert does not mutate its argument, so the returned row must carry the id.
+        assertTrue("withdraw() returned an unsaved row", w.id > 0)
+        assertEquals(w.id, repository.getWithdrawalsSync().single().id)
         repository.deleteWithdrawal(w)
         money("1000", mainId); money("100", cashId)
     }

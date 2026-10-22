@@ -237,8 +237,8 @@ class FinanceRepository @Inject constructor(
             date = System.currentTimeMillis(),
             note = note
         )
-        withdrawalDao.insert(withdrawal)
-        withdrawal
+        // Return the stored row (with its generated id) so callers can delete it.
+        withdrawal.copy(id = withdrawalDao.insert(withdrawal))
     }
 
     suspend fun insertCategory(category: Category): Long = categoryDao.insertCategory(category)

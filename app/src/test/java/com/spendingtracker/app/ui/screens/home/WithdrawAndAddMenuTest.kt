@@ -1,13 +1,13 @@
 package com.spendingtracker.app.ui.screens.home
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextReplacement
 import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.ui.theme.SpendingTrackerTheme
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -21,12 +21,164 @@ import java.math.BigDecimal
  * single pop-out Add menu and added withdrawals from main into cash balances.
  *
  * These are reachability tests, not styling tests: the reported defect was a
- * dialog that only offered Cancel, so every assertion checks that an action is
- * displayed and that clicking it does something.
- *
- * The Add menu is exercised on both a regular phone window and the 240x320dp
- * Qin window; the dialogs are exercised on the roomy window only.
+ * dialog that only offered Cancel, so every assertion checks that an action
+ * exists and that using it does something.
  */
+
+/** Validation rules of the withdraw form, with no Compose window involved. */
+class WithdrawFormTest {
+
+    @Test
+    fun validAmountCanBeConfirmed() {
+        val form = withdrawFormState("100", BigDecimal("1000"), hasTarget = true)
+        assertEquals(0, BigDecimal("100").compareTo(requireNotNull(form.parsed)))
+        assertEquals(null, form.error)
+        assertTrue(form.canConfirm)
+    }
+
+    @Test
+    fun amountAboveTheMainBalanceIsRejected() {
+        val form = withdrawFormState("100", BigDecimal("50"), hasTarget = true)
+        assertEquals("More than the main balance holds", form.error)
+        assertFalse(form.canConfirm)
+    }
+
+    @Test
+    fun blankZeroAndGarbageAmountsCannotBeConfirmed() {
+        assertFalse(withdrawFormState("", BigDecimal("1000"), true).canConfirm)
+        // A blank field is not an error yet - it is just incomplete.
+        assertEquals(null, withdrawFormState("", BigDecimal("1000"), true).error)
+        assertFalse(withdrawFormState("0", BigDecimal("1000"), true).canConfirm)
+        assertFalse(withdrawFormState("-5", BigDecimal("1000"), true).canConfirm)
+        assertEquals("Enter a positive amount", withdrawFormState("abc", BigDecimal("1000"), true).error)
+        // Comma decimal separators are accepted (hardware keypad layouts).
+        assertEquals(
+            0,
+            BigDecimal("12.50").compareTo(
+                requireNotNull(withdrawFormState("12,50", BigDecimal("1000"), true).parsed)
+            )
+        )
+    }
+
+    @Test
+    fun noDestinationMeansNothingCanBeConfirmed() {
+        assertFalse(withdrawFormState("100", BigDecimal("1000"), hasTarget = false).canConfirm)
+    }
+
+    @Test
+    fun withoutCashTheActionBecomesAddCashBalance() {
+        // The defect class reported by the user: a dialog offering only Cancel.
+        assertEquals("Add cash balance", withdrawConfirmLabel(cashCount = 0))
+        assertEquals("Withdraw", withdrawConfirmLabel(cashCount = 1))
+        assertEquals("Withdraw", withdrawConfirmLabel(cashCount = 3))
+
+        val emptyForm = withdrawFormState("", BigDecimal("1000"), hasTarget = false)
+        // There is a way forward even when no cash balance exists...
+        assertTrue(withdrawConfirmEnabled(cashCount = 0, hasCreatePath = true, form = emptyForm))
+        // ...and no confirm button at all if the host offers no create path.
+        assertFalse(withdrawConfirmEnabled(cashCount = 0, hasCreatePath = false, form = emptyForm))
+        // With cash present the amount rules decide.
+        assertFalse(withdrawConfirmEnabled(cashCount = 1, hasCreatePath = true, form = emptyForm))
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], qualifiers = "w411dp-h891dp-mdpi")
+class WithdrawDialogBodyTest {
+
+    @get:Rule
+    val compose = createComposeRule()
+
+    private val eurCash = Account(
+        id = 7L, name = "Euro wallet", currency = "EUR", startingBalance = "0",
+        type = "CASH", parentAccountId = 1L
+    )
+
+    @Test
+    fun convertedAmountIsPreviewedBeforeConfirming() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                WithdrawDialogBody(
+                    cashAccounts = listOf(eurCash),
+                    mainCurrency = "ILS",
+                    mainBalance = BigDecimal("1000"),
+                    targetId = 7L,
+                    amount = "100",
+                    note = "",
+                    form = withdrawFormState("100", BigDecimal("1000"), hasTarget = true),
+                    rate = BigDecimal("0.25"),
+                    rateReady = true
+                )
+            }
+        }
+        compose.onNodeWithText("Euro wallet · EUR").assertIsDisplayed()
+        // Locale-independent: the rate line is built from toPlainString.
+        compose.onNodeWithText("1 ILS = 0.25 EUR", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun overBalanceMessageIsShown() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                WithdrawDialogBody(
+                    cashAccounts = listOf(eurCash),
+                    mainCurrency = "ILS",
+                    mainBalance = BigDecimal("50"),
+                    targetId = 7L,
+                    amount = "100",
+                    note = "",
+                    form = withdrawFormState("100", BigDecimal("50"), hasTarget = true),
+                    rate = BigDecimal.ONE,
+                    rateReady = true
+                )
+            }
+        }
+        compose.onNodeWithText("More than the main balance holds").assertIsDisplayed()
+    }
+
+    @Test
+    fun everyCashBalanceCanBeChosen() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                WithdrawDialogBody(
+                    cashAccounts = listOf(eurCash, eurCash.copy(id = 8L, name = "Dollar stash", currency = "USD")),
+                    mainCurrency = "ILS",
+                    mainBalance = BigDecimal("1000"),
+                    targetId = 7L,
+                    amount = "",
+                    note = "",
+                    form = withdrawFormState("", BigDecimal("1000"), hasTarget = true),
+                    rate = BigDecimal.ONE,
+                    rateReady = true
+                )
+            }
+        }
+        compose.onNodeWithText("Euro wallet (EUR)").assertIsDisplayed()
+        compose.onNodeWithText("Dollar stash (USD)").assertIsDisplayed()
+    }
+
+    @Test
+    fun emptyStateExplainsHowToGetStarted() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                WithdrawDialogBody(
+                    cashAccounts = emptyList(),
+                    mainCurrency = "ILS",
+                    mainBalance = BigDecimal("1000"),
+                    targetId = null,
+                    amount = "",
+                    note = "",
+                    form = withdrawFormState("", BigDecimal("1000"), hasTarget = false),
+                    rate = BigDecimal.ONE,
+                    rateReady = false
+                )
+            }
+        }
+        compose.onNodeWithText("No cash balance yet", substring = true).assertIsDisplayed()
+    }
+}
+
+/** The Add menu is exercised on both a regular phone window and the Qin window. */
 abstract class AddMenuTestBase {
 
     @get:Rule
@@ -89,6 +241,10 @@ class AddMenuRegularTest : AddMenuTestBase()
 @Config(sdk = [33], qualifiers = "w240dp-h320dp-mdpi")
 class AddMenuCompactTest : AddMenuTestBase()
 
+/**
+ * End-to-end check of the real dialog: with no cash balance the only way out is
+ * not Cancel - "Add cash balance" is present and wired to the create sheet.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], qualifiers = "w411dp-h891dp-mdpi")
 class WithdrawDialogTest {
@@ -96,65 +252,8 @@ class WithdrawDialogTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private val eurCash = Account(
-        id = 7L, name = "Euro wallet", currency = "EUR", startingBalance = "0",
-        type = "CASH", parentAccountId = 1L
-    )
-
-    private fun typeAmount(text: String) {
-        // The first text field of the dialog is the amount.
-        compose.onAllNodes(hasSetTextAction())[0].performTextReplacement(text)
-        compose.waitForIdle()
-    }
-
     @Test
-    fun withdrawConvertsIntoTheCashCurrency() {
-        var confirmedId = -1L
-        var confirmedAmount: String? = null
-        compose.setContent {
-            SpendingTrackerTheme(dynamicColor = false) {
-                WithdrawDialog(
-                    cashAccounts = listOf(eurCash),
-                    mainCurrency = "ILS",
-                    mainBalance = BigDecimal("1000"),
-                    rateLookup = { _, _ -> BigDecimal("0.25") },
-                    onConfirm = { id, amount, _ -> confirmedId = id; confirmedAmount = amount },
-                    onDismiss = {}
-                )
-            }
-        }
-        compose.onNodeWithText("Withdraw to cash").assertIsDisplayed()
-        typeAmount("100")
-        // The rate preview is shown before committing (locale-independent assertion).
-        compose.onNodeWithText("1 ILS = 0.25", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Withdraw").performClick()
-        compose.waitForIdle()
-        assertTrue("Withdraw action never confirmed", confirmedAmount != null)
-        assertTrue("Wrong cash account", confirmedId == 7L)
-        assertTrue("Wrong source amount: $confirmedAmount", confirmedAmount!!.startsWith("100"))
-    }
-
-    @Test
-    fun withdrawRejectsMoreThanTheMainBalance() {
-        compose.setContent {
-            SpendingTrackerTheme(dynamicColor = false) {
-                WithdrawDialog(
-                    cashAccounts = listOf(eurCash),
-                    mainCurrency = "ILS",
-                    mainBalance = BigDecimal("50"),
-                    rateLookup = { _, _ -> BigDecimal.ONE },
-                    onConfirm = { _, _, _ -> },
-                    onDismiss = {}
-                )
-            }
-        }
-        typeAmount("100")
-        compose.onNodeWithText("More than the main balance holds").assertIsDisplayed()
-    }
-
-    @Test
-    fun withdrawWithoutACashBalanceStillOffersAWayForward() {
-        // The exact defect class reported: a dialog whose only action is Cancel.
+    fun withoutCashTheDialogOffersAWayForward() {
         var created = false
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
@@ -169,27 +268,9 @@ class WithdrawDialogTest {
                 )
             }
         }
+        compose.onNodeWithText("Withdraw to cash").assertIsDisplayed()
         compose.onNodeWithText("Add cash balance").assertIsDisplayed()
         compose.onNodeWithText("Add cash balance").performClick()
         assertTrue("Add cash balance did not open the create dialog", created)
-    }
-
-    @Test
-    fun severalCashBalancesCanBeChosen() {
-        val usdCash = eurCash.copy(id = 8L, name = "Dollar stash", currency = "USD")
-        compose.setContent {
-            SpendingTrackerTheme(dynamicColor = false) {
-                WithdrawDialog(
-                    cashAccounts = listOf(eurCash, usdCash),
-                    mainCurrency = "ILS",
-                    mainBalance = BigDecimal("1000"),
-                    rateLookup = { _, _ -> BigDecimal.ONE },
-                    onConfirm = { _, _, _ -> },
-                    onDismiss = {}
-                )
-            }
-        }
-        compose.onNodeWithText("Euro wallet (EUR)").assertIsDisplayed()
-        compose.onNodeWithText("Dollar stash (USD)").assertIsDisplayed()
     }
 }
