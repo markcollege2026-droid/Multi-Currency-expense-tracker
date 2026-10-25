@@ -203,6 +203,9 @@ class FinanceRepository @Inject constructor(
         recurringPaymentDao.deleteForAccount(account.id)
         topUpDao.deleteForAccount(account.id)
         withdrawalDao.deleteInvolving(account.id)
+        // Expenses paid *from* this balance, not only those booked *on* it. Without
+        // this the rows outlive their balance and quietly stop reducing anything.
+        expenseDao.deleteForBalanceAccount(account.id)
         expenseDao.deleteForAccount(account.id)
         accountDao.deleteAccount(account)
 
