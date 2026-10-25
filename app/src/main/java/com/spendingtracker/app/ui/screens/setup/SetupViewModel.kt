@@ -2,14 +2,14 @@ package com.spendingtracker.app.ui.screens.setup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.spendingtracker.app.data.local.entity.Account
-import com.spendingtracker.app.data.local.entity.AppSettings
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.util.CurrencyProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import javax.inject.Inject
 
@@ -48,43 +48,37 @@ class SetupViewModel @Inject constructor(
     }
 
     fun completeSetup(onComplete: () -> Unit) {
+        // Re-entrancy guard: the button only disables on the next frame, so a double
+        // tap used to insert two "Main" accounts in the same instant.
+        if (_uiState.value.isLoading) return
+        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
+                val state = _uiState.value
                 // Accept both "1.5" and locale-style "1,5" input
-                val normalized = _uiState.value.startingBalance.trim().replace(',', '.')
+                val normalized = state.startingBalance.trim().replace(',', '.')
                 val balance = try {
-                    if (normalized.isBlank()) BigDecimal.ZERO
-                    else BigDecimal(normalized)
+                    if (normalized.isBlank()) BigDecimal.ZERO else BigDecimal(normalized)
                 } catch (e: Exception) {
-                    _uiState.value = _uiState.value.copy(error = "Invalid starting balance", isLoading = false)
+                    _uiState.value = state.copy(error = "Invalid starting balance", isLoading = false)
                     return@launch
                 }
                 if (balance < BigDecimal.ZERO) {
-                    _uiState.value = _uiState.value.copy(error = "Starting balance cannot be negative", isLoading = false)
+                    _uiState.value = state.copy(error = "Starting balance cannot be negative", isLoading = false)
                     return@launch
                 }
-                val state = _uiState.value
-                val accountName = state.accountName.trim().ifBlank { "Main" }
-                val accountId = financeRepository.insertAccount(
-                    Account(
-                        name = accountName,
+                // One transaction (account + active pointer + setup flag + categories),
+                // and NonCancellable: closing the app from Recents during setup used to
+                // leave an account that the next launch refused to open.
+                val accountId = withContext(NonCancellable) {
+                    financeRepository.completeSetup(
+                        accountName = state.accountName.trim().ifBlank { "Main" },
                         currency = state.selectedCurrency,
                         startingBalance = balance.toPlainString()
                     )
-                )
-                val settings = AppSettings(
-                    // Legacy mirrors kept for export compatibility
-                    balanceCurrency = state.selectedCurrency,
-                    startingBalance = balance.toPlainString(),
-                    isSetupComplete = true,
-                    theme = "SYSTEM",
-                    activeAccountId = accountId
-                )
-                financeRepository.saveSettings(settings)
-                financeRepository.ensureDefaultCategories()
+                }
                 _uiState.value = _uiState.value.copy(isLoading = false)
-                onComplete()
+                if (accountId > 0) onComplete()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
             }

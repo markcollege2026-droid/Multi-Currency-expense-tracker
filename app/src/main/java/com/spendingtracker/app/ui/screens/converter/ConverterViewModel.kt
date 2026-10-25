@@ -310,10 +310,8 @@ class ConverterViewModel @Inject constructor(
             val result = rateRepository.refreshRates(topBase)
             result.fold(
                 onSuccess = { ts ->
-                    val settings = financeRepository.getSettingsSync()
-                    if (settings != null) {
-                        financeRepository.saveSettings(settings.copy(lastRatesUpdate = ts))
-                    }
+                    // Field-level write; see FinanceRepository.saveRatesTimestamp.
+                    financeRepository.saveRatesTimestamp(ts)
                     recomputeConversionList(ts)
                     _uiState.value = _uiState.value.copy(
                         isRefreshing = false,

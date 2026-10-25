@@ -2,9 +2,11 @@ package com.spendingtracker.app.ui.screens.settings
 
 import android.content.Context
 import android.net.Uri
+import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.util.BackupFileManager
 import com.spendingtracker.app.util.BackupEncryption
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 import java.math.BigDecimal
 import javax.inject.Inject
 
@@ -44,7 +47,9 @@ data class SettingsUiState(
     val exportCsv: String? = null,
     val message: String? = null,
     val error: String? = null,
-    val accounts: List<com.spendingtracker.app.data.local.entity.Account> = emptyList(),
+    val accounts: List<Account> = emptyList(),
+    /** Entries and derived balance per account, so deleting one can say what is at stake. */
+    val accountSummaries: Map<Long, com.spendingtracker.app.data.repository.AccountSummary> = emptyMap(),
     val activeAccountId: Long = 1,
     val backupBusy: Boolean = false,
     val restoreEncrypted: Boolean? = null,
@@ -115,41 +120,66 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(accounts = accounts)
             }
         }
+        viewModelScope.launch {
+            financeRepository.observeAccountSummaries().collect { summaries ->
+                _uiState.value = _uiState.value.copy(accountSummaries = summaries)
+            }
+        }
     }
 
-    fun switchAccount(account: com.spendingtracker.app.data.local.entity.Account) {
+    fun switchAccount(account: Account) {
         viewModelScope.launch {
-            val current = financeRepository.getSettingsSync()
-            financeRepository.saveSettings(
-                current?.copy(activeAccountId = account.id) ?: AppSettings(activeAccountId = account.id)
-            )
-            _uiState.value = _uiState.value.copy(activeAccountId = account.id)
+            try {
+                // Creates the settings row when it is missing; the old code used to
+                // return silently and the switcher became a no-op.
+                financeRepository.setActiveAccount(account.id)
+                _uiState.value = _uiState.value.copy(activeAccountId = account.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Could not switch account")
+            }
         }
     }
 
     fun addAccount(name: String, currency: String, startingBalance: String) {
         viewModelScope.launch {
             val sb = try {
-                if (startingBalance.isBlank()) BigDecimal.ZERO else BigDecimal(startingBalance.trim())
+                if (startingBalance.isBlank()) BigDecimal.ZERO
+                else BigDecimal(startingBalance.trim().replace(',', '.'))
             } catch (e: NumberFormatException) {
-                BigDecimal.ZERO
+                _uiState.value = _uiState.value.copy(error = "Starting balance must be a number")
+                return@launch
             }
-            val id = financeRepository.insertAccount(
-                com.spendingtracker.app.data.local.entity.Account(
-                    name = name.ifBlank { "Account" },
-                    currency = currency.ifBlank { "USD" },
-                    startingBalance = sb.toPlainString()
-                )
-            )
-            val current = financeRepository.getSettingsSync()
-            financeRepository.saveSettings(
-                current?.copy(activeAccountId = id) ?: AppSettings(activeAccountId = id)
-            )
-            _uiState.value = _uiState.value.copy(activeAccountId = id, message = "Account created")
+            if (sb < BigDecimal.ZERO) {
+                _uiState.value = _uiState.value.copy(error = "Starting balance cannot be negative")
+                return@launch
+            }
+            try {
+                val id = withContext(NonCancellable) {
+                    val newId = financeRepository.insertAccount(
+                        Account(
+                            name = name.trim().ifBlank { "Account" },
+                            currency = currency.ifBlank { "USD" },
+                            startingBalance = sb.toPlainString()
+                        )
+                    )
+                    // Also marks setup complete: without this the next launch used to
+                    // open the setup wizard, which then created a second empty "Main"
+                    // and made it active - the app looked wiped.
+                    financeRepository.setActiveAccount(newId)
+                    newId
+                }
+                _uiState.value = _uiState.value.copy(activeAccountId = id, message = "Account created")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Account not created")
+            }
         }
     }
 
-    fun renameAccount(account: com.spendingtracker.app.data.local.entity.Account, newName: String) {
+    fun renameAccount(account: Account, newName: String) {
         val trimmed = newName.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
@@ -157,20 +187,63 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun deleteAccount(account: com.spendingtracker.app.data.local.entity.Account) {
+    /**
+     * Deletes an account and everything scoped to it.
+     *
+     * A main account is snapshotted to app-private storage first, the cascade and the
+     * active-account switch commit together, and the operation is NonCancellable so
+     * closing the app mid-delete cannot leave a half-deleted ledger. The last main
+     * account cannot be deleted at all.
+     */
+    fun deleteAccount(account: Account) {
+        if (_uiState.value.backupBusy) return
         viewModelScope.launch {
-            financeRepository.deleteAccountCascade(account)
-            _uiState.value = _uiState.value.copy(message = "Account deleted")
+            try {
+                val snapshot = if (account.type == "MAIN") snapshotBeforeDelete(account) else null
+                val survivor = withContext(NonCancellable) { financeRepository.deleteAccountCascade(account) }
+                val summary = _uiState.value.accountSummaries[account.id]
+                _uiState.value = _uiState.value.copy(
+                    activeAccountId = survivor?.id ?: _uiState.value.activeAccountId,
+                    message = buildString {
+                        append(account.name)
+                        append(" deleted")
+                        summary?.let { append(" with ${it.entries} entries") }
+                        survivor?.let { append(" · ${it.name} is now active") }
+                        snapshot?.let { append(" · safety copy: $it") }
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Account not deleted")
+            }
         }
+    }
+
+    /**
+     * Writes a full JSON export to app-private storage before a destructive delete.
+     * Best effort: a failure here must not block the delete, so it is reported as
+     * null and simply omitted from the confirmation message.
+     */
+    private suspend fun snapshotBeforeDelete(account: Account): String? = try {
+        withContext(Dispatchers.IO) {
+            val json = exportImportManager.exportAll()
+            val dir = File(context.filesDir, "pre-delete-backups").apply { mkdirs() }
+            val file = File(dir, "account-${account.id}-${System.currentTimeMillis()}.json")
+            file.writeText(json)
+            file.name
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
     }
 
     fun onThresholdChanged(v: String) { _uiState.value = _uiState.value.copy(lowBalanceThreshold = v) }
     fun onThemeChanged(t: String) {
         viewModelScope.launch {
-            val current = financeRepository.getSettingsSync()
-            if (current != null) {
-                financeRepository.saveSettings(current.copy(theme = t))
-            }
+            // Column-level update: never rewrites activeAccountId / isSetupComplete.
+            financeRepository.saveTheme(t)
             _uiState.value = _uiState.value.copy(theme = t)
         }
     }
@@ -212,13 +285,39 @@ class SettingsViewModel @Inject constructor(
     fun requestErase() { _uiState.value = _uiState.value.copy(showEraseDialog = true) }
     fun dismissErase() { _uiState.value = _uiState.value.copy(showEraseDialog = false) }
 
-    fun confirmErase() {
+    /**
+     * Erases the whole ledger. [onErased] runs after the commit, so the screen can
+     * route back into setup - without it the app would keep showing empty screens
+     * with no active account.
+     */
+    fun confirmErase(onErased: () -> Unit = {}) {
         viewModelScope.launch {
-            financeRepository.eraseAll()
-            loanRepository.eraseAll()
-            // Reset settings to not setup
-            financeRepository.saveSettings(AppSettings(balanceCurrency = "USD", startingBalance = "0", isSetupComplete = false))
-            _uiState.value = _uiState.value.copy(showEraseDialog = false, message = "All data erased")
+            try {
+                // ONE transaction. Split across three calls, an interruption (or the
+                // app being closed from Recents) could leave history deleted while
+                // loans survived and no settings row existed - the state that boots
+                // into setup with a loans tab full of data.
+                withContext(NonCancellable) {
+                    financeRepository.atomic {
+                        financeRepository.eraseAll()
+                        loanRepository.eraseAll()
+                        financeRepository.resetSettingsAfterErase()
+                    }
+                }
+                _uiState.value = _uiState.value.copy(
+                    showEraseDialog = false,
+                    activeAccountId = 1L,
+                    message = "All data erased"
+                )
+                if (financeRepository.needsSetup()) onErased()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    showEraseDialog = false,
+                    error = "Nothing was erased: ${e.message}"
+                )
+            }
         }
     }
 
@@ -315,8 +414,8 @@ class SettingsViewModel @Inject constructor(
 
     fun onCurrencySortModeChanged(mode: String) {
         viewModelScope.launch {
-            val current = financeRepository.getSettingsSync() ?: return@launch
-            financeRepository.saveSettings(current.copy(currencySortMode = mode))
+            // Column-level write: keeps activeAccountId out of reach.
+            financeRepository.saveCurrencySortMode(mode)
             _uiState.value = _uiState.value.copy(currencySortMode = mode, message = "Currency sort: $mode")
         }
     }
@@ -337,7 +436,7 @@ class SettingsViewModel @Inject constructor(
                 currentFavs.add(code)
             }
             val newJson = currentFavs.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
-            financeRepository.saveSettings(current.copy(favoriteCurrencies = newJson))
+            financeRepository.saveFavoriteCurrencies(newJson)
             _uiState.value = _uiState.value.copy(message = if (currentFavs.contains(code)) "$code added to favorites" else "$code removed from favorites")
         }
     }
@@ -356,7 +455,7 @@ class SettingsViewModel @Inject constructor(
                 val item = order.removeAt(fromIndex)
                 order.add(toIndex, item)
                 val newJson = order.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
-                financeRepository.saveSettings(current.copy(customCurrencyOrder = newJson, currencySortMode = "CUSTOM"))
+                financeRepository.saveCustomCurrencyOrder(newJson, "CUSTOM")
                 _uiState.value = _uiState.value.copy(message = "Order updated")
             }
         }
@@ -364,17 +463,17 @@ class SettingsViewModel @Inject constructor(
 
     fun setCustomOrder(codes: List<String>) {
         viewModelScope.launch {
-            val current = financeRepository.getSettingsSync() ?: return@launch
             val newJson = codes.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
-            financeRepository.saveSettings(current.copy(customCurrencyOrder = newJson, currencySortMode = "CUSTOM"))
+            financeRepository.saveCustomCurrencyOrder(newJson, "CUSTOM")
             _uiState.value = _uiState.value.copy(customOrder = codes, currencySortMode = "CUSTOM", message = "Custom order saved")
         }
     }
 
     fun resetCurrencyOrder() {
         viewModelScope.launch {
-            val current = financeRepository.getSettingsSync() ?: return@launch
-            financeRepository.saveSettings(current.copy(customCurrencyOrder = null, currencySortMode = "ALPHABETICAL", favoriteCurrencies = null, recentCurrencies = null))
+            financeRepository.saveCustomCurrencyOrder(null, "ALPHABETICAL")
+            financeRepository.saveFavoriteCurrencies(null)
+            financeRepository.saveRecentCurrencies(null)
             _uiState.value = _uiState.value.copy(message = "Currency order reset to alphabetical")
         }
     }
@@ -386,7 +485,7 @@ class SettingsViewModel @Inject constructor(
             val settings = financeRepository.getSettingsSync() ?: return@launch
             val result = rateRepository.refreshRates(settings.balanceCurrency)
             result.onSuccess { ts ->
-                financeRepository.saveSettings(settings.copy(lastRatesUpdate = ts))
+                financeRepository.saveRatesTimestamp(ts)
                 _uiState.value = _uiState.value.copy(message = "Rates refreshed")
             }.onFailure {
                 _uiState.value = _uiState.value.copy(error = "Failed to refresh: ${it.message}")

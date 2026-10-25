@@ -1,3 +1,77 @@
+# Spending Tracker 1.9.1 — Account safety
+
+Released 25 October 2026.
+
+## The bug that made history look deleted
+A ledger could open completely empty after a restart while **nothing had been deleted**.
+Sequence that triggered it:
+
+1. Erase all data (Settings) — this deletes the settings row and writes a fresh one with
+   `isSetupComplete = false`.
+2. Create a new account from Settings → Accounts, and add expenses/deposits to it. That
+   path set the active account but never set `isSetupComplete`.
+3. Close the app. On the next cold start the app read the stale flag, opened the **Setup
+   wizard**, and the wizard inserted a *second*, empty "Main" account and made it active.
+   Home and History filter by the active account, so the real ledger disappeared from both
+   screens while Loans — shared across accounts — looked untouched.
+
+The rows were never lost. This release removes every path that could lead there, and makes
+the symptom impossible to misread.
+
+## Fixes
+- **Setup only when there is no ledger.** The start destination is derived from the
+  accounts table, never from a flag that can go stale. `completeSetup` is one transaction
+  (account + active pointer + flag + default categories), is idempotent, and reuses an
+  existing main account instead of inserting a duplicate.
+- **Account creation is atomic and complete.** Settings → Accounts → Add account inserts,
+  activates, and marks setup complete together; the setup button also refuses re-entry, so
+  a double tap cannot create two accounts.
+- **Startup repair.** A dangling `activeAccountId` (deleted account, restore, stale write)
+  is resolved to a real main account in a deterministic `createdAt, id` order and persisted.
+  A "not set up" flag that contradicts an existing ledger is cleared.
+- **Deletion cannot destroy a ledger by accident.** The last main account cannot be deleted.
+  Deleting the active account moves the pointer to a survivor in the same transaction. A
+  main account is snapshotted to JSON in app storage before the cascade. The dialog states
+  the entry count and current balance, and when two accounts share a name you must type it
+  to confirm. Cash/card deletes state how many entries go with them.
+- **Erase all data is one transaction** across accounts, entries, withdrawals, loans and
+  settings; an interruption rolls the whole thing back instead of leaving loans only. After
+  a successful erase the app restarts into setup rather than showing empty screens.
+- **Settings are written per column** (`activeAccountId`, theme, rate timestamp, currency
+  order, favourites, recents). A whole-row write from a stale snapshot — for example the
+  automatic rate refresh — could previously put an old `activeAccountId` back.
+- **Empty states are honest.** "No entries in *Main* yet" plus, when rows exist elsewhere,
+  "12 entries are in *Old ledger* · Switch", so a different account can never read as data
+  loss. Loans stay visible in both cases, as before.
+- **Cash-balance cascade repair.** Deleting a cash balance now also deletes the expenses
+  paid from it. They used to survive with a dangling `balanceAccountId`: still listed in
+  History, no longer reducing any balance, so money silently reappeared.
+
+## Durability
+Ledger writes already commit per Room transaction and nothing is cached in memory, so a
+reboot or a "close from Recents" cannot drop committed rows — now covered by
+`PersistenceFileTest`, which closes a real database file and reopens it. Lifecycle writes
+(setup, account create/delete, erase) run under `NonCancellable` so closing the app
+mid-action finishes the commit instead of truncating it.
+
+## Compatibility and migrations
+Same application ID and release signing key; installs over 1.8.x without uninstalling.
+Version code **10**, version name **1.9.1**, minSdk 26, targetSdk 35. Database stays at
+**version 5** and JSON backups at **schema 5** — no migration is needed for this release.
+Backups restored from any schema 1–5 now always mark the ledger as set up.
+
+## Testing
+GitHub Actions runs the full unit suite, lint, debug + signed release APKs, the AAB and the
+upgrade checks against v1.8.0. New this release: `AccountLifecycleTest` (setup idempotency,
+existing-ledger reuse, pointer repair and ordering, last-account guard, active-account
+re-point, cash cascade, atomic erase rollback, per-account summaries),
+`PersistenceFileTest` (file database survives close/reopen), `AccountVisibilityMessageTest`.
+
+## Limits
+The pre-delete safety copy lives in app-private storage (`files/pre-delete-backups/`) and is
+not surfaced as a restore button; it is a last-resort recovery file, not a backup feature.
+Restoring it requires the normal import flow once copied out of app storage.
+
 # Spending Tracker 1.9.0 — One Add menu, deposits and cash transfers
 
 ## One way to add anything

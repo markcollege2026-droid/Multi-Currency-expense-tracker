@@ -61,7 +61,7 @@ jobs:
         with:
           tag_name: ${{ steps.appver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Spending Tracker v${{ steps.appver.outputs.version }} — One Add menu, deposits and cash transfers
+          name: Spending Tracker v${{ steps.appver.outputs.version }} — Account safety
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |

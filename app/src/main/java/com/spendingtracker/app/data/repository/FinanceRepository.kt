@@ -29,6 +29,9 @@ data class TransactionItem(
     val paymentMethod: String?
 )
 
+/** Entry count and derived balance of one balance account. */
+data class AccountSummary(val entries: Int, val balance: BigDecimal)
+
 @Singleton
 class FinanceRepository @Inject constructor(
     private val expenseDao: ExpenseDao,
@@ -49,26 +52,149 @@ class FinanceRepository @Inject constructor(
     suspend fun updateAccount(account: Account) = accountDao.updateAccount(account)
     suspend fun getAccountCount(): Int = accountDao.getAllAccountsSync().count { it.type == "MAIN" }
 
+    /**
+     * Main accounts in a deterministic order. `ORDER BY createdAt` alone is not a
+     * total order (accounts created in the same millisecond tie), and a tie used to
+     * decide which ledger the app opened.
+     */
+    private fun List<Account>.mainAccountsInOrder(): List<Account> =
+        filter { it.type == "MAIN" }.sortedWith(compareBy({ it.createdAt }, { it.id }))
+
+    /** True only when the app has no ledger at all - the one case that needs setup. */
+    suspend fun needsSetup(): Boolean = accountDao.getAllAccountsSync().mainAccountsInOrder().isEmpty()
+
     /** The account currently selected in settings (falls back to the first account). */
     fun observeActiveAccount(): Flow<Account?> =
         combine(settingsDao.getSettings(), accountDao.getAllAccounts()) { settings, accounts ->
+            val mains = accounts.mainAccountsInOrder()
             val activeId = settings?.activeAccountId
-            accounts.find { it.id == activeId && it.type == "MAIN" } ?: accounts.firstOrNull { it.type == "MAIN" }
+            mains.find { it.id == activeId } ?: mains.firstOrNull()
         }
 
-    suspend fun getActiveAccountId(): Long {
-        val fromSettings = settingsDao.getSettingsSync()?.activeAccountId
-        if (fromSettings != null && accountDao.getAccountById(fromSettings)?.type == "MAIN") return fromSettings
-        return accountDao.getAllAccountsSync().firstOrNull { it.type == "MAIN" }?.id ?: 1L
+    suspend fun getActiveAccountId(): Long = resolveActiveAccountId() ?: 1L
+
+    /**
+     * Returns the active main account id and repairs it when it points at nothing.
+     *
+     * `activeAccountId` can survive the row it referenced (an account deleted from
+     * Settings, a restore, a stale whole-row settings write). Every screen filters
+     * by this id, so a dangling pointer silently renders an empty ledger. This
+     * resolves it to a real main account, persists the fix and clears a setup flag
+     * that no longer matches reality.
+     *
+     * @return the active account id, or null when the app has no ledger yet.
+     */
+    suspend fun resolveActiveAccountId(): Long? = database.withTransaction {
+        val mains = accountDao.getAllAccountsSync().mainAccountsInOrder()
+        if (mains.isEmpty()) return@withTransaction null
+        val saved = settingsDao.getSettingsSync()
+        val resolved = mains.firstOrNull { it.id == saved?.activeAccountId } ?: mains.first()
+        if (saved == null) {
+            settingsDao.insertSettings(
+                AppSettings(
+                    balanceCurrency = resolved.currency,
+                    startingBalance = resolved.startingBalance,
+                    isSetupComplete = true,
+                    activeAccountId = resolved.id
+                )
+            )
+        } else {
+            if (saved.activeAccountId != resolved.id) settingsDao.setActiveAccount(resolved.id)
+            if (!saved.isSetupComplete) settingsDao.markSetupComplete()
+        }
+        resolved.id
     }
 
     /**
-     * Deletes an account together with all account-scoped data (expenses, top-ups,
-     * recurring payments). Loans & debts are shared between accounts and are kept.
+     * Makes [accountId] active. Creates the settings row when it is missing instead
+     * of returning silently (the old behaviour made the account switcher a no-op
+     * after an interrupted erase).
      */
-    suspend fun deleteAccountCascade(account: Account) = database.withTransaction {
-        accountDao.getAllAccountsSync().filter { it.parentAccountId == account.id }.forEach { child ->
+    suspend fun setActiveAccount(accountId: Long) = database.withTransaction {
+        val target = accountDao.getAccountById(accountId)
+        require(target != null && target.type == "MAIN") { "Choose a main account" }
+        val saved = settingsDao.getSettingsSync()
+        if (saved == null) {
+            settingsDao.insertSettings(
+                AppSettings(
+                    balanceCurrency = target.currency,
+                    startingBalance = target.startingBalance,
+                    isSetupComplete = true,
+                    activeAccountId = target.id
+                )
+            )
+        } else {
+            // Targeted update: never rewrite the whole row from a stale snapshot.
+            if (saved.activeAccountId != target.id) settingsDao.setActiveAccount(target.id)
+            if (!saved.isSetupComplete) settingsDao.markSetupComplete()
+        }
+    }
+
+    /**
+     * Finishes first-run setup in ONE transaction.
+     *
+     * Reuses an existing main account instead of inserting a second one (a double
+     * tap, or a setup screen reached while a ledger already exists, used to create
+     * two accounts both called "Main"). The account, the active pointer, the
+     * "setup complete" flag and the default categories commit together, so an app
+     * kill can never leave an account the app refuses to open.
+     *
+     * @return the main account id
+     */
+    suspend fun completeSetup(accountName: String, currency: String, startingBalance: String): Long =
+        database.withTransaction {
+            val existing = accountDao.getAllAccountsSync().mainAccountsInOrder().firstOrNull()
+            val accountId = existing?.id ?: accountDao.insertAccount(
+                Account(
+                    name = accountName.trim().ifBlank { "Main" },
+                    currency = currency,
+                    startingBalance = startingBalance
+                )
+            )
+            val saved = settingsDao.getSettingsSync()
+            if (saved == null) {
+                settingsDao.insertSettings(
+                    AppSettings(
+                        balanceCurrency = currency,
+                        startingBalance = startingBalance,
+                        isSetupComplete = true,
+                        activeAccountId = accountId
+                    )
+                )
+            } else {
+                settingsDao.setActiveAccount(accountId)
+                settingsDao.markSetupComplete()
+            }
+            ensureDefaultCategories()
+            accountId
+        }
+
+    /**
+     * Deletes a balance together with everything scoped to it. Loans & debts are
+     * shared between accounts and are deliberately kept.
+     *
+     * Guards, all inside the transaction:
+     * - the last main account can never be deleted (that is what "all history gone,
+     *   loans left" looked like);
+     * - deleting a main account takes its cash/card children and the expenses paid
+     *   from them, which otherwise survive with a dangling balanceAccountId;
+     * - the active pointer is moved to a surviving main account, so the app cannot
+     *   reopen on an account that no longer exists.
+     *
+     * @return the main account that is active afterwards, if any
+     */
+    suspend fun deleteAccountCascade(account: Account): Account? = database.withTransaction {
+        val all = accountDao.getAllAccountsSync()
+        if (account.type == "MAIN") {
+            require(all.mainAccountsInOrder().size > 1) {
+                "This is the only main account and holds the whole ledger. Create another account first."
+            }
+        }
+        all.filter { it.parentAccountId == account.id }.forEach { child ->
             paymentDao.deleteForAccount(child.id)
+            // Expenses paid from this balance belong to the ledger but only this row
+            // references them; leaving them behind made money silently reappear.
+            expenseDao.deleteForBalanceAccount(child.id)
             topUpDao.deleteForAccount(child.id)
             withdrawalDao.deleteInvolving(child.id)
             accountDao.deleteAccount(child)
@@ -77,8 +203,39 @@ class FinanceRepository @Inject constructor(
         recurringPaymentDao.deleteForAccount(account.id)
         topUpDao.deleteForAccount(account.id)
         withdrawalDao.deleteInvolving(account.id)
+        // Expenses paid *from* this balance, not only those booked *on* it. Without
+        // this the rows outlive their balance and quietly stop reducing anything.
+        expenseDao.deleteForBalanceAccount(account.id)
         expenseDao.deleteForAccount(account.id)
         accountDao.deleteAccount(account)
+
+        val remaining = accountDao.getAllAccountsSync().mainAccountsInOrder()
+        val active = settingsDao.getSettingsSync()?.activeAccountId
+        val survivor = remaining.firstOrNull { it.id == active } ?: remaining.firstOrNull()
+        if (survivor != null && survivor.id != active) settingsDao.setActiveAccount(survivor.id)
+        survivor
+    }
+
+    /**
+     * How much data sits in each balance. Used to tell a genuinely empty account
+     * apart from one that only *looks* empty because another account is active -
+     * the confusion that made a healed ledger read as "all history wiped".
+     */
+    fun observeAccountSummaries(): Flow<Map<Long, AccountSummary>> = combine(
+        accountDao.getAllAccounts(),
+        expenseDao.getAllExpenses(),
+        topUpDao.getAllTopUps(),
+        paymentDao.observeAll(),
+        withdrawalDao.observeAll()
+    ) { accounts, expenses, topUps, payments, withdrawals ->
+        val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals)
+        accounts.associate { account ->
+            val entries = expenses.count { it.accountId == account.id } +
+                topUps.count { it.accountId == account.id } +
+                withdrawals.count { it.fromAccountId == account.id || it.toAccountId == account.id } +
+                payments.count { it.cardId == account.id || it.sourceAccountId == account.id }
+            account.id to AccountSummary(entries, balances[account.id] ?: BigDecimal.ZERO)
+        }
     }
 
     // ---- Transactions (account-scoped) ----
@@ -271,6 +428,22 @@ class FinanceRepository @Inject constructor(
     }
 
     suspend fun saveSettings(settings: AppSettings) = settingsDao.insertSettings(settings)
+    suspend fun saveTheme(theme: String) = settingsDao.setTheme(theme)
+    suspend fun saveRatesTimestamp(timestamp: Long) = settingsDao.setLastRatesUpdate(timestamp)
+    suspend fun saveCurrencySortMode(mode: String) = settingsDao.setCurrencySortMode(mode)
+    suspend fun saveFavoriteCurrencies(json: String?) = settingsDao.setFavoriteCurrencies(json)
+    suspend fun saveCustomCurrencyOrder(json: String?, mode: String) = settingsDao.setCustomCurrencyOrder(json, mode)
+    suspend fun saveRecentCurrencies(json: String?) = settingsDao.setRecentCurrencies(json)
+
+    /**
+     * Rewrites the settings row for a fresh ledger. Must run inside the same
+     * transaction that erased the data, otherwise an interrupted erase leaves
+     * "history gone, loans kept, no settings row" - which boots into setup while
+     * loans are still on screen.
+     */
+    suspend fun resetSettingsAfterErase() = settingsDao.insertSettings(
+        AppSettings(balanceCurrency = "USD", startingBalance = "0", isSetupComplete = false)
+    )
 
     suspend fun eraseAll() {
         paymentDao.deleteAll()

@@ -27,7 +27,36 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.9.0 — one Add menu, deposits and cash transfers
+## Current release: 1.9.1 — account safety (no more "history wiped" after a restart)
+
+**Fixed: a ledger could look completely empty after a reboot even though nothing was
+deleted.** An "erase all data" left `isSetupComplete = false` behind; creating an
+account from Settings afterwards set the active account but not that flag. On the next
+cold start the app opened the **setup wizard**, which created a second empty "Main"
+and made it active. Every screen filters by the active account, so expenses and
+deposits vanished from Home and History while loans (shared across accounts) stayed.
+
+What changed, so it cannot happen again:
+
+| Fix | Where |
+|---|---|
+| Setup is needed only when the accounts table is empty; the wizard can never run over an existing ledger, is idempotent, and reuses the existing account | `MainActivity`, `FinanceRepository.completeSetup`, `SetupViewModel` |
+| Creating an account also marks setup complete and activates it, in one transaction | `SettingsViewModel.addAccount`, `setActiveAccount` |
+| A dangling `activeAccountId` is repaired at startup (deterministic `createdAt, id` order) and persisted | `resolveActiveAccountId` |
+| The last main account cannot be deleted; deleting the active one re-points the pointer inside the same transaction | `deleteAccountCascade` |
+| Deleting a main account writes a JSON safety copy to app storage first, and the dialog states the entry count and balance; duplicate account names must be typed to confirm | `SettingsViewModel`, `SettingsScreen` |
+| "Erase all data" is **one** transaction (accounts, entries, withdrawals, loans, settings), so an interruption cannot leave loans only | `SettingsViewModel.confirmErase` |
+| Settings are written per column (`activeAccountId`, theme, rate timestamp, currency order), so a stale whole-row write cannot revert the active account | `AppSettingsDao` |
+| Empty screens name the account and point at the account that actually holds the entries ("12 entries are in \"Old ledger\" · Switch"); cash/card deletes state how many rows go with them | `TransactionsScreen`, `HomeScreen` |
+| Deleting a cash balance also removes the expenses paid from it (they used to survive as orphans and stop reducing any balance) | `ExpenseDao.deleteForBalanceAccount` |
+
+Tests: `AccountLifecycleTest` (setup idempotency, pointer repair, last-account guard,
+cascade, atomic erase, summaries), `PersistenceFileTest` (file database closed and
+reopened - committed rows and the active pointer survive a restart), and
+`AccountVisibilityMessageTest` (empty-state wording). Version code **10**, database
+still **version 5**, JSON backups still **schema 5**.
+
+## Previous release: 1.9.0 — one Add menu, deposits and cash transfers
 
 **[Download v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)**
 — `app-release.apk` (signed, ~2.2 MB), `app-release.aab` for Play, R8 `mapping.txt` and

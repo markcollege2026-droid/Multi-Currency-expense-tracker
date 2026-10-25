@@ -127,7 +127,8 @@ class AddExpenseViewModel @Inject constructor(
             try {
                 val settings = financeRepository.getSettingsSync() ?: return@launch
                 val newRecentJson = CurrencyProvider.addRecentCurrency(settings.recentCurrencies, v)
-                financeRepository.saveSettings(settings.copy(recentCurrencies = newRecentJson))
+                // Column-level write so a stale snapshot cannot revert the active account.
+                financeRepository.saveRecentCurrencies(newRecentJson)
                 // Update ordered list
                 val updatedSettings = settings.copy(recentCurrencies = newRecentJson)
                 _uiState.value = _uiState.value.copy(orderedCurrencies = computeOrdered(updatedSettings))

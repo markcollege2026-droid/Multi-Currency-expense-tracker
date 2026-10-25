@@ -78,6 +78,18 @@ fun historyTimestamp(
     return SimpleDateFormat(pattern, locale).format(Date(date))
 }
 
+/**
+ * Empty state of a ledger. Naming the account is the point: "No transactions yet"
+ * on a healed ledger read as data loss, when the rows were simply in another account.
+ */
+fun historyEmptyMessage(accountName: String?): String =
+    "No entries in " + (accountName ?: "this account") + " yet.\n" +
+        "Add an expense or deposit to get started."
+
+/** "12 entries are in \"Old ledger\"" - the number of rows hiding in another account. */
+fun otherAccountHint(entries: Int, accountName: String): String =
+    "$entries " + (if (entries == 1) "entry is" else "entries are") + " in \"" + accountName + "\""
+
 /** What the details sheet shows for one history row. */
 data class TransactionDetails(
     val kind: String,
@@ -347,9 +359,40 @@ fun TransactionsScreen(
                     }
                 }
 
+                // Entries in another account: never let that read as "wiped".
+                val otherId = uiState.otherAccountId
+                val otherName = uiState.otherAccountName
+                if (otherId != null && otherName != null && uiState.otherAccountEntryCount > 0) {
+                    AppCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = otherAccountHint(uiState.otherAccountEntryCount, otherName),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2
+                                )
+                                Text(
+                                    text = "Shown: ${uiState.activeAccountName ?: "this account"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            AppPill(
+                                text = "Switch",
+                                onClick = { viewModel.switchAccount(otherId) },
+                                selected = true,
+                                contentDescription = "Switch to $otherName"
+                            )
+                        }
+                    }
+                }
+
                 if (grouped.isEmpty()) {
                     AppEmptyState(
-                        text = "No transactions yet.\nAdd an expense or deposit to get started.",
+                        text = historyEmptyMessage(uiState.activeAccountName),
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {

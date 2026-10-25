@@ -207,7 +207,12 @@ fun HomeScreen(
                 val recent = uiState.recentExpenses.take(if (compact) 6 else 10)
                 if (recent.isEmpty()) {
                     item(key = "recent_empty") {
-                        AppEmptyState("No transactions yet.\nAdd an expense or deposit to get started.")
+                        // Name the ledger: an empty list here means "nothing in THIS
+                        // account", not "your data is gone".
+                        AppEmptyState(
+                            "No entries in " + (uiState.activeAccount?.name ?: "this account") + " yet.\n" +
+                                "Add an expense or deposit, or switch account above."
+                        )
                     }
                 } else {
                     items(recent, key = { "expense_${it.id}" }) { expense ->

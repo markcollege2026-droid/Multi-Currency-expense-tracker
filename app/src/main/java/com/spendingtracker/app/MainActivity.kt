@@ -36,7 +36,19 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var financeRepository: FinanceRepository
 
-    private data class StartupInfo(val isSetupComplete: Boolean, val themeMode: String, val databaseError: Boolean = false)
+    private data class StartupInfo(
+        /**
+         * First-run setup is needed only when the ledger is empty. It is derived from
+         * the accounts table, not from the `isSetupComplete` flag: a stale flag sent
+         * users with a full ledger back into the wizard, which then created a second
+         * empty "Main" and made it active - the app looked wiped on the next launch.
+         */
+        val isSetupComplete: Boolean,
+        val themeMode: String,
+        val databaseError: Boolean = false,
+        /** Set when a dangling active account was re-pointed at a real one. */
+        val repairedActiveAccount: Boolean = false
+    )
 
     // Read on the main thread by Compose; written once DB load finishes off the main thread.
     private val startupState: MutableState<StartupInfo?> = mutableStateOf(null)
@@ -54,16 +66,22 @@ class MainActivity : ComponentActivity() {
                 var isSetupComplete = false
                 var themeMode = "SYSTEM"
                 var databaseError = false
+                var repairedActiveAccount = false
                 try {
                     financeRepository.ensureDefaultCategories()
                     val settings = financeRepository.getSettingsSync()
-                    isSetupComplete = settings?.isSetupComplete == true
                     themeMode = settings?.theme ?: "SYSTEM"
+                    val activeBefore = settings?.activeAccountId
+                    // Repairs a pointer left behind by a deleted/restored account and
+                    // clears a "not set up" flag that contradicts an existing ledger.
+                    val activeId = financeRepository.resolveActiveAccountId()
+                    isSetupComplete = activeId != null
+                    repairedActiveAccount = activeId != null && activeBefore != activeId
                 } catch (e: Exception) {
                     // Fail closed: an unreadable existing database must not look like first launch.
                     databaseError = true
                 }
-                StartupInfo(isSetupComplete, themeMode, databaseError)
+                StartupInfo(isSetupComplete, themeMode, databaseError, repairedActiveAccount)
             }
             startupState.value = info
         }

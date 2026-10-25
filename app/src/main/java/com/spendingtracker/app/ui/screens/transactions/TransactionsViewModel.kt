@@ -38,6 +38,16 @@ data class TransactionsUiState(
     val mainBalance: BigDecimal = BigDecimal.ZERO,
     val cashAccounts: List<Account> = emptyList(),
     val message: String? = null,
+    /** Name of the ledger being shown, so an empty list can say which account it is. */
+    val activeAccountName: String? = null,
+    /**
+     * Set when another main account holds entries while this one is empty. The data
+     * is not missing, it is in a different account - the exact confusion that made a
+     * healed ledger read as "history wiped".
+     */
+    val otherAccountId: Long? = null,
+    val otherAccountName: String? = null,
+    val otherAccountEntryCount: Int = 0,
     val isLoading: Boolean = true
 )
 
@@ -66,6 +76,19 @@ class TransactionsViewModel @Inject constructor(
                 // Balances for the whole ledger: the withdraw dialog needs the main
                 // figure, and History rows never need a second query.
                 val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals)
+                // Entries sitting in a *different* main account. Loaded from the raw
+                // rows, before they are scoped down to the active ledger.
+                val other = accounts
+                    .filter { it.type == "MAIN" && it.id != accountId }
+                    .map { candidate ->
+                        val own = accounts.filter { it.id == candidate.id || it.parentAccountId == candidate.id }.map { it.id }.toSet()
+                        val count = expenses.count { it.accountId == candidate.id } +
+                            topUps.count { it.accountId in own } +
+                            withdrawals.count { it.fromAccountId == candidate.id || it.toAccountId in own }
+                        candidate to count
+                    }
+                    .filter { it.second > 0 }
+                    .maxByOrNull { it.second }
                 _uiState.value.copy(
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
@@ -78,6 +101,10 @@ class TransactionsViewModel @Inject constructor(
                     balanceCurrency = account?.currency ?: "USD",
                     mainBalance = if (accountId == null) BigDecimal.ZERO else balances[accountId] ?: BigDecimal.ZERO,
                     cashAccounts = accounts.filter { it.parentAccountId == accountId && it.type == "CASH" },
+                    activeAccountName = account?.name,
+                    otherAccountId = other?.first?.id,
+                    otherAccountName = other?.first?.name,
+                    otherAccountEntryCount = other?.second ?: 0,
                     isLoading = false
                 )
             }.collect { baseState ->
@@ -213,6 +240,17 @@ class TransactionsViewModel @Inject constructor(
     }
 
     fun clearMessage() { _uiState.value = _uiState.value.copy(message = null) }
+
+    /** Switches the active ledger from the History hint, without leaving the tab. */
+    fun switchAccount(accountId: Long) {
+        viewModelScope.launch {
+            try {
+                financeRepository.setActiveAccount(accountId)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(message = e.message ?: "Could not switch account")
+            }
+        }
+    }
 
     /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
     suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =

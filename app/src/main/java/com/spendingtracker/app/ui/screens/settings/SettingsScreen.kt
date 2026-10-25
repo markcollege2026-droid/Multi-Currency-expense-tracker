@@ -124,14 +124,17 @@ fun SettingsScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    val summary = uiState.accountSummaries[account.id]
+                                    val entries = summary?.entries ?: 0
                                     Text(
-                                        text = "Start " + CurrencyFormatter.formatSimple(
-                                            account.startingBalanceAsBigDecimal(),
+                                        text = "Now " + CurrencyFormatter.formatSimple(
+                                            summary?.balance ?: account.startingBalanceAsBigDecimal(),
                                             account.currency
-                                        ),
+                                        ) + " · $entries " + if (entries == 1) "entry" else "entries",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 if (isActive) {
@@ -145,6 +148,8 @@ fun SettingsScreen(
                                     SmallAction("Use") { viewModel.switchAccount(account) }
                                 }
                                 SmallAction("Rename") { renameTarget = account }
+                                // The last main account holds the whole ledger: offer
+                                // no delete button for it at all.
                                 if (uiState.accounts.size > 1) {
                                     SmallAction("Delete", isError = true) { deleteTarget = account }
                                 }
@@ -397,19 +402,60 @@ fun SettingsScreen(
         }
 
         deleteTarget?.let { target ->
+            // Two accounts can share a name (both "Main"), and this delete removes
+            // every entry of the one that is tapped with no undo. Show what is at
+            // stake, and demand the name when it is not unique.
+            val summary = uiState.accountSummaries[target.id]
+            val duplicateName = uiState.accounts.count { it.name.equals(target.name, ignoreCase = true) } > 1
+            var typed by remember(target.id) { mutableStateOf("") }
             AppDialog(
                 onDismissRequest = { deleteTarget = null },
-                title = "Delete account?",
+                title = "Delete ${target.name}?",
                 confirmLabel = "Delete",
+                confirmEnabled = !duplicateName || typed.trim().equals(target.name, ignoreCase = true),
+                confirmColors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ),
                 onConfirm = {
                     viewModel.deleteAccount(target)
                     deleteTarget = null
                 }
             ) {
                 Text(
-                    text = "Deletes \"${target.name}\" together with its expenses and top-ups. This cannot be undone. Loans are kept.",
+                    text = "This deletes the account, its " + (summary?.entries ?: 0) +
+                        " entries (expenses, deposits, transfers, card payments) and its cash/card balances." +
+                        " A safety copy of the whole ledger is saved to app storage first." +
+                        " Loans are shared and kept. There is no undo inside the app.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                AppValueRow(
+                    "Current balance",
+                    CurrencyFormatter.format(
+                        summary?.balance ?: target.startingBalanceAsBigDecimal(),
+                        target.currency
+                    )
+                )
+                if (uiState.accounts.count { it.type == "MAIN" } <= 1) {
+                    Text(
+                        text = "This is the only main account and cannot be deleted.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (duplicateName) {
+                    Text(
+                        text = "Another account is also called \"${target.name}\". Type the name to confirm.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    AppTextField(
+                        value = typed,
+                        onValueChange = { typed = it },
+                        label = "Account name",
+                        placeholder = target.name
+                    )
+                }
             }
         }
 
@@ -444,10 +490,15 @@ fun SettingsScreen(
                 onDismissRequest = viewModel::dismissErase,
                 title = "Erase all data?",
                 confirmLabel = "Erase",
-                onConfirm = viewModel::confirmErase
+                // The erase is one transaction; afterwards there is no ledger, so the
+                // app restarts into setup instead of showing empty screens.
+                onConfirm = {
+                    viewModel.confirmErase { (context as? android.app.Activity)?.recreate() }
+                }
             ) {
                 Text(
-                    text = "Are you sure you want to erase all data? This cannot be undone.",
+                    text = "This deletes every account, entry, transfer and loan, and cannot be undone. " +
+                        "Save a backup from this screen first if you might want the data back.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }

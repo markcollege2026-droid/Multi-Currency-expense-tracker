@@ -44,6 +44,8 @@ data class HomeUiState(
     val activeAccount: Account? = null,
     val balanceAccounts: List<Account> = emptyList(),
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
+    /** Rows recorded against each balance, so a delete can say what it removes. */
+    val accountEntries: Map<Long, Int> = emptyMap(),
     val totalAvailable: BigDecimal = BigDecimal.ZERO,
     /** Cash balances that count toward [totalAvailable], converted into [balanceCurrency]. */
     val cashTotal: BigDecimal = BigDecimal.ZERO,
@@ -186,6 +188,14 @@ class HomeViewModel @Inject constructor(
                 val cashTotal = cashChildren.fold(BigDecimal.ZERO) { sum, a ->
                     sum + inBalanceCurrency(balances[a.id] ?: BigDecimal.ZERO, a.currency)
                 }
+                val entriesByAccount: Map<Long, Int> = accounts.associate { acc ->
+                    acc.id to (
+                        allExpenses.count { it.accountId == acc.id } +
+                            allTopUps.count { it.accountId == acc.id } +
+                            withdrawals.count { it.fromAccountId == acc.id || it.toAccountId == acc.id } +
+                            payments.count { it.cardId == acc.id || it.sourceAccountId == acc.id }
+                        )
+                }
                 val totalAvailable = mainBalance + includedChildren.fold(BigDecimal.ZERO) { sum, a ->
                     sum + inBalanceCurrency(balances[a.id] ?: BigDecimal.ZERO, a.currency)
                 }
@@ -210,6 +220,7 @@ class HomeViewModel @Inject constructor(
                     activeAccount = account,
                     balanceAccounts = accounts.filter { it.parentAccountId == accountId },
                     accountBalances = balances,
+                    accountEntries = entriesByAccount,
                     totalAvailable = totalAvailable,
                     cashTotal = cashTotal,
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
@@ -324,7 +335,11 @@ class HomeViewModel @Inject constructor(
         rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
     /** Removes a cash or card balance together with its own transactions. */
     fun deleteBalanceAccount(account: Account) = action {
-        financeRepository.deleteAccountCascade(account)
+        // NonCancellable: a delete interrupted by closing the app must not stop
+        // halfway through the cascade.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+            financeRepository.deleteAccountCascade(account)
+        }
         _uiState.update { it.copy(message = "${account.name} deleted") }
     }
     fun dismissPayment(payment: CreditCardPayment) = action { financeRepository.dismissPayment(payment) }
@@ -337,8 +352,13 @@ class HomeViewModel @Inject constructor(
 
     fun switchAccount(accountId: Long) {
         viewModelScope.launch {
-            val current = financeRepository.getSettingsSync() ?: return@launch
-            financeRepository.saveSettings(current.copy(activeAccountId = accountId))
+            try {
+                // Creates the settings row when it is missing instead of returning
+                // silently (a missing row made the account switcher a no-op).
+                financeRepository.setActiveAccount(accountId)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(message = e.message ?: "Could not switch account") }
+            }
         }
     }
 
@@ -346,10 +366,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val result = rateRepository.refreshRates(baseCurrency)
             result.onSuccess { timestamp ->
-                val current = financeRepository.getSettingsSync()
-                if (current != null) {
-                    financeRepository.saveSettings(current.copy(lastRatesUpdate = timestamp))
-                }
+                // Field-level write: a whole-row REPLACE from a stale snapshot could
+                // put back an old activeAccountId (and with it an empty ledger).
+                financeRepository.saveRatesTimestamp(timestamp)
             }
         }
     }
