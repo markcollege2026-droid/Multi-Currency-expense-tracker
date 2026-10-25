@@ -4,7 +4,7 @@ on:
     branches:
       - arena/de035df3-multi-currency-expense-tracker
     paths:
-      - release-apk/.fetch
+      - release-apk/FETCH.md
 
 permissions:
   contents: write
