@@ -410,7 +410,6 @@ class FinanceRepositoryTest {
         sql.execSQL("DROP TABLE loan_debts")
         sql.execSQL("ALTER TABLE old_loan_debts RENAME TO loan_debts")
         sql.execSQL("ALTER TABLE old_repayments RENAME TO repayments")
-        sql.execSQL("CREATE INDEX IF NOT EXISTS index_repayments_loanDebtId ON repayments(loanDebtId)")
         sql.version = 5
         existing.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
@@ -560,7 +559,6 @@ class FinanceRepositoryTest {
         sql.execSQL("DROP TABLE loan_debts")
         sql.execSQL("CREATE TABLE loan_debts (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, type TEXT NOT NULL, personName TEXT NOT NULL, amountOriginal TEXT NOT NULL, currencyOriginal TEXT NOT NULL, date INTEGER NOT NULL, dueDate INTEGER, note TEXT, isSettled INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
         sql.execSQL("CREATE TABLE repayments (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, loanDebtId INTEGER NOT NULL, amount TEXT NOT NULL, date INTEGER NOT NULL, note TEXT, createdAt INTEGER NOT NULL, FOREIGN KEY(loanDebtId) REFERENCES loan_debts(id) ON UPDATE NO ACTION ON DELETE CASCADE )")
-        sql.execSQL("CREATE INDEX index_repayments_loanDebtId ON repayments(loanDebtId)")
         sql.version = 3
         existing.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
