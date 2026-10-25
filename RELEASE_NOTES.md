@@ -1,5 +1,7 @@
 # Spending Tracker 1.9.1 — Account safety
 
+Released 25 October 2026.
+
 ## The bug that made history look deleted
 A ledger could open completely empty after a restart while **nothing had been deleted**.
 Sequence that triggered it:
