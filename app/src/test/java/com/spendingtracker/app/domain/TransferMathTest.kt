@@ -46,6 +46,15 @@ class TransferMathTest {
         assertMoney("0.00", amounts.from)
     }
 
+    @Test fun totalEffectOnlyChangesAcrossTheSetAsideBoundary() {
+        assertEquals(TotalEffect.UNCHANGED, TransferMath.totalEffect(true, true))
+        assertEquals(TotalEffect.UNCHANGED, TransferMath.totalEffect(false, false))
+        // Counted money parked in a set-aside balance leaves the total...
+        assertEquals(TotalEffect.DECREASES, TransferMath.totalEffect(true, false))
+        // ...and comes back into it when transferred out again.
+        assertEquals(TotalEffect.INCREASES, TransferMath.totalEffect(false, true))
+    }
+
     @Test fun nonPositiveRateFallsBackToParity() {
         assertMoney("10.00", TransferMath.amountsFromSource(BigDecimal("10"), BigDecimal.ZERO).to)
         assertMoney("10.00", TransferMath.amountsFromTarget(BigDecimal("10"), BigDecimal("-2")).from)

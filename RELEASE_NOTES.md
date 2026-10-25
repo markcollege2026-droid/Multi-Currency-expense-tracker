@@ -1,3 +1,89 @@
+# Spending Tracker 1.10.0 — Cash transfers & loan settlements
+
+Released 25 October 2026.
+
+## Transfer between any two balances (cash → cash included)
+The Add menu on Home and in History (Transactions) gains a fourth option,
+**Transfer**. Pick any source and any destination — main or any cash balance,
+including cash → cash — type the amount in either currency, and see both
+balances after the move before you confirm.
+
+- A transfer is stored as **one row with both sides** (each in its own
+  currency). When one side is a cash balance that is **set aside** (not counted
+  in total available), both balances still move by exactly the transferred
+  amount, and the total changes by exactly that amount as money crosses into
+  or out of the set-aside balance. The dialog says so up front. The transfer
+  row itself is the adjustment — it is never recorded as an expense plus a
+  deposit, so spending and deposit totals are never inflated.
+- Transfers cannot overdraw their source, cannot involve credit cards or a
+  different main account, and convert cross-currency with the typed side
+  stored exactly (same rule as withdrawals).
+
+## Loans settle through real accounts — or externally
+**Settle** on any active loan now opens a settlement form instead of just
+flipping a flag:
+
+- Amount defaults to the whole remaining balance; part-payments are allowed
+  and keep the loan active with the reduced remainder.
+- A **dropdown** chooses where the money moves: **External revenue (default)**
+  — recorded as a transaction but no balance changes — the main balance, or any
+  cash balance, each listed with its current balance. Paying a debt cannot
+  exceed what the chosen balance holds; receiving a loan repayment has no such
+  limit. Cross-currency settlements store both sides and preview the converted
+  amount and the balance afterwards.
+- Every repayment/settlement is a **transaction**: it appears in History
+  (filter: **Loans**), moves the linked balance, and deleting it reopens the
+  loan and reverses the money.
+
+## Settled loans move to the Archive
+Once a loan reaches zero it leaves the active Loans page (and its totals) and
+moves to the **Archive**, opened with the Archive button next to **+** at the
+top of the Loans page. From the archive a loan can be reopened — reopening
+deletes exactly the transaction that settled it — or deleted. Loans settled
+before this release appear in the archive automatically.
+
+## "Owed to me" creation fixed
+The **+ Add** above each Loans section now creates that section's loan type
+("I owe" above debts, "Owed to me" above loans), and the top **+** asks which
+type you mean before the form opens. Previously every path opened a blank
+"I owe" form.
+
+## Delete one account, keep everything else
+Settings → Accounts now lists every cash and card balance under its main
+account, each with its own balance, entry count and **Delete**. Deleting one
+removes only that account and its own entries: transferred money returns to
+the balances it came from, every other account is untouched, and shared loans
+survive (settlements paid from the deleted balance become external records
+instead of dangling or reopening their loans). A whole-ledger JSON safety copy
+is written to app storage before any single-account delete. The existing
+guards stay: the last main account cannot be deleted, and duplicate account
+names must be typed to confirm.
+
+## Compatibility and migrations
+Same application ID and release signing key; installs over 1.9.x without
+uninstalling. Version code **11**, version name **1.10.0**, minSdk 26,
+targetSdk 35. Database **version 6** (explicit 5→6 migration: settlement
+bookkeeping columns; existing repayments stay external so no balance changes
+on upgrade). JSON backups are **schema 6** and still import schemas 1–5;
+cash→cash transfers and account-linked settlements round-trip through export,
+restore and CSV.
+
+## Testing
+GitHub Actions runs the full unit suite, lint, debug + signed release APKs,
+the AAB and upgrade checks against v1.8.0. New coverage: cash→cash transfers
+(same/cross currency, set-aside totals, cross-ledger/card rejection,
+overdraw), loan settlements (cash/main/external, part-payments, overpay and
+insufficient-funds rejection, cross-currency, reopen and delete reversal,
+already-repaid archiving, backup round-trip, 5→6 migration keeping legacy
+repayments external), per-account deletion isolation across two ledgers, and
+transfer/settlement form + dialog tests including the loan-type chooser.
+
+## Limits
+Settlements pick balances from the active main account (loans themselves stay
+shared, as before). Account-funded settlements are started from the Loans
+tab's Settle action; repayments typed on the loan edit screen remain external.
+These are local accounting entries, not bank transfers.
+
 # Spending Tracker 1.9.1 — Account safety
 
 Released 25 October 2026.

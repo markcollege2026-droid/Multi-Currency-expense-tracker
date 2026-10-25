@@ -39,4 +39,18 @@ object TransferMath {
     /** Whichever side the user is typing, returns both. */
     fun amounts(typed: BigDecimal, rate: BigDecimal, typedInTargetCurrency: Boolean): TransferAmounts =
         if (typedInTargetCurrency) amountsFromTarget(typed, rate) else amountsFromSource(typed, rate)
+
+    /**
+     * What a transfer does to "total available", given whether each side counts
+     * toward that total. Both balances always move by the transferred amount; the
+     * total only changes when money crosses the included / set-aside boundary.
+     */
+    fun totalEffect(sourceCountsTowardTotal: Boolean, targetCountsTowardTotal: Boolean): TotalEffect = when {
+        sourceCountsTowardTotal == targetCountsTowardTotal -> TotalEffect.UNCHANGED
+        sourceCountsTowardTotal -> TotalEffect.DECREASES // counted money moves into a set-aside balance
+        else -> TotalEffect.INCREASES // set-aside money comes back into the counted total
+    }
 }
+
+/** Effect of a transfer on total available money. See [TransferMath.totalEffect]. */
+enum class TotalEffect { UNCHANGED, INCREASES, DECREASES }

@@ -36,6 +36,7 @@ import java.util.*
 @Composable
 fun AddLoanScreen(
     loanId: Long?,
+    initialType: String? = null,
     onBack: () -> Unit,
     viewModel: AddLoanViewModel = hiltViewModel()
 ) {
@@ -48,8 +49,8 @@ fun AddLoanScreen(
     val hardwareKeypad = LocalHardwareKeypad.current
     val compact = LocalCompactUi.current
 
-    LaunchedEffect(loanId) {
-        viewModel.loadLoan(loanId)
+    LaunchedEffect(loanId, initialType) {
+        viewModel.loadLoan(loanId, initialType)
         focus.requestFocus()
         if (hardwareKeypad) keyboard?.hide()
     }
@@ -57,7 +58,11 @@ fun AddLoanScreen(
     Scaffold(
         topBar = {
             AppTopBar(
-                title = if (uiState.isEditMode) "Edit loan/debt" else "Add loan/debt",
+                title = when {
+                    uiState.isEditMode -> "Edit loan/debt"
+                    uiState.type == LoanDebt.TYPE_LOAN -> "Add loan (owed to me)"
+                    else -> "Add debt (I owe)"
+                },
                 onBack = {
                     keyboard?.hide()
                     onBack()
@@ -139,6 +144,16 @@ fun AddLoanScreen(
                         selected = uiState.type == LoanDebt.TYPE_LOAN,
                         onClick = { viewModel.onTypeChanged(LoanDebt.TYPE_LOAN) },
                         label = "Owed to me"
+                    )
+                }
+            }
+            if (uiState.isSettled) {
+                item(key = "settled_banner") {
+                    Text(
+                        text = "Settled - this loan is in the Archive. Reopen it from the Loans tab to record more payments.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 3
                     )
                 }
             }
@@ -285,6 +300,7 @@ fun AddLoanScreen(
                             )
                             Text(
                                 text = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(rep.date)) +
+                                    (if (rep.id == uiState.settlementRepaymentId) " · settlement" else "") +
                                     (rep.note?.let { " · $it" } ?: ""),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -327,7 +343,7 @@ fun AddLoanScreen(
         pendingRepaymentDelete?.let { repayment ->
             AppConfirmDialog(
                 title = "Delete repayment?",
-                message = "Removing this repayment reopens " +
+                message = "Removing this repayment reopens the loan if it settled it, and reverses any balance it moved. It re-adds " +
                     CurrencyFormatter.formatSimple(
                         try { java.math.BigDecimal(repayment.amount) } catch (e: Exception) { java.math.BigDecimal.ZERO },
                         uiState.currency

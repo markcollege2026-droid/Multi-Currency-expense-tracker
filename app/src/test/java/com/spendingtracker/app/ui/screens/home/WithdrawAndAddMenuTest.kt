@@ -222,6 +222,7 @@ abstract class AddMenuTestBase {
         var expense = false
         var income = false
         var withdraw = false
+        var transfer = false
         compose.setContent {
             SpendingTrackerTheme(dynamicColor = false) {
                 AddMenu(
@@ -229,7 +230,8 @@ abstract class AddMenuTestBase {
                     onToggle = {},
                     onExpense = { expense = true },
                     onDeposit = { income = true },
-                    onWithdraw = { withdraw = true }
+                    onWithdraw = { withdraw = true },
+                    onTransfer = { transfer = true }
                 )
             }
         }
@@ -237,13 +239,16 @@ abstract class AddMenuTestBase {
         // The main balance's entry point is a deposit, not "income".
         compose.onNodeWithText("Deposit").assertIsDisplayed()
         compose.onNodeWithText("Withdraw", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Transfer", substring = true).assertIsDisplayed()
 
         compose.onNodeWithText("Expense").performClick()
         compose.onNodeWithText("Deposit").performClick()
         compose.onNodeWithText("Withdraw", substring = true).performClick()
+        compose.onNodeWithText("Transfer", substring = true).performClick()
         assertTrue("Expense option did not navigate", expense)
         assertTrue("Deposit option did not navigate", income)
         assertTrue("Withdraw option did not open the withdraw dialog", withdraw)
+        assertTrue("Transfer option did not open the transfer dialog", transfer)
     }
 
     @Test

@@ -27,7 +27,27 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.9.1 — account safety (no more "history wiped" after a restart)
+## Current release: 1.10.0 — cash-to-cash transfers and loan settlements
+
+**Transfers between any two balances, loans that settle through real accounts.**
+Version code **11**, database **version 6** (explicit 5→6 migration), JSON backups
+**schema 6** (schemas 1–5 still import). Same application ID and signing key - installs
+over 1.9.x without uninstalling.
+
+| Change | Where |
+|---|---|
+| **Transfer** joins Expense / Deposit / Withdraw in the Add menu (Home and History): pick any source and destination - main, or any cash balance, **cash → cash included** - type the amount in either currency, and see both balances after the move before confirming | `TransferDialog`, `FinanceRepository.transfer` |
+| A transfer is **one row with both sides** in their own currencies. If one side is *set aside* (`includedInTotal = false`), both balances still move exactly and *total available* changes by exactly the transferred value - the transfer row itself is the adjustment, never an expense + deposit pair | `AccountBalances`, `TransferMath.totalEffect` |
+| **Settle** on a loan now records a real transaction: amount (whole remainder by default, part-payments allowed) and a **dropdown** source/destination - **External revenue (default)**, main, or any cash balance, each shown with its balance. Debts check the paying balance; cross-currency settlements store both sides | `SettleLoanDialog`, `FinanceRepository.recordRepayment` |
+| Settled loans leave the active page for the **Archive** (button next to **+** on Loans), appear in **History** under the Loans filter, and can be **reopened** - which reverses the settlement transaction through its account | `LoansScreen`, `TransactionsScreen` |
+| The **+ Add** under each Loans section now creates that section's type, and the top **+** asks **I owe / Owed to me** before the form opens (previously always "I owe") | `LoanTypeChooserDialog`, `Screen.AddLoan(loanType)` |
+| Settings → Accounts lists every **cash/card balance** under its main account, each **deletable on its own**; a whole-ledger safety copy is saved before any single-account delete, and settlements paid from a deleted balance become external instead of reopening their loans | `SettingsScreen`, `deleteAccountCascade`, `RepaymentDao.unlinkAccount` |
+
+Balances now also include account-linked loan settlements (`AccountBalances` gains
+repayments/loans; external repayments - including every repayment from before 1.10 -
+never move a balance). Totals on the Loans page count active loans only.
+
+## Previous release: 1.9.1 — account safety (no more "history wiped" after a restart)
 
 **Fixed: a ledger could look completely empty after a reboot even though nothing was
 deleted.** An "erase all data" left `isSetupComplete = false` behind; creating an
@@ -56,7 +76,7 @@ reopened - committed rows and the active pointer survive a restart), and
 `AccountVisibilityMessageTest` (empty-state wording). Version code **10**, database
 still **version 5**, JSON backups still **schema 5**.
 
-## Previous release: 1.9.0 — one Add menu, deposits and cash transfers
+## Earlier release: 1.9.0 — one Add menu, deposits and cash transfers
 
 **[Download v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)**
 — `app-release.apk` (signed, ~2.2 MB), `app-release.aab` for Play, R8 `mapping.txt` and

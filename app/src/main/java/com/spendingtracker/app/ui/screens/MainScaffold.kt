@@ -56,7 +56,7 @@ fun MainScaffold(
     onNavigateToRecurring: () -> Unit,
     onEditExpense: (Long) -> Unit,
     onEditTopUp: (Long) -> Unit,
-    onAddLoan: () -> Unit,
+    onAddLoan: (String) -> Unit,
     onEditLoan: (Long) -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(Screen.Home.route) }

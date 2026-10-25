@@ -39,7 +39,8 @@ class AccountLifecycleTest {
             .build()
         repository = FinanceRepository(
             db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(), db.accountDao(),
-            db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(), db
+            db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(),
+            db.loanDebtDao(), db.repaymentDao(), db
         )
     }
 
@@ -256,6 +257,84 @@ class AccountLifecycleTest {
         assertTrue(repository.getAllExpensesSync().isEmpty())
         assertTrue(repository.needsSetup())
         assertNull(repository.resolveActiveAccountId())
+    }
+
+    // ---- deleting one account never affects another ----
+
+    @Test
+    fun deletingACashBalanceLeavesEveryOtherAccountUntouched() = runBlocking {
+        // Two independent ledgers, each with its own cash, entries and transfer.
+        val mainA = mainAccount("A", 1)
+        val mainB = mainAccount("B", 2)
+        repository.updateAccount(repository.getAccountById(mainA)!!.copy(startingBalance = "1000"))
+        repository.updateAccount(repository.getAccountById(mainB)!!.copy(startingBalance = "2000"))
+        val cashA = repository.createBalanceAccount(mainA, "Cash A", "CASH", BigDecimal("100"))
+        val cashB = repository.createBalanceAccount(mainB, "Cash B", "CASH", BigDecimal("200"))
+        repository.transfer(mainA, cashA, BigDecimal("50"), BigDecimal.ONE)
+        repository.transfer(mainB, cashB, BigDecimal("70"), BigDecimal.ONE)
+        expense(mainA, "10", balanceAccountId = cashA)
+        expense(mainB, "20", balanceAccountId = cashB)
+        expense(mainB, "5")
+        repository.insertTopUp(TopUp(accountId = cashB, amount = "30", date = 1, note = null))
+        // A loan settled out of each cash balance (loans are shared, accounts not).
+        val debtA = db.loanDebtDao().insertLoanDebt(
+            LoanDebt(type = "DEBT", personName = "A", amountOriginal = "40", currencyOriginal = "ILS", date = 1, dueDate = null, note = null))
+        val debtB = db.loanDebtDao().insertLoanDebt(
+            LoanDebt(type = "DEBT", personName = "B", amountOriginal = "60", currencyOriginal = "ILS", date = 1, dueDate = null, note = null))
+        repository.settleLoan(debtA, accountId = cashA)
+        repository.settleLoan(debtB, accountId = cashB)
+
+        // Delete ONLY cash A.
+        repository.deleteAccountCascade(repository.getAccountById(cashA)!!)
+
+        val balances = repository.balances()
+        // Main A only loses the transfer into the deleted cash (money returns).
+        assertEquals(0, BigDecimal("1000").compareTo(balances.getValue(mainA)))
+        // Ledger B is completely untouched: 2000-70 transfer-5 expense = 1925 main,
+        // 200+70+30-20 expense-60 settlement = 220 cash.
+        assertEquals(0, BigDecimal("1925").compareTo(balances.getValue(mainB)))
+        assertEquals(0, BigDecimal("220").compareTo(balances.getValue(cashB)))
+        // B's rows are all still there (A's cash expense went with cash A).
+        assertEquals(2, repository.getAllExpensesSync().size)
+        assertEquals(1, repository.getAllTopUpsSync().size)
+        assertEquals(1, repository.getWithdrawalsSync().size)
+        assertEquals(mainB, repository.getWithdrawalsSync().single().fromAccountId)
+        // Shared loans survive; the settlement paid from the deleted cash becomes
+        // external instead of reopening the loan, B's stays linked to cash B.
+        assertEquals(2, db.loanDebtDao().getAllLoanDebtsSync().size)
+        assertTrue(db.loanDebtDao().getLoanDebtById(debtA)!!.isSettled)
+        val repayments = db.repaymentDao().getAllRepaymentsSync().associateBy { it.loanDebtId }
+        assertNull(repayments.getValue(debtA).accountId)
+        assertEquals(cashB, repayments.getValue(debtB).accountId)
+    }
+
+    @Test
+    fun deletingAMainAccountLeavesTheOtherMainCompletelyUntouched() = runBlocking {
+        val doomed = mainAccount("Doomed", 1)
+        val keeper = mainAccount("Keeper", 2)
+        repository.updateAccount(repository.getAccountById(keeper)!!.copy(startingBalance = "500"))
+        val keeperCash = repository.createBalanceAccount(keeper, "Keeper cash", "CASH", BigDecimal("80"))
+        val doomedCash = repository.createBalanceAccount(doomed, "Doomed cash", "CASH", BigDecimal("90"))
+        expense(keeper, "15", balanceAccountId = keeperCash)
+        expense(doomed, "25", balanceAccountId = doomedCash)
+        expense(doomed, "7")
+        repository.insertTopUp(TopUp(accountId = keeper, amount = "100", date = 1, note = null))
+        repository.setActiveAccount(keeper)
+
+        repository.deleteAccountCascade(repository.getAccountById(doomed)!!)
+
+        assertEquals(1, repository.getAccountCount())
+        assertNotNull(repository.getAccountById(keeper))
+        assertNotNull(repository.getAccountById(keeperCash))
+        assertNull(repository.getAccountById(doomedCash))
+        val balances = repository.balances()
+        assertEquals(0, BigDecimal("600").compareTo(balances.getValue(keeper)))
+        assertEquals(0, BigDecimal("65").compareTo(balances.getValue(keeperCash)))
+        // Only the keeper's rows remain.
+        assertEquals(1, repository.getAllExpensesSync().size)
+        assertEquals(keeper, repository.getAllExpensesSync().single().accountId)
+        assertEquals(1, repository.getAllTopUpsSync().size)
+        assertEquals(keeper, repository.resolveActiveAccountId())
     }
 
     // ---- summaries ----

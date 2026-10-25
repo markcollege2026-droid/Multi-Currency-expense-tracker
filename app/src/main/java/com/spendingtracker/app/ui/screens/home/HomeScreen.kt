@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.Expense
+import com.spendingtracker.app.ui.screens.transactions.TransferDialog
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
@@ -56,6 +57,7 @@ fun HomeScreen(
     var showQuickAdd by remember { mutableStateOf(false) }
     var showAdjustBalance by remember { mutableStateOf(false) }
     var showWithdraw by remember { mutableStateOf(false) }
+    var showTransfer by remember { mutableStateOf(false) }
     // The pop-out Add menu doubles as the primary "what happened?" entry point.
     var addMenuOpen by rememberSaveable { mutableStateOf(false) }
     // Hoisted so both the accounts panel and the withdraw dialog can open the
@@ -173,7 +175,8 @@ fun HomeScreen(
                         onToggle = { addMenuOpen = !addMenuOpen },
                         onExpense = { addMenuOpen = false; onNavigateToAddExpense() },
                         onDeposit = { addMenuOpen = false; onNavigateToAddTopUp() },
-                        onWithdraw = { addMenuOpen = false; showWithdraw = true }
+                        onWithdraw = { addMenuOpen = false; showWithdraw = true },
+                        onTransfer = { addMenuOpen = false; showTransfer = true }
                     )
                 }
 
@@ -260,6 +263,7 @@ fun HomeScreen(
             onAddExpense = { showQuickAdd = false; onNavigateToAddExpense() },
             onAddMoney = { showQuickAdd = false; onNavigateToAddTopUp() },
             onWithdraw = { showQuickAdd = false; withdrawTargetId = null; showWithdraw = true },
+            onTransfer = { showQuickAdd = false; showTransfer = true },
             onAddRecurring = { showQuickAdd = false; onNavigateToRecurring() }
         )
     }
@@ -285,6 +289,24 @@ fun HomeScreen(
                 showWithdraw = false
                 withdrawTargetId = null
             }
+        )
+    }
+
+    if (showTransfer) {
+        TransferDialog(
+            // Main plus every cash balance: cash-to-cash included.
+            accounts = listOfNotNull(uiState.activeAccount) + cashAccounts,
+            balances = uiState.accountBalances,
+            rateLookup = viewModel::conversionRate,
+            onConfirm = { fromId, toId, amountFrom, amountTo, note ->
+                viewModel.transfer(fromId, toId, amountFrom, amountTo, note)
+                showTransfer = false
+            },
+            onCreateCash = {
+                showTransfer = false
+                createType = "CASH"
+            },
+            onDismiss = { showTransfer = false }
         )
     }
 
@@ -665,6 +687,7 @@ fun QuickAddBottomSheet(
     onAddExpense: () -> Unit,
     onAddMoney: () -> Unit,
     onWithdraw: () -> Unit = {},
+    onTransfer: () -> Unit = {},
     onAddRecurring: () -> Unit = {}
 ) {
     val compact = LocalCompactUi.current
@@ -695,14 +718,16 @@ fun QuickAddBottomSheet(
             AppButton(onClick = onAddExpense, modifier = Modifier.fillMaxWidth()) { Text("Add expense") }
             AppOutlinedButton(onClick = onAddMoney, modifier = Modifier.fillMaxWidth()) { Text("Deposit into main") }
             AppOutlinedButton(onClick = onWithdraw, modifier = Modifier.fillMaxWidth()) { Text("Withdraw to cash") }
+            AppOutlinedButton(onClick = onTransfer, modifier = Modifier.fillMaxWidth()) { Text("Transfer between balances") }
             AppOutlinedButton(onClick = onAddRecurring, modifier = Modifier.fillMaxWidth()) { Text("Recurring payment") }
         }
     }
 }
 
 /**
- * The "+ Add" control: one primary button that pops out the three ways money
- * moves - a new expense, a deposit into main, or a withdrawal into cash.
+ * The "+ Add" control: one primary button that pops out the ways money moves -
+ * a new expense, a deposit into main, a withdrawal into cash, or a transfer
+ * between any two balances (cash to cash included).
  *
  * The option row (and its stagger) lives in `AddMenuOptions`, shared with the
  * History toolbar so both screens behave identically.
@@ -713,7 +738,8 @@ fun AddMenu(
     onToggle: () -> Unit,
     onExpense: () -> Unit,
     onDeposit: () -> Unit,
-    onWithdraw: () -> Unit
+    onWithdraw: () -> Unit,
+    onTransfer: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         AppButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
@@ -724,13 +750,14 @@ fun AddMenu(
             options = listOf(
                 AddMenuOption(label = "Expense", onClick = onExpense, primary = true),
                 AddMenuOption(label = "Deposit", onClick = onDeposit, emphasized = true),
-                AddMenuOption(label = "Withdraw", onClick = onWithdraw)
+                AddMenuOption(label = "Withdraw", onClick = onWithdraw),
+                AddMenuOption(label = "Transfer", onClick = onTransfer)
             )
         )
         if (expanded) {
             Text(
-                text = "Moves money from main into a cash balance, or deposit into main " +
-                    "from a cash balance - converting automatically across currencies.",
+                text = "Moves money from main into a cash balance, back into main, or " +
+                    "between two cash balances - converting automatically across currencies.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3

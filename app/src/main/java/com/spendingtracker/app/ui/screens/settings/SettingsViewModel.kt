@@ -48,6 +48,8 @@ data class SettingsUiState(
     val message: String? = null,
     val error: String? = null,
     val accounts: List<Account> = emptyList(),
+    /** Every account incl. cash/card children, so each one can be managed (and deleted) on its own. */
+    val balanceAccounts: List<Account> = emptyList(),
     /** Entries and derived balance per account, so deleting one can say what is at stake. */
     val accountSummaries: Map<Long, com.spendingtracker.app.data.repository.AccountSummary> = emptyMap(),
     val activeAccountId: Long = 1,
@@ -118,6 +120,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             financeRepository.getAllAccounts().collect { accounts ->
                 _uiState.value = _uiState.value.copy(accounts = accounts)
+            }
+        }
+        viewModelScope.launch {
+            financeRepository.observeBalanceAccounts().collect { accounts ->
+                _uiState.value = _uiState.value.copy(balanceAccounts = accounts)
             }
         }
         viewModelScope.launch {
@@ -199,7 +206,9 @@ class SettingsViewModel @Inject constructor(
         if (_uiState.value.backupBusy) return
         viewModelScope.launch {
             try {
-                val snapshot = if (account.type == "MAIN") snapshotBeforeDelete(account) else null
+                // Snapshot before deleting ANY single account (main, cash or card):
+                // the copy is whole-ledger JSON, cheap insurance for a misclick.
+                val snapshot = snapshotBeforeDelete(account)
                 val survivor = withContext(NonCancellable) { financeRepository.deleteAccountCascade(account) }
                 val summary = _uiState.value.accountSummaries[account.id]
                 _uiState.value = _uiState.value.copy(

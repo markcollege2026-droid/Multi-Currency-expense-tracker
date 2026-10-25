@@ -329,6 +329,10 @@ fun WithdrawDialogBody(
         text = if (needsConversion) {
             "Converted at the cached rate when you confirm. This is a transfer, " +
                 "not spending, so category totals are unchanged."
+        } else if (target != null && !target.includedInTotal) {
+            // The cash side is exact either way; only the counted total drops.
+            "Moves money from main into this set-aside cash balance, so total " +
+                "available falls by the amount while both balances stay exact."
         } else {
             "Moves money from main into this cash balance. Total available stays the same."
         },

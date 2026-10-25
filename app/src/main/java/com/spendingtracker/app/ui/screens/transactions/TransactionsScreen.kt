@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.CreditCardPayment
 import com.spendingtracker.app.data.local.entity.Expense
+import com.spendingtracker.app.data.local.entity.LoanDebt
+import com.spendingtracker.app.data.local.entity.Repayment
 import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.data.local.entity.Withdrawal
 import com.spendingtracker.app.ui.compact.LocalAppDimens
@@ -102,7 +104,9 @@ data class TransactionDetails(
     val method: String? = null,
     val note: String? = null,
     val date: Long,
-    /** Null when the row has no editor (transfers); the dialog then hides Edit. */
+    /** Money out of a balance (expense, debt paid) rather than money in. */
+    val negative: Boolean = false,
+    /** Null when the row has no editor (transfers, loans); the dialog then hides Edit. */
     val edit: (() -> Unit)? = null
 )
 
@@ -124,6 +128,7 @@ fun TransactionsScreen(
     var showCategoryFilter by remember { mutableStateOf(false) }
     var addOpen by rememberSaveable { mutableStateOf(false) }
     var showWithdraw by remember { mutableStateOf(false) }
+    var showTransfer by remember { mutableStateOf(false) }
     // Tapping a row opens its details; editing is a choice, never automatic.
     var details by remember { mutableStateOf<TransactionDetails?>(null) }
     var detailsDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -147,6 +152,7 @@ fun TransactionsScreen(
         uiState.filteredExpenses,
         uiState.filteredTopUps,
         uiState.filteredWithdrawals,
+        uiState.filteredRepayments,
         uiState.cardPayments,
         uiState.selectedType,
         uiState.searchQuery,
@@ -160,6 +166,7 @@ fun TransactionsScreen(
             uiState.filteredExpenses.map { it.date to it } +
                 uiState.filteredTopUps.map { it.date to it } +
                 uiState.filteredWithdrawals.map { it.date to it } +
+                uiState.filteredRepayments.map { it.date to it } +
                 uiState.cardPayments.filter {
                     (uiState.selectedType == null || uiState.selectedType == "CARD_PAYMENT") &&
                         uiState.selectedCategoryId == null &&
@@ -228,6 +235,10 @@ fun TransactionsScreen(
                         AddMenuOption(
                             label = "Withdraw",
                             onClick = { addOpen = false; showWithdraw = true }
+                        ),
+                        AddMenuOption(
+                            label = "Transfer",
+                            onClick = { addOpen = false; showTransfer = true }
                         )
                     ),
                     modifier = Modifier.padding(top = 6.dp)
@@ -264,6 +275,11 @@ fun TransactionsScreen(
                         selected = uiState.selectedType == "WITHDRAWAL",
                         onClick = { viewModel.onTypeSelected("WITHDRAWAL") },
                         label = "Transfers"
+                    )
+                    AppFilterChip(
+                        selected = uiState.selectedType == "LOAN",
+                        onClick = { viewModel.onTypeSelected("LOAN") },
+                        label = "Loans"
                     )
                 }
 
@@ -319,7 +335,7 @@ fun TransactionsScreen(
                 }
 
                 val shownCount = uiState.filteredExpenses.size + uiState.filteredTopUps.size +
-                    uiState.filteredWithdrawals.size
+                    uiState.filteredWithdrawals.size + uiState.filteredRepayments.size
                 if (shownCount > 0) {
                     Text(
                         text = "$shownCount entries · spent " +
@@ -424,6 +440,7 @@ fun TransactionsScreen(
                                         onOpen = {
                                             details = TransactionDetails(
                                                 kind = "Expense",
+                                                negative = true,
                                                 amount = item.convertedAsBigDecimal(),
                                                 currency = item.currencyConverted,
                                                 secondary = if (item.currencyOriginal != item.currencyConverted) {
@@ -489,6 +506,7 @@ fun TransactionsScreen(
                                     )
                                     is Withdrawal -> WithdrawalRow(
                                         withdrawal = item,
+                                        fromName = uiState.accountsById[item.fromAccountId]?.name,
                                         toName = uiState.accountsById[item.toAccountId]?.name,
                                         onOpen = {
                                             details = TransactionDetails(
@@ -498,15 +516,18 @@ fun TransactionsScreen(
                                                 secondary = item.amountToAsBigDecimal() to item.currencyTo,
                                                 rate = item.rateAsBigDecimal(),
                                                 account = (uiState.accountsById[item.fromAccountId]?.name ?: "Main") +
-                                                    " → " + (uiState.accountsById[item.toAccountId]?.name ?: "Cash"),
+                                                    " \u2192 " + (uiState.accountsById[item.toAccountId]?.name ?: "Cash"),
                                                 note = item.note,
                                                 date = item.date,
+                                                negative = true,
                                                 edit = null
                                             )
                                             detailsDelete = {
                                                 pendingDelete = "This transfer of " +
                                                     CurrencyFormatter.format(item.amountFromAsBigDecimal(), item.currencyFrom) +
-                                                    " is removed from both balances." to
+                                                    " returns to " + (uiState.accountsById[item.fromAccountId]?.name ?: "the source") +
+                                                    " and is removed from " +
+                                                    (uiState.accountsById[item.toAccountId]?.name ?: "the destination") + "." to
                                                     { viewModel.deleteWithdrawal(item) }
                                             }
                                         },
@@ -515,11 +536,54 @@ fun TransactionsScreen(
                                                 CurrencyFormatter.format(
                                                     item.amountFromAsBigDecimal(),
                                                     item.currencyFrom
-                                                ) + " returns to main and is removed from " +
-                                                (uiState.accountsById[item.toAccountId]?.name ?: "the cash balance") +
+                                                ) + " returns to " +
+                                                (uiState.accountsById[item.fromAccountId]?.name ?: "the source balance") +
+                                                " and is removed from " +
+                                                (uiState.accountsById[item.toAccountId]?.name ?: "the destination") +
                                                 "." to { viewModel.deleteWithdrawal(item) }
                                         }
                                     )
+                                    is Repayment -> {
+                                        val loan = uiState.loansById[item.loanDebtId]
+                                        if (loan != null) {
+                                            LoanRepaymentRow(
+                                                repayment = item,
+                                                loan = loan,
+                                                accountName = item.accountId?.let { uiState.accountsById[it]?.name },
+                                                onOpen = {
+                                                    val settles = loan.settlementRepaymentId == item.id
+                                                    details = TransactionDetails(
+                                                        kind = if (settles) "Loan settlement" else "Loan repayment",
+                                                        amount = item.amountAsBigDecimal(),
+                                                        currency = loan.currencyOriginal,
+                                                        secondary = item.accountAmountAsBigDecimalOrNull()?.let { moved ->
+                                                            if (item.accountCurrency != null &&
+                                                                item.accountCurrency != loan.currencyOriginal
+                                                            ) moved to item.accountCurrency else null
+                                                        },
+                                                        rate = item.rateAsBigDecimalOrNull(),
+                                                        account = (if (loan.type == LoanDebt.TYPE_DEBT) "Paid from " else "Received into ") +
+                                                            (item.accountId?.let { uiState.accountsById[it]?.name }
+                                                                ?: if (loan.type == LoanDebt.TYPE_DEBT) "external revenue" else "external"),
+                                                        method = if (loan.type == LoanDebt.TYPE_DEBT) "I owe" else "Owed to me",
+                                                        note = (loan.personName + (item.note?.takeIf { n -> n.isNotBlank() }?.let { " - $it" } ?: "")),
+                                                        date = item.date,
+                                                        negative = loan.type == LoanDebt.TYPE_DEBT,
+                                                        edit = null
+                                                    )
+                                                    detailsDelete = {
+                                                        pendingDelete = loanDeleteMessage(item, loan, settles) to
+                                                            { viewModel.deleteRepayment(item) }
+                                                    }
+                                                },
+                                                onDelete = {
+                                                    val settles = loan.settlementRepaymentId == item.id
+                                                    pendingDelete = loanDeleteMessage(item, loan, settles) to
+                                                        { viewModel.deleteRepayment(item) }
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -556,6 +620,19 @@ fun TransactionsScreen(
                     delete()
                 }
             }
+        )
+    }
+
+    if (showTransfer) {
+        TransferDialog(
+            accounts = uiState.transferAccounts,
+            balances = uiState.accountBalances,
+            rateLookup = viewModel::conversionRate,
+            onConfirm = { fromId, toId, amountFrom, amountTo, note ->
+                viewModel.transfer(fromId, toId, amountFrom, amountTo, note)
+                showTransfer = false
+            },
+            onDismiss = { showTransfer = false }
         )
     }
 
@@ -633,7 +710,7 @@ fun TransactionDetailsDialog(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text = (if (details.kind == "Expense") "-" else "+") +
+            text = (if (details.negative) "-" else "+") +
                 CurrencyFormatter.format(details.amount, details.currency),
             style = MaterialTheme.typography.headlineSmall.merge(AppType.tabular),
             fontWeight = FontWeight.Bold,
@@ -678,7 +755,12 @@ fun TransactionDetailsDialog(
         }
         if (onEdit == null) {
             Text(
-                text = "Transfers are deleted and re-created instead of edited, so both balances always match.",
+                text = when (details.kind) {
+                    "Transfer" -> "Transfers are deleted and re-created instead of edited, so both balances always match."
+                    "Loan settlement", "Loan repayment" ->
+                        "Deleting this transaction reopens the loan and reverses the money through its account. Amounts are changed from the Loans tab."
+                    else -> "This entry cannot be edited."
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3
@@ -821,6 +903,7 @@ private fun TopUpRow(
 @Composable
 private fun WithdrawalRow(
     withdrawal: Withdrawal,
+    fromName: String?,
     toName: String?,
     onOpen: () -> Unit,
     onDelete: () -> Unit
@@ -857,7 +940,7 @@ private fun WithdrawalRow(
                 )
             }
             Text(
-                text = "Transfer · main → " + (toName ?: "cash") +
+                text = "Transfer · " + (fromName ?: "source") + " \u2192 " + (toName ?: "cash") +
                     (if (!withdrawal.note.isNullOrBlank()) " · " + withdrawal.note else ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -912,5 +995,79 @@ private fun CreditCardPaymentRow(payment: CreditCardPayment, currency: String) {
                 )
             }
         }
+    }
+}
+
+/** Confirmation copy for deleting a loan repayment/settlement transaction. */
+fun loanDeleteMessage(repayment: Repayment, loan: LoanDebt, settlesLoan: Boolean): String {
+    val amount = CurrencyFormatter.format(repayment.amountAsBigDecimal(), loan.currencyOriginal)
+    val money = when {
+        repayment.accountId == null -> " No balance was involved."
+        loan.type == LoanDebt.TYPE_DEBT -> " The money returns to the account it was paid from."
+        else -> " The money is removed from the account it was received into."
+    }
+    val reopen = if (settlesLoan) {
+        " \u201C" + loan.personName + "\u201D reopens and leaves the settled archive."
+    } else {
+        " The remaining amount owed increases again."
+    }
+    return "This loan payment of " + amount + " will be deleted." + reopen + money
+}
+
+@Composable
+private fun LoanRepaymentRow(
+    repayment: Repayment,
+    loan: LoanDebt,
+    accountName: String?,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val compact = LocalCompactUi.current
+    val palette = LocalAppPalette.current
+    val isDebt = loan.type == LoanDebt.TYPE_DEBT
+    val settles = loan.settlementRepaymentId == repayment.id
+    TransactionCard(onClick = onOpen) {
+        AppAvatar(
+            text = "L",
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            size = if (compact) 30.dp else 34.dp
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = (if (isDebt) "-" else "+") +
+                        CurrencyFormatter.formatSimple(repayment.amountAsBigDecimal(), loan.currencyOriginal),
+                    style = MaterialTheme.typography.titleSmall.merge(AppType.tabular),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDebt) MaterialTheme.colorScheme.onSurface else palette.income,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = historyTimestamp(repayment.date),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = (if (settles) "Loan settled" else "Loan repayment") + " · " + loan.personName +
+                    " · " + (accountName ?: if (isDebt) "external revenue" else "external"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        AppIconButton(
+            onClick = onDelete,
+            icon = Icons.Default.Delete,
+            contentDescription = "Delete loan transaction",
+            modifier = Modifier.size(32.dp),
+            tint = palette.expense.copy(alpha = 0.75f)
+        )
     }
 }

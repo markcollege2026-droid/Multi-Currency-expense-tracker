@@ -314,10 +314,12 @@ fun BalanceAccountsPanel(
         val entries = state.accountEntries[account.id] ?: 0
         AppConfirmDialog(
             title = "Delete ${account.name}?",
-            message = "This removes the ${account.type.replace('_', ' ').lowercase()} balance and its " +
+            message = "This removes only the ${account.type.replace('_', ' ').lowercase()} balance \u201C${account.name}\u201D and its " +
                 "$entries " + (if (entries == 1) "entry" else "entries") +
-                " (expenses, deposits, payments and transfers), and returns withdrawn money to main. " +
-                "Main/debit and loans are shared and kept. This cannot be undone.",
+                " (expenses, deposits, payments and transfers); " +
+                "transferred money returns to the balances it came from. " +
+                "Every other account and its data are untouched, and loans are shared and kept " +
+                "(settlements paid from this balance become external). This cannot be undone.",
             confirmLabel = "Delete",
             onDismiss = { deleteAccount = null },
             onConfirm = {

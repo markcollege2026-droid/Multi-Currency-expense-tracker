@@ -106,7 +106,8 @@ fun SettingsScreen(
                 item(key = "accounts") {
                     SettingsSection("Accounts") {
                         Text(
-                            text = "Balances, expenses and top-ups are tracked per account. Loans are shared.",
+                            text = "Balances, expenses and deposits are tracked per account; loans are shared. " +
+                                "Deleting an account removes only that account and its own entries - every other account keeps its data.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -154,6 +155,40 @@ fun SettingsScreen(
                                     SmallAction("Delete", isError = true) { deleteTarget = account }
                                 }
                             }
+                            // This main account's own cash/card balances. Each can be
+                            // deleted individually, without touching any other account.
+                            uiState.balanceAccounts
+                                .filter { it.parentAccountId == account.id }
+                                .forEach { child ->
+                                    val childSummary = uiState.accountSummaries[child.id]
+                                    val childEntries = childSummary?.entries ?: 0
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 1.dp, bottom = 1.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = child.name,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = (if (child.type == "CASH") "Cash" else "Credit card") +
+                                                    " · " + CurrencyFormatter.formatSimple(
+                                                        childSummary?.balance ?: child.startingBalanceAsBigDecimal(),
+                                                        child.currency
+                                                    ) + " · $childEntries " + if (childEntries == 1) "entry" else "entries" +
+                                                    if (child.type == "CASH" && !child.includedInTotal) " · set aside" else "",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        SmallAction("Delete", isError = true) { deleteTarget = child }
+                                    }
+                                }
                             AppHairline()
                         }
                         AppOutlinedButton(onClick = { showAddAccount = true }) {
@@ -406,7 +441,10 @@ fun SettingsScreen(
             // every entry of the one that is tapped with no undo. Show what is at
             // stake, and demand the name when it is not unique.
             val summary = uiState.accountSummaries[target.id]
-            val duplicateName = uiState.accounts.count { it.name.equals(target.name, ignoreCase = true) } > 1
+            val duplicateName = (uiState.accounts + uiState.balanceAccounts)
+                .distinctBy { it.id }
+                .count { it.name.equals(target.name, ignoreCase = true) } > 1
+            val isMain = target.type == "MAIN"
             var typed by remember(target.id) { mutableStateOf("") }
             AppDialog(
                 onDismissRequest = { deleteTarget = null },
@@ -423,10 +461,19 @@ fun SettingsScreen(
                 }
             ) {
                 Text(
-                    text = "This deletes the account, its " + (summary?.entries ?: 0) +
-                        " entries (expenses, deposits, transfers, card payments) and its cash/card balances." +
-                        " A safety copy of the whole ledger is saved to app storage first." +
-                        " Loans are shared and kept. There is no undo inside the app.",
+                    text = if (isMain) {
+                        "This deletes only \u201C" + target.name + "\u201D: its " + (summary?.entries ?: 0) +
+                            " entries (expenses, deposits, transfers, card payments) and its cash/card balances." +
+                            " Every other account keeps all of its data." +
+                            " A safety copy of the whole ledger is saved to app storage first." +
+                            " Loans are shared and kept. There is no undo inside the app."
+                    } else {
+                        "This deletes only this " + (if (target.type == "CASH") "cash balance" else "credit card") +
+                            " and its " + (summary?.entries ?: 0) + " entries. Transferred money returns to the " +
+                            "balances it came from, and every other account - including its main account - " +
+                            "keeps all of its data. A safety copy of the whole ledger is saved first." +
+                            " Loans are shared and kept; settlements paid from this balance become external."
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
                 AppValueRow(
@@ -436,7 +483,7 @@ fun SettingsScreen(
                         target.currency
                     )
                 )
-                if (uiState.accounts.count { it.type == "MAIN" } <= 1) {
+                if (isMain && uiState.accounts.count { it.type == "MAIN" } <= 1) {
                     Text(
                         text = "This is the only main account and cannot be deleted.",
                         style = MaterialTheme.typography.labelSmall,

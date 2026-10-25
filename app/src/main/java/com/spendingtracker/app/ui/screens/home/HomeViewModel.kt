@@ -81,8 +81,11 @@ class HomeViewModel @Inject constructor(
                 combine(
                     financeRepository.observeBalanceAccounts(),
                     financeRepository.observeCardPayments(),
-                    financeRepository.observeWithdrawals()
-                ) { accounts, payments, withdrawals -> Triple(accounts, payments, withdrawals) }
+                    financeRepository.observeWithdrawals(),
+                    combine(financeRepository.observeRepayments(), financeRepository.observeLoans()) { repayments, loans ->
+                        repayments to loans
+                    }
+                ) { accounts, payments, withdrawals, loanLedger -> HomeLedger(accounts, payments, withdrawals, loanLedger.first, loanLedger.second) }
             ) { active, ledger -> active to ledger }
 
             combine(
@@ -92,8 +95,11 @@ class HomeViewModel @Inject constructor(
                 financeRepository.getCategories(),
                 financeRepository.getSettings()
             ) { (account, ledger), allExpenses, allTopUps, categories, settings ->
-                val (accounts, payments, withdrawals) = ledger
-                val balances = AccountBalances.calculate(accounts, allExpenses, allTopUps, payments, withdrawals)
+                val accounts = ledger.accounts
+                val payments = ledger.payments
+                val withdrawals = ledger.withdrawals
+                // Loan settlements move real balances, so Home totals include them.
+                val balances = AccountBalances.calculate(accounts, allExpenses, allTopUps, payments, withdrawals, ledger.repayments, ledger.loans)
                 val appSettings = settings ?: AppSettings()
                 val accountId = account?.id
                 val expenses = if (accountId == null) emptyList() else allExpenses.filter { it.accountId == accountId }
@@ -193,7 +199,8 @@ class HomeViewModel @Inject constructor(
                         allExpenses.count { it.accountId == acc.id } +
                             allTopUps.count { it.accountId == acc.id } +
                             withdrawals.count { it.fromAccountId == acc.id || it.toAccountId == acc.id } +
-                            payments.count { it.cardId == acc.id || it.sourceAccountId == acc.id }
+                            payments.count { it.cardId == acc.id || it.sourceAccountId == acc.id } +
+                            ledger.repayments.count { it.accountId == acc.id }
                         )
                 }
                 val totalAvailable = mainBalance + includedChildren.fold(BigDecimal.ZERO) { sum, a ->
@@ -330,6 +337,30 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Transfers between any two balances of the active main account (including
+     * cash to cash) from Home. The dialog supplies both sides; the repository
+     * re-checks the source balance inside its transaction.
+     */
+    fun transfer(fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String? = null) = action {
+        val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+            ?: error("Enter a positive amount")
+        val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+            ?: error("Enter a positive amount")
+        require(from > BigDecimal.ZERO && to > BigDecimal.ZERO) { "Enter a positive amount" }
+        val source = financeRepository.getAccountById(fromId) ?: error("Source balance not found")
+        val target = financeRepository.getAccountById(toId) ?: error("Destination balance not found")
+        val rate = rateRepository.getConversionRateOrFallback(source.currency, target.currency)
+        financeRepository.transfer(fromId, toId, from, rate, note, amountTo = to)
+        _uiState.update {
+            it.copy(
+                message = "Transferred " +
+                    CurrencyFormatter.formatSimple(from, source.currency) +
+                    " from ${source.name} to ${target.name}"
+            )
+        }
+    }
+
     /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
     suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
         rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
@@ -425,3 +456,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+
+/** Everything Home needs to derive balances, bundled so nested combines stay typed. */
+private data class HomeLedger(
+    val accounts: List<Account>,
+    val payments: List<CreditCardPayment>,
+    val withdrawals: List<com.spendingtracker.app.data.local.entity.Withdrawal>,
+    val repayments: List<com.spendingtracker.app.data.local.entity.Repayment>,
+    val loans: List<com.spendingtracker.app.data.local.entity.LoanDebt>
+)

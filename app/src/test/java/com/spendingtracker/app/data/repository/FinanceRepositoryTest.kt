@@ -24,7 +24,7 @@ class FinanceRepositoryTest {
     private var mainId = 0L
     private var cashId = 0L
     private var cardId = 0L
-    private fun repositoryFor(db: AppDatabase) = FinanceRepository(db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(), db.accountDao(), db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(), db)
+    private fun repositoryFor(db: AppDatabase) = FinanceRepository(db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(), db.accountDao(), db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(), db.loanDebtDao(), db.repaymentDao(), db)
     @Before fun setup() = runBlocking {
         db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), AppDatabase::class.java).allowMainThreadQueries().build()
         repository = repositoryFor(db)
@@ -216,6 +216,221 @@ class FinanceRepositoryTest {
         } catch (_: IllegalStateException) { }
         money("1000", mainId); money("-250", cardId)
     }
+    // ---- cash -> cash transfers ----
+    @Test fun cashToCashTransferMovesMoneyWithoutTouchingMain() = runBlocking {
+        val pocket = repository.createBalanceAccount(mainId, "Pocket", "CASH", BigDecimal("20"))
+        val w = repository.transfer(cashId, pocket, BigDecimal("40"), BigDecimal.ONE, "Rebalance")
+        assertEquals(cashId, w.fromAccountId)
+        assertEquals(pocket, w.toAccountId)
+        money("60", cashId); money("60", pocket); money("1000", mainId)
+        // A transfer is neither spending nor income.
+        assertTrue(repository.getAllExpensesSync().isEmpty())
+        assertTrue(repository.getAllTopUpsSync().isEmpty())
+    }
+    @Test fun cashToCashTransferConvertsAcrossCurrencies() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("100"), "EUR")
+        // 1 EUR = 4 ILS: 25 EUR out of the wallet lands as 100 ILS of pocket cash.
+        val w = repository.transfer(eurCash, cashId, BigDecimal("25"), BigDecimal("4"))
+        assertMoney("100", w.amountToAsBigDecimal())
+        money("75", eurCash); money("200", cashId); money("1000", mainId)
+        // Typing the target side stores it exactly, like a withdrawal.
+        val back = repository.transfer(cashId, eurCash, BigDecimal("40"), BigDecimal("0.25"), amountTo = BigDecimal("10"))
+        assertMoney("10", back.amountToAsBigDecimal())
+        money("85", eurCash); money("160", cashId)
+    }
+    @Test fun transferIntoSetAsideCashKeepsBalancesAndLowersTheTotal() = runBlocking {
+        val aside = repository.createBalanceAccount(mainId, "Savings cash", "CASH", BigDecimal.ZERO)
+        repository.updateBalanceAccountFields(repository.getAccountById(aside)!!.copy(includedInTotal = false))
+        val accounts = repository.getAllAccountsSync()
+        val before = com.spendingtracker.app.domain.AccountBalances.totalAvailable(
+            accounts, repository.balances(), mainId) { BigDecimal.ONE }
+        // 1000 main + 100 cash - 250 card debt; the set-aside balance holds 0.
+        assertMoney("850", before)
+        repository.transfer(cashId, aside, BigDecimal("40"), BigDecimal.ONE)
+        // Both balances are exactly right; only the counted total fell by 40.
+        money("60", cashId); money("40", aside); money("1000", mainId)
+        assertMoney("810", com.spendingtracker.app.domain.AccountBalances.totalAvailable(
+            repository.getAllAccountsSync(), repository.balances(), mainId) { BigDecimal.ONE })
+        // Moving it back restores the total - the transfer is the adjustment.
+        repository.transfer(aside, cashId, BigDecimal("40"), BigDecimal.ONE)
+        money("100", cashId); money("0", aside)
+        assertMoney("850", com.spendingtracker.app.domain.AccountBalances.totalAvailable(
+            repository.getAllAccountsSync(), repository.balances(), mainId) { BigDecimal.ONE })
+    }
+    @Test fun transfersBetweenDifferentLedgersAreRejected() = runBlocking {
+        val otherMain = repository.insertAccount(Account(name = "Work", currency = "ILS", startingBalance = "500"))
+        val otherCash = repository.createBalanceAccount(otherMain, "Work cash", "CASH", BigDecimal("50"))
+        rejected { repository.transfer(cashId, otherCash, BigDecimal("10"), BigDecimal.ONE) }
+        rejected { repository.transfer(mainId, otherCash, BigDecimal("10"), BigDecimal.ONE) }
+        rejected { repository.transfer(cashId, cashId, BigDecimal("10"), BigDecimal.ONE) }
+        money("100", cashId); money("50", otherCash)
+        assertTrue(repository.getWithdrawalsSync().isEmpty())
+    }
+    @Test fun transferCannotOverdrawTheSourceCashBalance() = runBlocking {
+        val pocket = repository.createBalanceAccount(mainId, "Pocket", "CASH", BigDecimal.ZERO)
+        rejected { repository.transfer(cashId, pocket, BigDecimal("101"), BigDecimal.ONE) }
+        money("100", cashId); money("0", pocket)
+    }
+
+    // ---- loan settlements ----
+    private suspend fun loan(type: String, amount: String, currency: String = "ILS", person: String = "Dana"): Long =
+        db.loanDebtDao().insertLoanDebt(
+            LoanDebt(type = type, personName = person, amountOriginal = amount,
+                currencyOriginal = currency, date = 1, dueDate = null, note = null)
+        )
+    @Test fun settleDebtFromCashMovesMoneyAndArchivesTheLoan() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "80")
+        val repayment = repository.settleLoan(debt, accountId = cashId)!!
+        money("20", cashId); money("1000", mainId)
+        val stored = db.loanDebtDao().getLoanDebtById(debt)!!
+        assertTrue(stored.isSettled)
+        assertNotNull(stored.settledAt)
+        assertEquals(repayment.id, stored.settlementRepaymentId)
+        assertEquals(cashId, repayment.accountId)
+        assertMoney("80", repayment.accountAmountAsBigDecimalOrNull()!!)
+        // Recorded as a transaction, never as spending.
+        assertTrue(repository.getAllExpensesSync().isEmpty())
+        assertEquals(1, repository.getRepaymentsSync().size)
+    }
+    @Test fun settleLoanOwedToMeIntoCashCreditsThatBalance() = runBlocking {
+        val owed = loan(LoanDebt.TYPE_LOAN, "30")
+        repository.settleLoan(owed, accountId = cashId)
+        money("130", cashId); money("1000", mainId)
+        assertTrue(db.loanDebtDao().getLoanDebtById(owed)!!.isSettled)
+        assertTrue(repository.getAllTopUpsSync().isEmpty())
+    }
+    @Test fun externalSettlementIsTheDefaultAndTouchesNoBalance() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "80")
+        val repayment = repository.settleLoan(debt)!!
+        assertNull(repayment.accountId)
+        assertNull(repayment.accountAmount)
+        money("100", cashId); money("1000", mainId); money("-250", cardId)
+        assertTrue(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+    }
+    @Test fun partialSettlementKeepsTheLoanActiveUntilTheRestIsPaid() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "80")
+        repository.recordRepayment(debt, BigDecimal("30"), accountId = cashId)
+        money("70", cashId)
+        assertFalse(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+        repository.recordRepayment(debt, BigDecimal("50"), accountId = mainId)
+        money("950", mainId)
+        assertTrue(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+    }
+    @Test fun settlementRejectsOverpaymentInsufficientFundsAndCards() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "150")
+        rejected { repository.recordRepayment(debt, BigDecimal("151")) }
+        // Cash only holds 100 of the 150 owed.
+        rejected { repository.recordRepayment(debt, BigDecimal("150"), accountId = cashId) }
+        rejected { repository.recordRepayment(debt, BigDecimal("10"), accountId = cardId) }
+        rejected { repository.recordRepayment(debt, BigDecimal.ZERO) }
+        money("100", cashId); money("1000", mainId)
+        assertTrue(repository.getRepaymentsSync().isEmpty())
+        assertFalse(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+    }
+    @Test fun crossCurrencySettlementConvertsIntoTheAccountCurrency() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("100"), "EUR")
+        val debt = loan(LoanDebt.TYPE_DEBT, "80") // ILS
+        // 1 ILS = 0.25 EUR: settling 80 ILS costs 20 EUR of the wallet.
+        val repayment = repository.settleLoan(debt, accountId = eurCash, rate = BigDecimal("0.25"))!!
+        assertMoney("20", repayment.accountAmountAsBigDecimalOrNull()!!)
+        assertEquals("EUR", repayment.accountCurrency)
+        money("80", eurCash); money("1000", mainId)
+    }
+    @Test fun reopeningASettledLoanReversesItsSettlement() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "80")
+        repository.recordRepayment(debt, BigDecimal("30")) // earlier external part-payment stays
+        repository.settleLoan(debt, accountId = cashId)
+        money("50", cashId)
+        repository.reopenLoan(debt)
+        val stored = db.loanDebtDao().getLoanDebtById(debt)!!
+        assertFalse(stored.isSettled)
+        assertNull(stored.settledAt)
+        assertNull(stored.settlementRepaymentId)
+        // The 50 settlement is returned; the earlier 30 repayment is untouched.
+        money("100", cashId)
+        assertEquals(1, repository.getRepaymentsSync().size)
+        assertMoney("30", repository.getRepaymentsSync().single().amountAsBigDecimal())
+    }
+    @Test fun deletingTheSettlementTransactionReopensTheLoan() = runBlocking {
+        val owed = loan(LoanDebt.TYPE_LOAN, "45")
+        val settlement = repository.settleLoan(owed, accountId = cashId)!!
+        money("145", cashId)
+        repository.deleteRepayment(settlement)
+        money("100", cashId)
+        assertFalse(db.loanDebtDao().getLoanDebtById(owed)!!.isSettled)
+        assertTrue(repository.getRepaymentsSync().isEmpty())
+    }
+    @Test fun fullyRepaidLoanCanBeArchivedWithoutMovingNewMoney() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "60")
+        // Legacy-style repayments wrote the loan off without settling it.
+        db.repaymentDao().insertRepayment(Repayment(loanDebtId = debt, amount = "60", date = 2, note = null))
+        assertNull(repository.settleLoan(debt, accountId = cashId))
+        assertTrue(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+        money("100", cashId)
+        assertEquals(1, repository.getRepaymentsSync().size)
+    }
+    @Test fun backupRoundTripKeepsCashToCashTransfersAndLoanSettlements() = runBlocking {
+        val pocket = repository.createBalanceAccount(mainId, "Pocket", "CASH", BigDecimal("10"))
+        repository.transfer(cashId, pocket, BigDecimal("25"), BigDecimal.ONE)
+        val debt = loan(LoanDebt.TYPE_DEBT, "30")
+        repository.settleLoan(debt, accountId = pocket)
+        money("75", cashId); money("5", pocket)
+        val exported = backups().exportAll()
+        assertTrue(exported.contains("\"schemaVersion\": 6"))
+        assertTrue(backups().importAll(exported).isSuccess)
+        money("75", cashId); money("5", pocket); money("1000", mainId)
+        val storedLoan = db.loanDebtDao().getLoanDebtById(debt)!!
+        assertTrue(storedLoan.isSettled)
+        val settlement = repository.getRepaymentsSync().single()
+        assertEquals(pocket, settlement.accountId)
+        assertEquals(settlement.id, storedLoan.settlementRepaymentId)
+        // Reopening still reverses the right transaction after a restore.
+        repository.reopenLoan(debt)
+        money("35", pocket)
+    }
+    @Test fun migrationFiveToSixKeepsOldRepaymentsExternal() = runBlocking {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val name = "v5-loan-migration.db"
+        context.deleteDatabase(name)
+        // Start from the current schema, then rebuild the two loan tables exactly
+        // as v5 had them (same downgrade-in-place pattern as the 3->4 test).
+        val existing = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries().build()
+        existing.loanDebtDao().insertLoanDebt(
+            LoanDebt(id = 1, type = "DEBT", personName = "Dana", amountOriginal = "100",
+                currencyOriginal = "ILS", date = 1, dueDate = null, note = "legacy", isSettled = true, createdAt = 1)
+        )
+        existing.repaymentDao().insertRepayment(Repayment(id = 1, loanDebtId = 1, amount = "40", date = 2, note = null, createdAt = 2))
+        val sql = existing.openHelper.writableDatabase
+        sql.execSQL("CREATE TABLE old_repayments (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, loanDebtId INTEGER NOT NULL, amount TEXT NOT NULL, date INTEGER NOT NULL, note TEXT, createdAt INTEGER NOT NULL, FOREIGN KEY(loanDebtId) REFERENCES loan_debts(id) ON UPDATE NO ACTION ON DELETE CASCADE )")
+        sql.execSQL("INSERT INTO old_repayments SELECT id,loanDebtId,amount,date,note,createdAt FROM repayments")
+        sql.execSQL("DROP TABLE repayments")
+        sql.execSQL("CREATE TABLE old_loan_debts (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, type TEXT NOT NULL, personName TEXT NOT NULL, amountOriginal TEXT NOT NULL, currencyOriginal TEXT NOT NULL, date INTEGER NOT NULL, dueDate INTEGER, note TEXT, isSettled INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
+        sql.execSQL("INSERT INTO old_loan_debts SELECT id,type,personName,amountOriginal,currencyOriginal,date,dueDate,note,isSettled,createdAt FROM loan_debts")
+        sql.execSQL("DROP TABLE loan_debts")
+        sql.execSQL("ALTER TABLE old_loan_debts RENAME TO loan_debts")
+        sql.execSQL("ALTER TABLE old_repayments RENAME TO repayments")
+        sql.version = 5
+        existing.close()
+        val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
+            .addMigrations(AppModule.MIGRATION_5_6).build()
+        try {
+            val storedLoan = upgraded.loanDebtDao().getLoanDebtById(1)!!
+            assertTrue(storedLoan.isSettled)
+            assertNull(storedLoan.settledAt)
+            assertNull(storedLoan.settlementRepaymentId)
+            val repayment = upgraded.repaymentDao().getAllRepaymentsSync().single()
+            assertNull("legacy repayments stay external", repayment.accountId)
+            assertMoney("40", repayment.amountAsBigDecimal())
+            // And the migrated ledger can settle through an account immediately.
+            val migrated = repositoryFor(upgraded)
+            migrated.reopenLoan(1)
+            assertFalse(upgraded.loanDebtDao().getLoanDebtById(1)!!.isSettled)
+        } finally {
+            upgraded.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun backups(): com.spendingtracker.app.util.ExportImportManager {
         val api = java.lang.reflect.Proxy.newProxyInstance(
             com.spendingtracker.app.data.remote.ExchangeRateApi::class.java.classLoader,
@@ -314,7 +529,7 @@ class FinanceRepositoryTest {
         legacy.version = 1
         legacy.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(AppModule.MIGRATION_1_2, AppModule.MIGRATION_2_3, AppModule.MIGRATION_3_4, AppModule.MIGRATION_4_5).build()
+            .addMigrations(AppModule.MIGRATION_1_2, AppModule.MIGRATION_2_3, AppModule.MIGRATION_3_4, AppModule.MIGRATION_4_5, AppModule.MIGRATION_5_6).build()
         try {
             val migrated = repositoryFor(upgraded)
             assertEquals("legacy note", migrated.getExpenseById(1)!!.note)
@@ -341,7 +556,7 @@ class FinanceRepositoryTest {
         sql.version = 3
         existing.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(AppModule.MIGRATION_3_4, AppModule.MIGRATION_4_5).build()
+            .addMigrations(AppModule.MIGRATION_3_4, AppModule.MIGRATION_4_5, AppModule.MIGRATION_5_6).build()
         try {
             val migrated = repositoryFor(upgraded)
             assertEquals("MAIN", migrated.getAccountById(1)!!.type)

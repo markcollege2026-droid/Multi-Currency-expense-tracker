@@ -76,6 +76,62 @@ class AccountBalancesTest {
         val result = AccountBalances.calculate(listOf(main, cash), emptyList(), emptyList(), emptyList(), listOf(w))
         assertMoney("960", result[1]); assertMoney("140", result[2])
     }
+    private val debtLoan = LoanDebt(id = 10, type = "DEBT", personName = "Dana", amountOriginal = "80",
+        currencyOriginal = "ILS", date = 0, dueDate = null, note = null)
+    private val owedLoan = LoanDebt(id = 11, type = "LOAN", personName = "Eli", amountOriginal = "45",
+        currencyOriginal = "ILS", date = 0, dueDate = null, note = null)
+    @Test fun debtSettledFromCashReducesOnlyThatCash() {
+        val settlement = Repayment(loanDebtId = 10, amount = "80", date = 0, note = null,
+            accountId = 2, accountAmount = "80", accountCurrency = "ILS", exchangeRate = "1")
+        val result = AccountBalances.calculate(listOf(main, cash), emptyList(), emptyList(), emptyList(),
+            emptyList(), listOf(settlement), listOf(debtLoan))
+        assertMoney("1000", result[1]); assertMoney("20", result[2])
+    }
+    @Test fun loanSettledIntoCashIncreasesOnlyThatCash() {
+        val settlement = Repayment(loanDebtId = 11, amount = "45", date = 0, note = null,
+            accountId = 2, accountAmount = "45", accountCurrency = "ILS", exchangeRate = "1")
+        val result = AccountBalances.calculate(listOf(main, cash), emptyList(), emptyList(), emptyList(),
+            emptyList(), listOf(settlement), listOf(owedLoan))
+        assertMoney("1000", result[1]); assertMoney("145", result[2])
+    }
+    @Test fun externalSettlementChangesNoBalance() {
+        // The default source: the repayment exists as a transaction, money is external.
+        val external = Repayment(loanDebtId = 10, amount = "80", date = 0, note = null)
+        val result = AccountBalances.calculate(listOf(main, cash), emptyList(), emptyList(), emptyList(),
+            emptyList(), listOf(external), listOf(debtLoan))
+        assertMoney("1000", result[1]); assertMoney("100", result[2])
+    }
+    @Test fun crossCurrencySettlementUsesTheAccountSideAmount() {
+        // 80 ILS of debt settled from a EUR wallet cost the wallet 20 EUR.
+        val eurCash = Account(id = 4, name = "EUR", currency = "EUR", startingBalance = "100", type = "CASH", parentAccountId = 1)
+        val settlement = Repayment(loanDebtId = 10, amount = "80", date = 0, note = null,
+            accountId = 4, accountAmount = "20", accountCurrency = "EUR", exchangeRate = "0.25")
+        val result = AccountBalances.calculate(listOf(main, eurCash), emptyList(), emptyList(), emptyList(),
+            emptyList(), listOf(settlement), listOf(debtLoan))
+        assertMoney("1000", result[1]); assertMoney("80", result[4])
+    }
+    @Test fun totalAvailableFollowsSetAsideTransfersExactly() {
+        val aside = cash.copy(id = 5, name = "Aside", includedInTotal = false)
+        fun total(balances: Map<Long, BigDecimal>) =
+            AccountBalances.totalAvailable(listOf(main, cash, aside), balances, 1) { BigDecimal.ONE }
+        val before = AccountBalances.calculate(listOf(main, cash, aside), emptyList(), emptyList(), emptyList())
+        // Set-aside cash (100) is not part of the total: 1000 main + 100 cash.
+        assertMoney("1100", total(before))
+        val intoAside = Withdrawal(fromAccountId = 2, toAccountId = 5, amountFrom = "40", amountTo = "40",
+            currencyFrom = "ILS", currencyTo = "ILS", exchangeRate = "1", date = 0)
+        val after = AccountBalances.calculate(listOf(main, cash, aside), emptyList(), emptyList(), emptyList(), listOf(intoAside))
+        // Both cash balances are right; the total dropped by exactly the 40 moved aside.
+        assertMoney("60", after[2]); assertMoney("140", after[5]); assertMoney("1060", total(after))
+        val backAgain = Withdrawal(fromAccountId = 5, toAccountId = 2, amountFrom = "40", amountTo = "40",
+            currencyFrom = "ILS", currencyTo = "ILS", exchangeRate = "1", date = 0)
+        val restored = AccountBalances.calculate(listOf(main, cash, aside), emptyList(), emptyList(), emptyList(), listOf(intoAside, backAgain))
+        assertMoney("1100", total(restored))
+        // Both sides counted (or neither) leaves the total unchanged.
+        val countedToCounted = Withdrawal(fromAccountId = 1, toAccountId = 2, amountFrom = "40", amountTo = "40",
+            currencyFrom = "ILS", currencyTo = "ILS", exchangeRate = "1", date = 0)
+        assertMoney("1100", total(AccountBalances.calculate(
+            listOf(main, cash, aside), emptyList(), emptyList(), emptyList(), listOf(countedToCounted))))
+    }
     @Test fun deletingOrEditingExpenseRecalculatesFromLedger() {
         val result = AccountBalances.calculate(listOf(main, card), listOf(expense(1, 3, "5")), emptyList(), emptyList())
         assertMoney("-5", result[3])

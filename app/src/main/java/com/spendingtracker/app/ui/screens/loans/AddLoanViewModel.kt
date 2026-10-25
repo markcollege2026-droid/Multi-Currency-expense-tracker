@@ -29,7 +29,11 @@ data class AddLoanUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val isEditMode: Boolean = false,
-    val createdAt: Long? = null
+    val createdAt: Long? = null,
+    // Settlement bookkeeping is carried through edits untouched - saving an
+    // archived loan must never un-settle it or orphan its settlement transaction.
+    val settledAt: Long? = null,
+    val settlementRepaymentId: Long? = null
 )
 
 @HiltViewModel
@@ -41,8 +45,16 @@ class AddLoanViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(AddLoanUiState())
     val uiState: StateFlow<AddLoanUiState> = _uiState
 
-    fun loadLoan(loanId: Long?) {
+    /**
+     * Loads a loan for editing, or starts a fresh form of [initialType]
+     * ("DEBT" = I owe, "LOAN" = owed to me) chosen before the form opened.
+     */
+    fun loadLoan(loanId: Long?, initialType: String? = null) {
         if (loanId == null) {
+            val chosenType = initialType?.takeIf { it == LoanDebt.TYPE_DEBT || it == LoanDebt.TYPE_LOAN }
+            // Apply the chosen type immediately (and reset any stale form state:
+            // reusing this view model for the other type must not carry fields over).
+            _uiState.value = AddLoanUiState(type = chosenType ?: LoanDebt.TYPE_DEBT)
             viewModelScope.launch {
                 val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 _uiState.value = _uiState.value.copy(
@@ -72,7 +84,9 @@ class AddLoanViewModel @Inject constructor(
                         balanceCurrency = account?.currency ?: "USD",
                         repayments = reps,
                         isEditMode = true,
-                        createdAt = loan.createdAt
+                        createdAt = loan.createdAt,
+                        settledAt = loan.settledAt,
+                        settlementRepaymentId = loan.settlementRepaymentId
                     )
                 }
             } catch (e: Exception) {
@@ -116,7 +130,9 @@ class AddLoanViewModel @Inject constructor(
                     dueDate = s.dueDate,
                     note = s.note.ifBlank { null },
                     isSettled = s.isSettled,
-                    createdAt = s.createdAt ?: System.currentTimeMillis()
+                    createdAt = s.createdAt ?: System.currentTimeMillis(),
+                    settledAt = s.settledAt,
+                    settlementRepaymentId = s.settlementRepaymentId
                 )
                 if (s.isEditMode && loanId != null) loanRepository.updateLoanDebt(loan.copy(id = loanId))
                 else loanRepository.insertLoanDebt(loan)
@@ -137,24 +153,44 @@ class AddLoanViewModel @Inject constructor(
             if (amount <= BigDecimal.ZERO) {
                 _uiState.value = s.copy(error = "Repayment must be positive"); return@launch
             }
-            val repayment = Repayment(
-                loanDebtId = loanId,
-                amount = amount.toPlainString(),
-                date = System.currentTimeMillis(),
-                note = s.newRepaymentNote.ifBlank { null }
-            )
-            loanRepository.insertRepayment(repayment)
-            // reload
-            val reps = loanRepository.getRepaymentsForLoanSync(loanId)
-            _uiState.value = s.copy(repayments = reps, newRepaymentAmount = "", newRepaymentNote = "", error = null)
+            // External by default (no balance moves); account-funded settlements
+            // are recorded from the Loans tab's Settle action. Repaying in full
+            // settles the loan and moves it to the archive.
+            try {
+                financeRepository.recordRepayment(
+                    loanId = loanId,
+                    amount = amount,
+                    note = s.newRepaymentNote.ifBlank { null }
+                )
+            } catch (e: Exception) {
+                _uiState.value = s.copy(error = e.message ?: "Unable to record repayment")
+                return@launch
+            }
+            reloadLoan(loanId)
         }
     }
 
     fun deleteRepayment(repayment: Repayment, loanId: Long) {
         viewModelScope.launch {
-            loanRepository.deleteRepayment(repayment)
-            val reps = loanRepository.getRepaymentsForLoanSync(loanId)
-            _uiState.value = _uiState.value.copy(repayments = reps)
+            // Reopens the loan (and reverses its money) when this was the
+            // transaction that settled it.
+            financeRepository.deleteRepayment(repayment)
+            reloadLoan(loanId)
         }
+    }
+
+    /** Refreshes repayments and settled state after money moved on this loan. */
+    private suspend fun reloadLoan(loanId: Long) {
+        val reps = loanRepository.getRepaymentsForLoanSync(loanId)
+        val loan = loanRepository.getLoanDebtById(loanId)
+        _uiState.value = _uiState.value.copy(
+            repayments = reps,
+            isSettled = loan?.isSettled ?: _uiState.value.isSettled,
+            settledAt = loan?.settledAt,
+            settlementRepaymentId = loan?.settlementRepaymentId,
+            newRepaymentAmount = "",
+            newRepaymentNote = "",
+            error = null
+        )
     }
 }

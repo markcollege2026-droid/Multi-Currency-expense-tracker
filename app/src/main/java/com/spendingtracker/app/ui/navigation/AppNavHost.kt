@@ -51,7 +51,7 @@ fun AppNavHost(
                 onNavigateToRecurring = { navController.navigate(Screen.Recurring.route) },
                 onEditExpense = { id -> navController.navigate(Screen.AddExpense.createRoute(id)) },
                 onEditTopUp = { id -> navController.navigate(Screen.AddTopUp.createRoute(id)) },
-                onAddLoan = { navController.navigate(Screen.AddLoan.createRoute()) },
+                onAddLoan = { type -> navController.navigate(Screen.AddLoan.createRoute(loanType = type)) },
                 onEditLoan = { id -> navController.navigate(Screen.AddLoan.createRoute(id)) }
             )
         }
@@ -91,11 +91,17 @@ fun AppNavHost(
         }
         composable(
             route = Screen.AddLoan.route,
-            arguments = listOf(navArgument("loanId") { type = NavType.LongType; defaultValue = -1L })
+            arguments = listOf(
+                navArgument("loanId") { type = NavType.LongType; defaultValue = -1L },
+                navArgument("loanType") { type = NavType.StringType; defaultValue = ""; nullable = true }
+            )
         ) { backStackEntry ->
             val loanId = backStackEntry.arguments?.getLong("loanId")?.takeIf { it != -1L }
+            // Null when editing or on stale restores; the form then keeps its default.
+            val loanType = backStackEntry.arguments?.getString("loanType")?.takeIf { it.isNotBlank() }
             AddLoanScreen(
                 loanId = loanId,
+                initialType = loanType,
                 onBack = safeOnBack
             )
         }

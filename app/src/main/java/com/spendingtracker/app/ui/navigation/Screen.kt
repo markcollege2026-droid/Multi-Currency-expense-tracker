@@ -18,9 +18,16 @@ sealed class Screen(val route: String) {
             return if (topUpId != null) "add_topup?topUpId=$topUpId" else "add_topup"
         }
     }
-    object AddLoan : Screen("add_loan?loanId={loanId}") {
-        fun createRoute(loanId: Long? = null): String {
-            return if (loanId != null) "add_loan?loanId=$loanId" else "add_loan"
+    object AddLoan : Screen("add_loan?loanId={loanId}&loanType={loanType}") {
+        /**
+         * [loanType] preselects "I owe" vs "Owed to me" for a new loan, chosen
+         * before the form opens. Editing always uses the stored loan's type.
+         */
+        fun createRoute(loanId: Long? = null, loanType: String? = null): String {
+            val parts = mutableListOf<String>()
+            if (loanId != null) parts.add("loanId=$loanId")
+            if (loanType != null) parts.add("loanType=$loanType")
+            return if (parts.isEmpty()) "add_loan" else "add_loan?" + parts.joinToString("&")
         }
     }
     object Recurring : Screen("recurring")

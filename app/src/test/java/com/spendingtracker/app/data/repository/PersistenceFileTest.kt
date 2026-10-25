@@ -52,7 +52,8 @@ class PersistenceFileTest {
             .build()
         repository = FinanceRepository(
             db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(), db.accountDao(),
-            db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(), db
+            db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(),
+            db.loanDebtDao(), db.repaymentDao(), db
         )
     }
 
