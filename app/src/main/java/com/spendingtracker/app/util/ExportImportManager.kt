@@ -350,7 +350,10 @@ class ExportImportManager @Inject constructor(
                         theme = s?.theme ?: "SYSTEM",
                         defaultCategoryId = s?.defaultCategoryId,
                         lastRatesUpdate = s?.lastRatesUpdate,
-                        isSetupComplete = s?.isSetupComplete ?: true,
+                        // A restore always lands a ledger, so the app must never send the
+                        // user to the setup wizard afterwards (the wizard would create a
+                        // second, empty main account and hide the restored one).
+                        isSetupComplete = accountsToInsert.isNotEmpty(),
                         currencySortMode = s?.currencySortMode ?: "ALPHABETICAL",
                         customCurrencyOrder = s?.customCurrencyOrder,
                         favoriteCurrencies = s?.favoriteCurrencies,

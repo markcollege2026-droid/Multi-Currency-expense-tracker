@@ -39,6 +39,14 @@ interface ExpenseDao {
     @Query("DELETE FROM expenses WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: Long)
 
+    /**
+     * Expenses paid out of a cash/card balance. They belong to the main account,
+     * so deleting the balance must remove them too - otherwise they survive with
+     * a dangling balanceAccountId and silently stop reducing any balance.
+     */
+    @Query("DELETE FROM expenses WHERE balanceAccountId = :balanceAccountId")
+    suspend fun deleteForBalanceAccount(balanceAccountId: Long)
+
     @Query("UPDATE expenses SET categoryId = NULL WHERE categoryId = :categoryId")
     suspend fun clearCategoryFromExpenses(categoryId: Long)
 

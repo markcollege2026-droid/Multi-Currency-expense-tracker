@@ -183,6 +183,17 @@ bold + 1dp `primary @ 24%`; unselected = transparent + 1dp `outlineVariant` +
 **Empty state** — centred in a `surfaceContainerLow` card: one-line hint in
 `onSurfaceVariant` plus the action that resolves it.
 
+*An empty state must say what is empty.* Every empty ledger names its account ("No entries
+in *Main* yet") instead of a generic "No transactions yet", and when rows live in another
+account the screen says so with a count and a one-tap switch ("12 entries are in *Old
+ledger*" · Switch). The app tracks several ledgers; a generic empty state reads as data
+loss, which is exactly how a repaired active-account pointer was misreported.
+
+*Destructive actions state their size.* Deleting a balance shows how many entries and
+which balance go with it, and a main account is snapshotted to app storage first. When two
+accounts share a name, the dialog asks for the name to be typed. "Erase everything" is
+described as erasing accounts, entries, transfers **and** loans — never just "all data".
+
 **Bottom navigation** — 72dp (57 compact) surface with 1dp top hairline. Selected item:
 icon + label `primary` sitting on a 64×28dp `primaryContainer` pill (compact 44×20);
 unselected `onSurfaceVariant`.

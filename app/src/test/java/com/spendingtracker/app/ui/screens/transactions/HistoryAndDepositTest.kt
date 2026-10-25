@@ -56,6 +56,36 @@ class HistoryTimestampTest {
 }
 
 /**
+ * An empty list must say *which* account is empty, and when rows live in another
+ * account the screen has to say so. "No transactions yet" was read as data loss
+ * after a healed ledger reopened on a different (empty) account.
+ */
+class AccountVisibilityMessageTest {
+
+    @Test fun emptyStateNamesTheAccount() {
+        assertEquals(
+            "No entries in Main yet.\nAdd an expense or deposit to get started.",
+            historyEmptyMessage("Main")
+        )
+    }
+
+    @Test fun emptyStateFallsBackToThisAccount() {
+        assertEquals(
+            "No entries in this account yet.\nAdd an expense or deposit to get started.",
+            historyEmptyMessage(null)
+        )
+    }
+
+    @Test fun otherAccountHintIsSingularForOneEntry() {
+        assertEquals("1 entry is in \"Old ledger\"", otherAccountHint(1, "Old ledger"))
+    }
+
+    @Test fun otherAccountHintIsPluralForMany() {
+        assertEquals("12 entries are in \"Old ledger\"", otherAccountHint(12, "Old ledger"))
+    }
+}
+
+/**
  * A deposit is external by default; funding it from a cash balance turns it into
  * a transfer that may not exceed that balance.
  */
