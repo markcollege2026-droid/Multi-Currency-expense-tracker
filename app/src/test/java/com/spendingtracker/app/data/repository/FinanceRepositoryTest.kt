@@ -401,6 +401,7 @@ class FinanceRepositoryTest {
         )
         existing.repaymentDao().insertRepayment(Repayment(id = 1, loanDebtId = 1, amount = "40", date = 2, note = null, createdAt = 2))
         val sql = existing.openHelper.writableDatabase
+        sql.execSQL("PRAGMA foreign_keys = OFF")
         sql.execSQL("CREATE TABLE old_repayments (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, loanDebtId INTEGER NOT NULL, amount TEXT NOT NULL, date INTEGER NOT NULL, note TEXT, createdAt INTEGER NOT NULL, FOREIGN KEY(loanDebtId) REFERENCES loan_debts(id) ON UPDATE NO ACTION ON DELETE CASCADE )")
         sql.execSQL("INSERT INTO old_repayments SELECT id,loanDebtId,amount,date,note,createdAt FROM repayments")
         sql.execSQL("DROP TABLE repayments")
@@ -409,6 +410,7 @@ class FinanceRepositoryTest {
         sql.execSQL("DROP TABLE loan_debts")
         sql.execSQL("ALTER TABLE old_loan_debts RENAME TO loan_debts")
         sql.execSQL("ALTER TABLE old_repayments RENAME TO repayments")
+        sql.execSQL("CREATE INDEX IF NOT EXISTS index_repayments_loanDebtId ON repayments(loanDebtId)")
         sql.version = 5
         existing.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
@@ -553,6 +555,12 @@ class FinanceRepositoryTest {
         sql.execSQL("ALTER TABLE old_expenses RENAME TO expenses")
         sql.execSQL("CREATE INDEX index_expenses_accountId ON expenses(accountId)")
         sql.execSQL("DROP TABLE credit_card_payments")
+        // Loan tables go back to their v5 shape too, or the 5->6 ALTERs collide.
+        sql.execSQL("DROP TABLE repayments")
+        sql.execSQL("DROP TABLE loan_debts")
+        sql.execSQL("CREATE TABLE loan_debts (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, type TEXT NOT NULL, personName TEXT NOT NULL, amountOriginal TEXT NOT NULL, currencyOriginal TEXT NOT NULL, date INTEGER NOT NULL, dueDate INTEGER, note TEXT, isSettled INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
+        sql.execSQL("CREATE TABLE repayments (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, loanDebtId INTEGER NOT NULL, amount TEXT NOT NULL, date INTEGER NOT NULL, note TEXT, createdAt INTEGER NOT NULL, FOREIGN KEY(loanDebtId) REFERENCES loan_debts(id) ON UPDATE NO ACTION ON DELETE CASCADE )")
+        sql.execSQL("CREATE INDEX index_repayments_loanDebtId ON repayments(loanDebtId)")
         sql.version = 3
         existing.close()
         val upgraded = Room.databaseBuilder(context, AppDatabase::class.java, name).allowMainThreadQueries()
