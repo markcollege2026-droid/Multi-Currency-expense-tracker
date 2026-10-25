@@ -1,6 +1,10 @@
 name: Fetch release APK to branch
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - arena/de035df3-multi-currency-expense-tracker
+    paths:
+      - release-apk/.fetch
 
 permissions:
   contents: write
