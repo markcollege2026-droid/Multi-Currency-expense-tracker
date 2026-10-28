@@ -14,10 +14,11 @@ import kotlinx.coroutines.flow.combine
 import java.math.BigDecimal
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.spendingtracker.app.util.CurrencyProvider
 
 data class TransactionItem(
     val id: Long,
-    val type: String, // "EXPENSE", "TOPUP", "CARD_PAYMENT" or "WITHDRAWAL"
+    val type: String, // "EXPENSE", "TOPUP", "CARD_PAYMENT", "WITHDRAWAL", "LOAN_REPAYMENT" or "LOAN_SETTLEMENT"
     val amountOriginal: BigDecimal,
     val currencyOriginal: String,
     val amountConverted: BigDecimal,
@@ -42,6 +43,8 @@ class FinanceRepository @Inject constructor(
     private val recurringPaymentDao: RecurringPaymentDao,
     private val paymentDao: CreditCardPaymentDao,
     private val withdrawalDao: WithdrawalDao,
+    private val loanDebtDao: LoanDebtDao,
+    private val repaymentDao: RepaymentDao,
     private val database: AppDatabase
 ) {
     // ---- Accounts ----
@@ -197,12 +200,16 @@ class FinanceRepository @Inject constructor(
             expenseDao.deleteForBalanceAccount(child.id)
             topUpDao.deleteForAccount(child.id)
             withdrawalDao.deleteInvolving(child.id)
+            // Loans are shared and survive the account: their settlements become
+            // external records instead of dangling references (or reopened loans).
+            repaymentDao.unlinkAccount(child.id)
             accountDao.deleteAccount(child)
         }
         paymentDao.deleteForAccount(account.id)
         recurringPaymentDao.deleteForAccount(account.id)
         topUpDao.deleteForAccount(account.id)
         withdrawalDao.deleteInvolving(account.id)
+        repaymentDao.unlinkAccount(account.id)
         // Expenses paid *from* this balance, not only those booked *on* it. Without
         // this the rows outlive their balance and quietly stop reducing anything.
         expenseDao.deleteForBalanceAccount(account.id)
@@ -226,14 +233,18 @@ class FinanceRepository @Inject constructor(
         expenseDao.getAllExpenses(),
         topUpDao.getAllTopUps(),
         paymentDao.observeAll(),
-        withdrawalDao.observeAll()
-    ) { accounts, expenses, topUps, payments, withdrawals ->
-        val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals)
+        combine(withdrawalDao.observeAll(), repaymentDao.observeAll(), loanDebtDao.getAllLoanDebts()) { withdrawals, repayments, loans ->
+            Triple(withdrawals, repayments, loans)
+        }
+    ) { accounts, expenses, topUps, payments, loanLedger ->
+        val (withdrawals, repayments, loans) = loanLedger
+        val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals, repayments, loans)
         accounts.associate { account ->
             val entries = expenses.count { it.accountId == account.id } +
                 topUps.count { it.accountId == account.id } +
                 withdrawals.count { it.fromAccountId == account.id || it.toAccountId == account.id } +
-                payments.count { it.cardId == account.id || it.sourceAccountId == account.id }
+                payments.count { it.cardId == account.id || it.sourceAccountId == account.id } +
+                repayments.count { it.accountId == account.id }
             account.id to AccountSummary(entries, balances[account.id] ?: BigDecimal.ZERO)
         }
     }
@@ -258,8 +269,11 @@ class FinanceRepository @Inject constructor(
             topUpDao.getAllTopUps(),
             accountDao.getAllAccounts(),
             paymentDao.observeAll(),
-            withdrawalDao.observeAll()
-        ) { expenses, topups, accounts, payments, withdrawals ->
+            combine(withdrawalDao.observeAll(), repaymentDao.observeAll(), loanDebtDao.getAllLoanDebts()) { withdrawals, repayments, loans ->
+                Triple(withdrawals, repayments, loans)
+            }
+        ) { expenses, topups, accounts, payments, loanLedger ->
+            val (withdrawals, repayments, loans) = loanLedger
             val currencyByAccount = accounts.associate { it.id to it.currency }
             val expenseItems = expenses.map {
                 TransactionItem(
@@ -309,11 +323,33 @@ class FinanceRepository @Inject constructor(
                     rateUsed = it.rateAsBigDecimal(),
                     categoryId = null,
                     date = it.date,
-                    note = it.note ?: "Withdrawal to cash",
+                    note = it.note ?: "Transfer between balances",
                     paymentMethod = "MAIN"
                 )
             }
-            (expenseItems + topUpItems + paymentItems + withdrawalItems).sortedByDescending { it.date }
+            // Settled loans (and their repayments) are transactions too: they are
+            // listed here whether the money moved through a tracked balance or was
+            // external revenue that never touched one.
+            val loansById = loans.associateBy { it.id }
+            val loanItems = repayments.mapNotNull { repayment ->
+                val loan = loansById[repayment.loanDebtId] ?: return@mapNotNull null
+                val settles = loan.settlementRepaymentId == repayment.id
+                TransactionItem(
+                    id = repayment.id,
+                    type = if (settles) "LOAN_SETTLEMENT" else "LOAN_REPAYMENT",
+                    amountOriginal = repayment.amountAsBigDecimal(),
+                    currencyOriginal = loan.currencyOriginal,
+                    amountConverted = repayment.accountAmountAsBigDecimalOrNull() ?: repayment.amountAsBigDecimal(),
+                    currencyConverted = repayment.accountCurrency ?: loan.currencyOriginal,
+                    rateUsed = repayment.rateAsBigDecimalOrNull(),
+                    categoryId = null,
+                    date = repayment.date,
+                    note = (if (settles) "Loan settled · " else "Loan repayment · ") + loan.personName +
+                        (repayment.note?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                    paymentMethod = if (repayment.accountId == null) "EXTERNAL" else "ACCOUNT"
+                )
+            }
+            (expenseItems + topUpItems + paymentItems + withdrawalItems + loanItems).sortedByDescending { it.date }
         }
     }
 
@@ -343,45 +379,59 @@ class FinanceRepository @Inject constructor(
     suspend fun deleteTopUp(topUp: TopUp) = topUpDao.deleteTopUp(topUp)
     suspend fun getTopUpById(id: Long): TopUp? = topUpDao.getTopUpById(id)
 
-    // ---- Withdrawals (main -> cash, converted when currencies differ) ----
+    // ---- Transfers between balances (stored as Withdrawal rows) ----
     fun observeWithdrawals(): Flow<List<Withdrawal>> = withdrawalDao.observeAll()
     suspend fun getWithdrawalsSync(): List<Withdrawal> = withdrawalDao.getAllSync()
 
-    /** Deleting a withdrawal returns the money to main and removes it from the cash balance. */
+    /** Deleting a transfer returns the money to the source balance and removes it from the target. */
     suspend fun deleteWithdrawal(withdrawal: Withdrawal) = withdrawalDao.delete(withdrawal)
 
     suspend fun restoreWithdrawal(withdrawal: Withdrawal): Long = withdrawalDao.insert(withdrawal)
 
+    /** The main account a balance belongs to (itself, for a main balance). */
+    private fun Account.mainAccountId(): Long? = if (type == "MAIN") id else parentAccountId
+
     /**
-     * Moves money between a main balance and one of its cash accounts, in either
-     * direction: main → cash (a withdrawal) or cash → main (a deposit funded from
-     * cash). [rate] is 1 [from] unit expressed in the destination currency; when
-     * the currencies match the ratio is stored as 1 and the amount moves unchanged.
+     * Moves money between any two balances of the same main account - main → cash
+     * (a withdrawal), cash → main (a deposit funded from cash) or **cash → cash**.
+     * Credit cards can never take part: card debt is paid with [payCard].
      *
+     * A transfer is stored as ONE row carrying both sides in their own
+     * currencies. [domain.AccountBalances] debits the source by [Withdrawal.amountFrom]
+     * and credits the target by [Withdrawal.amountTo] no matter which of them is
+     * "set aside" (`includedInTotal = false`), so both balances stay accurate and
+     * the total available moves by exactly the transferred value when money crosses
+     * the included / set-aside boundary. The row itself is the adjustment - a
+     * transfer is deliberately never recorded as an expense plus a deposit, which
+     * would inflate spending and income totals.
+     *
+     * [rate] is 1 [from] unit expressed in the destination currency; when the
+     * currencies match the ratio is stored as 1 and the amount moves unchanged.
      * [amountTo] may be supplied when the user typed the destination side, so the
      * stored row is exactly what they saw. The source balance is checked inside
      * the transaction, so a transfer can never overdraw the account it leaves.
      */
-    suspend fun withdraw(
+    suspend fun transfer(
         fromAccountId: Long,
         toAccountId: Long,
         amountFrom: BigDecimal,
         rate: BigDecimal,
         note: String? = null,
-        amountTo: BigDecimal? = null
+        amountTo: BigDecimal? = null,
+        date: Long = System.currentTimeMillis()
     ): Withdrawal = database.withTransaction {
         require(amountFrom > BigDecimal.ZERO) { "Amount must be positive" }
         require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
         val from = accountDao.getAccountById(fromAccountId) ?: error("Source account not found")
         val to = accountDao.getAccountById(toAccountId) ?: error("Destination account not found")
         require(from.id != to.id) { "Source and destination must differ" }
-        // One side is the main balance and the other is a cash account of it.
-        val validPair = when {
-            from.type == "MAIN" -> to.type == "CASH" && to.parentAccountId == from.id
-            to.type == "MAIN" -> from.type == "CASH" && from.parentAccountId == to.id
-            else -> false
-        }
-        require(validPair) { "Transfers move money between a main balance and one of its cash accounts" }
+        // Both sides are main or cash balances of the same main account. This
+        // allows cash -> cash while still refusing cards and other ledgers.
+        val fromMain = from.mainAccountId()
+        val toMain = to.mainAccountId()
+        val validPair = from.type in listOf("MAIN", "CASH") && to.type in listOf("MAIN", "CASH") &&
+            fromMain != null && fromMain == toMain
+        require(validPair) { "Transfers move money between balances of the same main account" }
 
         val available = balances()[from.id] ?: BigDecimal.ZERO
         require(amountFrom <= available) {
@@ -403,11 +453,162 @@ class FinanceRepository @Inject constructor(
             currencyFrom = from.currency,
             currencyTo = to.currency,
             exchangeRate = if (sameCurrency) BigDecimal.ONE.toPlainString() else rate.toPlainString(),
-            date = System.currentTimeMillis(),
+            date = date,
             note = note
         )
         // Return the stored row (with its generated id) so callers can delete it.
         withdrawal.copy(id = withdrawalDao.insert(withdrawal))
+    }
+
+    /**
+     * Historical name for [transfer]: existing callers (withdraw to cash, deposits
+     * funded from cash) keep working unchanged.
+     */
+    suspend fun withdraw(
+        fromAccountId: Long,
+        toAccountId: Long,
+        amountFrom: BigDecimal,
+        rate: BigDecimal,
+        note: String? = null,
+        amountTo: BigDecimal? = null
+    ): Withdrawal = transfer(fromAccountId, toAccountId, amountFrom, rate, note, amountTo)
+
+    // ---- Loans & debts: repayments and settlements ----
+    fun observeLoans(): Flow<List<LoanDebt>> = loanDebtDao.getAllLoanDebts()
+    fun observeRepayments(): Flow<List<Repayment>> = repaymentDao.observeAll()
+    suspend fun getLoansSync(): List<LoanDebt> = loanDebtDao.getAllLoanDebtsSync()
+    suspend fun getRepaymentsSync(): List<Repayment> = repaymentDao.getAllRepaymentsSync()
+
+    /** What is still outstanding on a loan, in the loan's currency (never negative). */
+    private suspend fun remainingOf(loan: LoanDebt): BigDecimal {
+        val repaid = repaymentDao.getRepaymentsForLoanSync(loan.id)
+            .fold(BigDecimal.ZERO) { sum, r -> sum + try { r.amountAsBigDecimal() } catch (e: Exception) { BigDecimal.ZERO } }
+        val remaining = loan.amountAsBigDecimal() - repaid
+        return if (remaining > BigDecimal.ZERO) remaining else BigDecimal.ZERO
+    }
+
+    /**
+     * Records money paid back on a loan or debt, atomically with the balance it
+     * came from / went to, and settles the loan when nothing remains.
+     *
+     * [amount] is in the *loan's* currency and may not exceed what is still owed.
+     * [accountId] selects the balance the money moves through:
+     * - a debt ("I owe") is paid *from* it, so its balance must cover the payment;
+     * - a loan ("owed to me") is received *into* it, so no balance limit applies;
+     * - null is the default, external revenue: the settlement is recorded as a
+     *   transaction but no tracked balance changes.
+     *
+     * [rate] is 1 unit of the loan currency expressed in the account currency and
+     * is ignored (stored as 1) when the currencies match or no account is linked.
+     * When the loan is already fully repaid, [amount] may be zero and the loan is
+     * simply moved to the settled archive.
+     *
+     * @return the stored repayment, or null when the loan was only archived.
+     */
+    suspend fun recordRepayment(
+        loanId: Long,
+        amount: BigDecimal,
+        accountId: Long? = null,
+        rate: BigDecimal = BigDecimal.ONE,
+        note: String? = null,
+        date: Long = System.currentTimeMillis()
+    ): Repayment? = database.withTransaction {
+        val loan = loanDebtDao.getLoanDebtById(loanId) ?: error("Loan not found")
+        require(!loan.isSettled) { "This loan is already settled" }
+        val remaining = remainingOf(loan)
+        if (remaining.compareTo(BigDecimal.ZERO) == 0) {
+            // Fully repaid earlier but never marked settled: archive it without
+            // inventing a payment that never happened.
+            require(amount.compareTo(BigDecimal.ZERO) == 0) { "Nothing is left to pay on this loan" }
+            loanDebtDao.updateLoanDebt(loan.copy(isSettled = true, settledAt = date, settlementRepaymentId = null))
+            return@withTransaction null
+        }
+        require(amount > BigDecimal.ZERO) { "Amount must be positive" }
+        require(amount <= remaining) {
+            "More than the remaining ${remaining.toPlainString()} ${loan.currencyOriginal}"
+        }
+
+        var accountAmount: BigDecimal? = null
+        var accountCurrency: String? = null
+        var storedRate: BigDecimal? = null
+        if (accountId != null) {
+            val account = accountDao.getAccountById(accountId) ?: error("Account not found")
+            require(account.type in listOf("MAIN", "CASH")) { "Choose a main or cash balance" }
+            require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
+            val sameCurrency = account.currency == loan.currencyOriginal
+            val converted = if (sameCurrency) amount
+            else amount.multiply(rate).setScale(TransferMath.SCALE, java.math.RoundingMode.HALF_EVEN)
+            require(converted > BigDecimal.ZERO) { "Converted amount is too small" }
+            if (loan.type == LoanDebt.TYPE_DEBT) {
+                val available = balances()[account.id] ?: BigDecimal.ZERO
+                require(converted <= available) {
+                    "Insufficient ${account.currency} balance (available ${available.toPlainString()})"
+                }
+            }
+            accountAmount = converted
+            accountCurrency = account.currency
+            storedRate = if (sameCurrency) BigDecimal.ONE else rate
+        }
+
+        val repayment = Repayment(
+            loanDebtId = loan.id,
+            amount = amount.toPlainString(),
+            date = date,
+            note = note,
+            accountId = accountId,
+            accountAmount = accountAmount?.toPlainString(),
+            accountCurrency = accountCurrency,
+            exchangeRate = storedRate?.toPlainString()
+        )
+        val stored = repayment.copy(id = repaymentDao.insertRepayment(repayment))
+        if (amount.compareTo(remaining) == 0) {
+            // Fully settled: the loan leaves the active list for the archive and
+            // remembers which transaction closed it, so reopening can reverse it.
+            loanDebtDao.updateLoanDebt(
+                loan.copy(isSettled = true, settledAt = date, settlementRepaymentId = stored.id)
+            )
+        }
+        stored
+    }
+
+    /** Marks an active loan settled by paying its whole remaining balance. */
+    suspend fun settleLoan(
+        loanId: Long,
+        accountId: Long? = null,
+        rate: BigDecimal = BigDecimal.ONE,
+        note: String? = null,
+        date: Long = System.currentTimeMillis()
+    ): Repayment? = database.withTransaction {
+        val loan = loanDebtDao.getLoanDebtById(loanId) ?: error("Loan not found")
+        recordRepayment(loanId, remainingOf(loan), accountId, rate, note, date)
+    }
+
+    /**
+     * Brings a settled loan back to the active list. The repayment that settled it
+     * is deleted in the same transaction, which returns the settlement money to
+     * the account it came from (or removes it from the account it was received
+     * into) instead of leaving a settled amount with nowhere to go.
+     */
+    suspend fun reopenLoan(loanId: Long) = database.withTransaction {
+        val loan = loanDebtDao.getLoanDebtById(loanId) ?: error("Loan not found")
+        if (!loan.isSettled) return@withTransaction
+        loan.settlementRepaymentId?.let { repaymentId ->
+            repaymentDao.getRepaymentById(repaymentId)?.let { repaymentDao.deleteRepayment(it) }
+        }
+        loanDebtDao.updateLoanDebt(loan.copy(isSettled = false, settledAt = null, settlementRepaymentId = null))
+    }
+
+    /**
+     * Deletes a repayment / settlement transaction. If it was the transaction that
+     * settled its loan, the loan reopens - its remaining balance is owed again and
+     * the money flows back through the linked account automatically.
+     */
+    suspend fun deleteRepayment(repayment: Repayment) = database.withTransaction {
+        repaymentDao.deleteRepayment(repayment)
+        val loan = loanDebtDao.getLoanDebtById(repayment.loanDebtId)
+        if (loan != null && loan.settlementRepaymentId == repayment.id) {
+            loanDebtDao.updateLoanDebt(loan.copy(isSettled = false, settledAt = null, settlementRepaymentId = null))
+        }
     }
 
     suspend fun insertCategory(category: Category): Long = categoryDao.insertCategory(category)
@@ -434,6 +635,32 @@ class FinanceRepository @Inject constructor(
     suspend fun saveFavoriteCurrencies(json: String?) = settingsDao.setFavoriteCurrencies(json)
     suspend fun saveCustomCurrencyOrder(json: String?, mode: String) = settingsDao.setCustomCurrencyOrder(json, mode)
     suspend fun saveRecentCurrencies(json: String?) = settingsDao.setRecentCurrencies(json)
+
+    /**
+     * Currencies in the order the user configured in Settings (sort mode,
+     * custom order, favorites, recents, account currency first). Every picker
+     * must use this - several used to fall back to the raw provider list, so
+     * the currency-order setting had no effect there.
+     */
+    fun orderedCurrenciesFor(settings: AppSettings?): List<CurrencyProvider.CurrencyInfo> =
+        CurrencyProvider.getOrderedCurrencies(
+            sortMode = settings?.currencySortMode ?: "ALPHABETICAL",
+            customOrderJson = settings?.customCurrencyOrder,
+            favoriteJson = settings?.favoriteCurrencies,
+            recentJson = settings?.recentCurrencies,
+            balanceCurrency = settings?.balanceCurrency
+        )
+
+    suspend fun orderedCurrencies(): List<CurrencyProvider.CurrencyInfo> =
+        orderedCurrenciesFor(getSettingsSync())
+
+    /** Best-effort: remember a picked currency for the RECENT sort mode. */
+    suspend fun recordRecentCurrency(code: String) {
+        runCatching {
+            val settings = getSettingsSync() ?: return
+            saveRecentCurrencies(CurrencyProvider.addRecentCurrency(settings.recentCurrencies, code))
+        }
+    }
 
     /**
      * Rewrites the settings row for a fresh ledger. Must run inside the same
@@ -494,8 +721,10 @@ class FinanceRepository @Inject constructor(
         for (withdrawal in withdrawalDao.getAllSync()) {
             val from = byId[withdrawal.fromAccountId] ?: error("Missing withdrawal source")
             val to = byId[withdrawal.toAccountId] ?: error("Missing withdrawal target")
-            val validPair = (from.type == "MAIN" && to.type == "CASH" && to.parentAccountId == from.id) ||
-                (to.type == "MAIN" && from.type == "CASH" && from.parentAccountId == to.id)
+            // Any two main/cash balances of one main account: main <-> cash and
+            // cash <-> cash are all valid transfers; cards and foreign ledgers not.
+            val validPair = from.type in listOf("MAIN", "CASH") && to.type in listOf("MAIN", "CASH") &&
+                from.id != to.id && from.mainAccountId() != null && from.mainAccountId() == to.mainAccountId()
             require(validPair) { "Invalid withdrawal accounts" }
             require(withdrawal.currencyFrom == from.currency && withdrawal.currencyTo == to.currency) { "Invalid withdrawal currency" }
             require(
@@ -510,6 +739,32 @@ class FinanceRepository @Inject constructor(
             require(payment.status in listOf("COMPLETED", "FAILED_INSUFFICIENT_FUNDS") && BigDecimal(payment.amount) >= BigDecimal.ZERO)
             payment.autopayPeriod?.let { YearMonth.parse(it) }
         }
+        // Loans are shared, but a settlement linked to a balance must reference a
+        // real main/cash account in the currency it claims to have moved.
+        val loansById = loanDebtDao.getAllLoanDebtsSync().associateBy { it.id }
+        val repaymentsById = repaymentDao.getAllRepaymentsSync().associateBy { it.id }
+        for (loan in loansById.values) {
+            require(loan.type in listOf(LoanDebt.TYPE_DEBT, LoanDebt.TYPE_LOAN)) { "Invalid loan type" }
+            require(loan.amountAsBigDecimal() > BigDecimal.ZERO) { "Invalid loan amount" }
+            loan.settlementRepaymentId?.let { repaymentId ->
+                val settlement = repaymentsById[repaymentId] ?: error("Missing settlement repayment")
+                require(settlement.loanDebtId == loan.id) { "Settlement belongs to another loan" }
+                require(loan.isSettled) { "Settlement recorded on an open loan" }
+            }
+        }
+        for (repayment in repaymentsById.values) {
+            loansById[repayment.loanDebtId] ?: error("Missing loan for repayment")
+            require(repayment.amountAsBigDecimal() > BigDecimal.ZERO) { "Invalid repayment amount" }
+            val linkedAccountId = repayment.accountId
+            if (linkedAccountId != null) {
+                val account = byId[linkedAccountId] ?: error("Missing settlement account")
+                require(account.type in listOf("MAIN", "CASH")) { "Invalid settlement account" }
+                val accountAmount = repayment.accountAmountAsBigDecimalOrNull() ?: error("Missing settlement account amount")
+                require(accountAmount > BigDecimal.ZERO) { "Invalid settlement account amount" }
+                require(repayment.accountCurrency == account.currency) { "Invalid settlement currency" }
+                require((repayment.rateAsBigDecimalOrNull() ?: BigDecimal.ZERO) > BigDecimal.ZERO) { "Invalid settlement rate" }
+            }
+        }
     }
 
     fun observeBalanceAccounts(): Flow<List<Account>> = accountDao.getAllAccounts()
@@ -519,7 +774,8 @@ class FinanceRepository @Inject constructor(
 
     suspend fun balances(): Map<Long, BigDecimal> = AccountBalances.calculate(
         accountDao.getAllAccountsSync(), expenseDao.getAllExpensesSync(), topUpDao.getAllTopUpsSync(),
-        paymentDao.getAll(), withdrawalDao.getAllSync())
+        paymentDao.getAll(), withdrawalDao.getAllSync(),
+        repaymentDao.getAllRepaymentsSync(), loanDebtDao.getAllLoanDebtsSync())
 
     private suspend fun validateExpense(expense: Expense, allowOverdraft: Boolean) {
         require(expense.originalAsBigDecimal() > BigDecimal.ZERO && expense.convertedAsBigDecimal() > BigDecimal.ZERO && expense.rateAsBigDecimal() > BigDecimal.ZERO) { "Amount and exchange rate must be positive" }
@@ -533,7 +789,9 @@ class FinanceRepository @Inject constructor(
                 expenseDao.getAllExpensesSync().filter { it.id != expense.id },
                 topUpDao.getAllTopUpsSync(),
                 paymentDao.getAll(),
-                withdrawalDao.getAllSync()
+                withdrawalDao.getAllSync(),
+                repaymentDao.getAllRepaymentsSync(),
+                loanDebtDao.getAllLoanDebtsSync()
             )[target.id] ?: BigDecimal.ZERO
             require(expense.convertedAsBigDecimal() <= remaining) { "Insufficient cash. Explicitly allow overdraft to continue." }
         }

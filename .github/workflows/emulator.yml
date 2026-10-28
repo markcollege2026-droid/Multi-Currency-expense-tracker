@@ -1,0 +1,61 @@
+name: Emulator tests
+# Instrumented tests on a real emulator. Not part of every build (slow):
+# trigger manually, or by pushing a change under .ci-emulator/ on an arena branch.
+on:
+  push:
+    branches: ['arena/**']
+    paths: ['.ci-emulator/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - name: Install Android SDK packages
+        run: |
+          if command -v sdkmanager >/dev/null; then
+            yes | sdkmanager --licenses >/dev/null 2>&1 || true
+            sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platforms;android-33' 'system-images;android-33;google_apis;x86_64' 'emulator'
+          fi
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run instrumented tests on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash -c "set -o pipefail; ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee emulator.log" 
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-test-reports
+          if-no-files-found: ignore
+          path: |
+            app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
+      - name: Report emulator result on commit
+        if: always() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/emulator_report.py
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input emu-comment.json --jq .html_url || true

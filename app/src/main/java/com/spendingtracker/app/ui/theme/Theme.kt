@@ -90,3 +90,14 @@ fun SpendingTrackerTheme(
         )
     }
 }
+
+/**
+ * Maps a stored theme preference (LIGHT / DARK / SYSTEM, anything else treated
+ * as SYSTEM) to the dark flag the theme needs. Kept pure so the mapping is
+ * unit-testable without composition.
+ */
+fun resolveDarkTheme(themeMode: String?, systemDark: Boolean): Boolean = when (themeMode) {
+    "LIGHT" -> false
+    "DARK" -> true
+    else -> systemDark
+}

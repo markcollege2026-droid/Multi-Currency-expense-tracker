@@ -146,6 +146,25 @@ object AppModule {
         }
     }
 
+    /**
+     * v6: loan settlements become real transactions. Repayments can be linked to
+     * a balance account (with the amount in that account's currency) and a loan
+     * remembers when - and by which repayment - it was settled, so settled loans
+     * can move to the archive and reopening one can reverse its settlement.
+     * Existing repayments keep `accountId = NULL` (external), so no balance that
+     * existed before the upgrade changes value.
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE loan_debts ADD COLUMN settledAt INTEGER")
+            db.execSQL("ALTER TABLE loan_debts ADD COLUMN settlementRepaymentId INTEGER")
+            db.execSQL("ALTER TABLE repayments ADD COLUMN accountId INTEGER")
+            db.execSQL("ALTER TABLE repayments ADD COLUMN accountAmount TEXT")
+            db.execSQL("ALTER TABLE repayments ADD COLUMN accountCurrency TEXT")
+            db.execSQL("ALTER TABLE repayments ADD COLUMN exchangeRate TEXT")
+        }
+    }
+
     @Provides
     fun provideCreditCardPaymentDao(db: AppDatabase) = db.creditCardPaymentDao()
 
@@ -160,7 +179,7 @@ object AppModule {
             AppDatabase::class.java,
             Constants.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 

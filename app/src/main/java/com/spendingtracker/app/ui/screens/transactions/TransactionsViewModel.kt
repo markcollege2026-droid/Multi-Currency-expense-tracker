@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.local.entity.Category
 import com.spendingtracker.app.data.local.entity.Expense
+import com.spendingtracker.app.data.local.entity.LoanDebt
+import com.spendingtracker.app.data.local.entity.Repayment
 import com.spendingtracker.app.data.local.entity.TopUp
 import com.spendingtracker.app.data.local.entity.Withdrawal
 import com.spendingtracker.app.data.repository.ExchangeRateRepository
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class TransactionsUiState(
     val allExpenses: List<Expense> = emptyList(),
@@ -37,6 +40,14 @@ data class TransactionsUiState(
     /** Balance of the main account, so a withdrawal can be started from History. */
     val mainBalance: BigDecimal = BigDecimal.ZERO,
     val cashAccounts: List<Account> = emptyList(),
+    /** Main + its cash balances: every balance a transfer can move money between. */
+    val transferAccounts: List<Account> = emptyList(),
+    /** Derived balance per account id, for transfer previews. */
+    val accountBalances: Map<Long, BigDecimal> = emptyMap(),
+    /** Loan repayments/settlements are transactions and belong in History. */
+    val allRepayments: List<Repayment> = emptyList(),
+    val filteredRepayments: List<Repayment> = emptyList(),
+    val loansById: Map<Long, LoanDebt> = emptyMap(),
     val message: String? = null,
     /** Name of the ledger being shown, so an empty list can say which account it is. */
     val activeAccountName: String? = null,
@@ -67,15 +78,26 @@ class TransactionsViewModel @Inject constructor(
                 financeRepository.getAllTopUps(),
                 financeRepository.getCategories(),
                 combine(financeRepository.observeActiveAccount(), financeRepository.observeBalanceAccounts()) { active, all -> active to all },
-                combine(financeRepository.observeCardPayments(), financeRepository.observeWithdrawals()) { payments, withdrawals -> payments to withdrawals }
-            ) { expenses, topUps, categories, wallet, paymentsAndWithdrawals ->
+                combine(
+                    financeRepository.observeCardPayments(),
+                    financeRepository.observeWithdrawals(),
+                    financeRepository.observeRepayments(),
+                    financeRepository.observeLoans()
+                ) { payments, withdrawals, repayments, loans ->
+                    LedgerExtras(payments, withdrawals, repayments, loans)
+                }
+            ) { expenses, topUps, categories, wallet, extras ->
                 val (account, accounts) = wallet
-                val (payments, withdrawals) = paymentsAndWithdrawals
+                val payments = extras.payments
+                val withdrawals = extras.withdrawals
+                val repayments = extras.repayments
+                val loans = extras.loans
                 val incomeAccountIds = accounts.filter { it.id == account?.id || it.parentAccountId == account?.id }.map { it.id }.toSet()
                 val accountId = account?.id
-                // Balances for the whole ledger: the withdraw dialog needs the main
-                // figure, and History rows never need a second query.
-                val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals)
+                // Balances for the whole ledger (loan settlements included): the
+                // withdraw/transfer dialogs need live figures, and History rows
+                // never need a second query.
+                val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals, repayments, loans)
                 // Entries sitting in a *different* main account. Loaded from the raw
                 // rows, before they are scoped down to the active ledger.
                 val other = accounts
@@ -93,14 +115,25 @@ class TransactionsViewModel @Inject constructor(
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     allExpenses = if (accountId == null) emptyList() else expenses.filter { it.accountId == accountId },
                     allTopUps = if (accountId == null) emptyList() else topUps.filter { it.accountId in incomeAccountIds },
-                    // A transfer belongs to the balance it moves money inside.
+                    // A transfer belongs to the main account it moves money inside
+                    // (main <-> cash and cash <-> cash alike).
                     allWithdrawals = if (accountId == null) emptyList()
-                    else withdrawals.filter { it.fromAccountId == accountId || it.toAccountId in incomeAccountIds },
+                    else withdrawals.filter { it.fromAccountId in incomeAccountIds && it.toAccountId in incomeAccountIds },
+                    // Loans are shared: external settlements show in every ledger,
+                    // account-linked ones in the ledger whose balance they moved.
+                    allRepayments = if (accountId == null) emptyList()
+                    else repayments.filter { it.accountId == null || it.accountId in incomeAccountIds },
+                    loansById = loans.associateBy { it.id },
                     accountsById = accounts.associateBy { it.id },
                     categories = categories,
                     balanceCurrency = account?.currency ?: "USD",
                     mainBalance = if (accountId == null) BigDecimal.ZERO else balances[accountId] ?: BigDecimal.ZERO,
                     cashAccounts = accounts.filter { it.parentAccountId == accountId && it.type == "CASH" },
+                    transferAccounts = accounts.filter {
+                        (accountId != null && it.id == accountId) ||
+                            (it.parentAccountId == accountId && it.type == "CASH")
+                    },
+                    accountBalances = balances,
                     activeAccountName = account?.name,
                     otherAccountId = other?.first?.id,
                     otherAccountName = other?.first?.name,
@@ -111,7 +144,8 @@ class TransactionsViewModel @Inject constructor(
                 _uiState.value = baseState.copy(
                     filteredExpenses = filterExpenses(baseState.allExpenses, baseState),
                     filteredTopUps = filterTopUps(baseState.allTopUps, baseState),
-                    filteredWithdrawals = filterWithdrawals(baseState.allWithdrawals, baseState)
+                    filteredWithdrawals = filterWithdrawals(baseState.allWithdrawals, baseState),
+                    filteredRepayments = filterRepayments(baseState.allRepayments, baseState)
                 )
             }
         }
@@ -167,13 +201,37 @@ class TransactionsViewModel @Inject constructor(
         }
     }
 
-    /** Re-runs all three filters after one of them changed. */
+    private fun filterRepayments(repayments: List<Repayment>, state: TransactionsUiState): List<Repayment> {
+        return repayments.filter { repayment ->
+            val loan = state.loansById[repayment.loanDebtId] ?: return@filter false
+            if (state.searchQuery.isNotBlank()) {
+                val q = state.searchQuery.lowercase()
+                if (!(loan.personName.lowercase().contains(q) ||
+                        repayment.note?.lowercase()?.contains(q) == true ||
+                        loan.currencyOriginal.lowercase().contains(q))
+                ) return@filter false
+            }
+            // Loan transactions have no category, so a category filter hides them.
+            if (state.selectedCategoryId != null) return@filter false
+            if (state.selectedType != null && state.selectedType != "LOAN") return@filter false
+            if (state.selectedCurrency != null &&
+                state.selectedCurrency != loan.currencyOriginal &&
+                state.selectedCurrency != repayment.accountCurrency
+            ) return@filter false
+            if (state.dateRangeStart != null && repayment.date < state.dateRangeStart) return@filter false
+            if (state.dateRangeEnd != null && repayment.date > state.dateRangeEnd) return@filter false
+            true
+        }
+    }
+
+    /** Re-runs all filters after one of them changed. */
     private fun refilter() {
         val current = _uiState.value
         _uiState.value = current.copy(
             filteredExpenses = filterExpenses(current.allExpenses, current),
             filteredTopUps = filterTopUps(current.allTopUps, current),
-            filteredWithdrawals = filterWithdrawals(current.allWithdrawals, current)
+            filteredWithdrawals = filterWithdrawals(current.allWithdrawals, current),
+            filteredRepayments = filterRepayments(current.allRepayments, current)
         )
     }
 
@@ -210,6 +268,44 @@ class TransactionsViewModel @Inject constructor(
         viewModelScope.launch { financeRepository.deleteWithdrawal(withdrawal) }
     }
 
+    /** Removing a loan settlement reopens its loan and reverses the money. */
+    fun deleteRepayment(repayment: Repayment) {
+        viewModelScope.launch {
+            try {
+                financeRepository.deleteRepayment(repayment)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(message = e.message ?: "Unable to delete")
+            }
+        }
+    }
+
+    /**
+     * Transfers between any two balances of the active main account (including
+     * cash to cash). Both amounts come from the dialog, so the side the user
+     * typed is stored exactly; the repository re-checks the source balance.
+     */
+    fun transfer(fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String?) {
+        viewModelScope.launch {
+            try {
+                val from = amountFrom.parseAmountOrNull()
+                    ?: error("Enter a positive amount")
+                val to = amountTo.parseAmountOrNull()
+                    ?: error("Enter a positive amount")
+                val source = financeRepository.getAccountById(fromId) ?: error("Source balance not found")
+                val target = financeRepository.getAccountById(toId) ?: error("Destination balance not found")
+                val rate = rateRepository.getConversionRateOrFallback(source.currency, target.currency)
+                financeRepository.transfer(fromId, toId, from, rate, note, amountTo = to)
+                _uiState.value = _uiState.value.copy(
+                    message = "Transferred " +
+                        com.spendingtracker.app.util.CurrencyFormatter.formatSimple(from, source.currency) +
+                        " from " + source.name + " to " + target.name
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(message = e.message ?: "Unable to transfer")
+            }
+        }
+    }
+
     /**
      * Withdraws from the active main balance into one of its cash balances. Both
      * amounts come from the dialog, so whichever currency the user typed is the
@@ -218,9 +314,9 @@ class TransactionsViewModel @Inject constructor(
     fun withdraw(cashId: Long, amountFrom: String, amountTo: String, note: String?) {
         viewModelScope.launch {
             try {
-                val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+                val from = amountFrom.parseAmountOrNull()
                     ?: error("Enter a positive amount")
-                val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+                val to = amountTo.parseAmountOrNull()
                     ?: error("Enter a positive amount")
                 val mainId = financeRepository.getActiveAccountId()
                 val cash = financeRepository.getAccountById(cashId) ?: error("Cash balance not found")
@@ -274,3 +370,11 @@ class TransactionsViewModel @Inject constructor(
     }
 
 }
+
+/** Card payments, transfers and loan transactions feeding History in one combine. */
+private data class LedgerExtras(
+    val payments: List<com.spendingtracker.app.data.local.entity.CreditCardPayment>,
+    val withdrawals: List<Withdrawal>,
+    val repayments: List<Repayment>,
+    val loans: List<LoanDebt>
+)

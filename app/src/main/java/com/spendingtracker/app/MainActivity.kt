@@ -14,6 +14,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.ui.navigation.AppNavHost
 import com.spendingtracker.app.ui.theme.SpendingTrackerTheme
+import com.spendingtracker.app.ui.theme.resolveDarkTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -88,56 +91,59 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val startup = startupState.value
-            if (startup == null) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-                return@setContent
-            }
+            // The theme is observed live: it used to be read once into the
+            // startup snapshot, so picking Light/Dark in Settings only took
+            // effect after a full process restart and looked like a dead
+            // setting. The snapshot value is only the pre-database fallback.
+            val liveSettings by financeRepository.getSettings().collectAsState(initial = null)
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val darkTheme = resolveDarkTheme(liveSettings?.theme ?: startup?.themeMode, systemDark)
 
-            if (startup.databaseError) {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.Text("Saved data could not be opened. No data was erased. Keep the app installed and resolve the database upgrade before continuing.")
-                    }
-                }
-                return@setContent
-            }
-
-            // Ask for notification permission on Android 13+ so balance/loan alerts can be shown.
-            val permissionLauncher = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestPermission()
-            ) { /* result handled by system settings */ }
-            LaunchedEffect(Unit) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-            }
-
-            val darkTheme = when (startup.themeMode) {
-                "LIGHT" -> false
-                "DARK" -> true
-                else -> androidx.compose.foundation.isSystemInDarkTheme()
-            }
             SpendingTrackerTheme(darkTheme = darkTheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    val navController = rememberNavController()
-                    AppNavHost(
-                        navController = navController,
-                        startDestination = if (startup.isSetupComplete) {
-                            com.spendingtracker.app.ui.navigation.Screen.Main.route
-                        } else {
-                            "setup"
+                when {
+                    startup == null -> {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
                         }
-                    )
+                    }
+                    startup.databaseError -> {
+                        Surface(modifier = Modifier.fillMaxSize()) {
+                            Box(contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.Text("Saved data could not be opened. No data was erased. Keep the app installed and resolve the database upgrade before continuing.")
+                            }
+                        }
+                    }
+                    else -> {
+                        // Ask for notification permission on Android 13+ so balance/loan alerts can be shown.
+                        val permissionLauncher = rememberLauncherForActivityResult(
+                            ActivityResultContracts.RequestPermission()
+                        ) { /* result handled by system settings */ }
+                        LaunchedEffect(Unit) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            val navController = rememberNavController()
+                            AppNavHost(
+                                navController = navController,
+                                startDestination = if (startup.isSetupComplete) {
+                                    com.spendingtracker.app.ui.navigation.Screen.Main.route
+                                } else {
+                                    "setup"
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }

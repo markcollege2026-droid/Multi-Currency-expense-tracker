@@ -21,13 +21,14 @@ import javax.inject.Singleton
 
 /**
  * JSON export/import schema. Version 3 adds [accounts] and [recurringPayments];
- * version 5 adds [withdrawals] and per-account `includedInTotal`. Every added
- * field has a default so files exported by older app versions (schema 1..4)
- * still import cleanly.
+ * version 5 adds [withdrawals] and per-account `includedInTotal`; version 6 adds
+ * loan settlement bookkeeping (when/by what a loan was settled, and the balance a
+ * repayment moved money through). Every added field has a default so files
+ * exported by older app versions (schema 1..5) still import cleanly.
  */
 @Serializable
 data class ExportData(
-    val schemaVersion: Int = 5,
+    val schemaVersion: Int = 6,
     val settings: ExportSettings? = null,
     val categories: List<ExportCategory> = emptyList(),
     val expenses: List<ExportExpense> = emptyList(),
@@ -114,7 +115,9 @@ data class ExportLoanDebt(
     val dueDate: Long?,
     val note: String?,
     val isSettled: Boolean,
-    val createdAt: Long = 0
+    val createdAt: Long = 0,
+    val settledAt: Long? = null,
+    val settlementRepaymentId: Long? = null
 )
 
 @Serializable
@@ -124,7 +127,12 @@ data class ExportRepayment(
     val amount: String,
     val date: Long,
     val note: String?,
-    val createdAt: Long = 0
+    val createdAt: Long = 0,
+    /** Balance the settlement moved money through; null = external revenue. */
+    val accountId: Long? = null,
+    val accountAmount: String? = null,
+    val accountCurrency: String? = null,
+    val exchangeRate: String? = null
 )
 
 @Serializable
@@ -248,11 +256,15 @@ class ExportImportManager @Inject constructor(
             loanDebts = loanDebts.map {
                 ExportLoanDebt(
                     it.id, it.type, it.personName, it.amountOriginal, it.currencyOriginal,
-                    it.date, it.dueDate, it.note, it.isSettled, it.createdAt
+                    it.date, it.dueDate, it.note, it.isSettled, it.createdAt,
+                    it.settledAt, it.settlementRepaymentId
                 )
             },
             repayments = repayments.map {
-                ExportRepayment(it.id, it.loanDebtId, it.amount, it.date, it.note, it.createdAt)
+                ExportRepayment(
+                    it.id, it.loanDebtId, it.amount, it.date, it.note, it.createdAt,
+                    it.accountId, it.accountAmount, it.accountCurrency, it.exchangeRate
+                )
             },
             accounts = accounts.map {
                 ExportAccount(
@@ -300,7 +312,7 @@ class ExportImportManager @Inject constructor(
     suspend fun importAll(jsonString: String): Result<Unit> {
         return try {
             val data = json.decodeFromString<ExportData>(jsonString)
-            require(data.schemaVersion in 1..5) { "Unsupported backup version" }
+            require(data.schemaVersion in 1..6) { "Unsupported backup version" }
             require(data.accounts.all { it.id > 0 }) { "Invalid backup account ID" }
             financeRepository.atomic {
                 financeRepository.eraseAll()
@@ -424,7 +436,9 @@ class ExportImportManager @Inject constructor(
                             dueDate = it.dueDate,
                             note = it.note,
                             isSettled = it.isSettled,
-                            createdAt = it.createdAt
+                            createdAt = it.createdAt,
+                            settledAt = it.settledAt,
+                            settlementRepaymentId = it.settlementRepaymentId
                         )
                     )
                 }
@@ -436,7 +450,15 @@ class ExportImportManager @Inject constructor(
                             amount = it.amount,
                             date = it.date,
                             note = it.note,
-                            createdAt = it.createdAt
+                            createdAt = it.createdAt,
+                            // A settlement whose account did not survive the import
+                            // becomes external rather than failing the whole restore.
+                            // Money/rate fields only apply to a linked account, so
+                            // they are dropped together with the link.
+                            accountId = it.accountId?.takeIf { id -> id in validAccountIds },
+                            accountAmount = if (it.accountId != null && it.accountId in validAccountIds) it.accountAmount else null,
+                            accountCurrency = if (it.accountId != null && it.accountId in validAccountIds) it.accountCurrency else null,
+                            exchangeRate = if (it.accountId != null && it.accountId in validAccountIds) it.exchangeRate else null
                         )
                     )
                 }
@@ -502,8 +524,28 @@ class ExportImportManager @Inject constructor(
         // Transfers between balances are exported too so a CSV tells the whole story.
         financeRepository.getWithdrawalsSync().forEach {
             row("WITHDRAWAL", it.id, it.amountFrom, it.currencyFrom, it.amountTo, it.currencyTo,
-                it.exchangeRate, null, it.date, it.note ?: "Withdrawal to cash", "MAIN",
+                it.exchangeRate, null, it.date, it.note ?: "Transfer between balances", "MAIN",
                 it.fromAccountId, it.toAccountId, "COMPLETED")
+        }
+        // Loan repayments/settlements are transactions too. The converted side is
+        // the amount that moved through the linked balance (same as the original
+        // when the settlement was external revenue).
+        val loansById = loanRepository.getAllLoanDebtsSync().associateBy { it.id }
+        loanRepository.getAllRepaymentsSync().forEach { repayment ->
+            val loan = loansById[repayment.loanDebtId] ?: return@forEach
+            val settles = loan.settlementRepaymentId == repayment.id
+            row(
+                if (settles) "LOAN_SETTLEMENT" else "LOAN_REPAYMENT", repayment.id,
+                repayment.amount, loan.currencyOriginal,
+                repayment.accountAmount ?: repayment.amount,
+                repayment.accountCurrency ?: loan.currencyOriginal,
+                repayment.exchangeRate ?: "1", null, repayment.date,
+                (if (settles) "Loan settled - " else "Loan repayment - ") + loan.personName +
+                    (repayment.note?.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""),
+                if (repayment.accountId == null) "EXTERNAL" else "ACCOUNT",
+                repayment.accountId ?: "", repayment.accountId ?: "",
+                if (loan.type == "DEBT") "PAID" else "RECEIVED"
+            )
         }
         output.toString()
     }

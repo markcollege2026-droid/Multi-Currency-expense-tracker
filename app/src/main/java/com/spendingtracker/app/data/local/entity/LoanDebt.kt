@@ -16,7 +16,15 @@ data class LoanDebt(
     val dueDate: Long?,
     val note: String?,
     val isSettled: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** When the loan was settled; null while active (and for legacy settled loans). */
+    val settledAt: Long? = null,
+    /**
+     * The repayment that closed this loan, when it was closed by a payment.
+     * Reopening the loan deletes exactly this repayment, which also returns the
+     * settlement money to the account it came from.
+     */
+    val settlementRepaymentId: Long? = null
 ) {
     fun amountAsBigDecimal(): BigDecimal = BigDecimal(amountOriginal)
 

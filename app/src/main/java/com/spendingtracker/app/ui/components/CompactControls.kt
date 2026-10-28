@@ -33,21 +33,27 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -57,6 +63,7 @@ import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.compact.LocalTightUi
 import com.spendingtracker.app.ui.compact.QinFocusColor
 import com.spendingtracker.app.ui.compact.drawQinFocusRing
+import com.spendingtracker.app.util.AmountInput
 import com.spendingtracker.app.util.KeypadInput
 
 /**
@@ -381,10 +388,11 @@ fun AppPill(
 }
 
 /**
- * Text field that collapses to a label + 32dp input on compact screens. It also
- * maps hardware number keys directly (the F21 keypad has no usable IME for a
- * numeric amount when the soft keyboard is hidden) and lets D-pad Up/Down leave
- * a single-line field instead of being swallowed as cursor movement.
+ * The app's one text field. Amount fields (Decimal/Number/Phone) are forced to
+ * LTR: in an RTL locale the bidi algorithm parks a trailing '.' on the opposite
+ * side of the digits until the next digit arrives, so the cursor visibly jumps
+ * between the left and right edges while typing a decimal amount. Numbers are
+ * LTR in every locale, so the field (label included) is laid out LTR.
  */
 @Composable
 fun AppTextField(
@@ -403,9 +411,93 @@ fun AppTextField(
     focusRequester: FocusRequester? = null,
     onImeAction: (() -> Unit)? = null
 ) {
+    val numeric = keyboardType == KeyboardType.Decimal ||
+        keyboardType == KeyboardType.Number ||
+        keyboardType == KeyboardType.Phone
+    if (numeric) {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            AppTextFieldContent(
+                value, onValueChange, label, modifier, keyboardType, enabled, isError,
+                supportingText, placeholder, allowNegative, visualTransformation,
+                imeAction, focusRequester, onImeAction
+            )
+        }
+    } else {
+        AppTextFieldContent(
+            value, onValueChange, label, modifier, keyboardType, enabled, isError,
+            supportingText, placeholder, allowNegative, visualTransformation,
+            imeAction, focusRequester, onImeAction
+        )
+    }
+}
+
+/**
+ * Text field that collapses to a label + 32dp input on compact screens. It also
+ * maps hardware number keys directly (the F21 keypad has no usable IME for a
+ * numeric amount when the soft keyboard is hidden) and lets D-pad Up/Down leave
+ * a single-line field instead of being swallowed as cursor movement.
+ *
+ * The field owns a [TextFieldValue], so the cursor/selection survive the
+ * state-hoisting round trip (the String overload resets selection whenever the
+ * hoisted text is rewritten, which made the cursor jump around while typing).
+ * Numeric input is sanitised through [AmountInput] no matter which keyboard -
+ * soft IME or hardware keypad - produced it.
+ */
+@Composable
+private fun AppTextFieldContent(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    supportingText: String? = null,
+    placeholder: String? = null,
+    allowNegative: Boolean = false,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    imeAction: ImeAction = ImeAction.Done,
+    focusRequester: FocusRequester? = null,
+    onImeAction: (() -> Unit)? = null
+) {
     val compact = LocalCompactUi.current
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+
+    val numeric = keyboardType == KeyboardType.Decimal || keyboardType == KeyboardType.Number
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
+    }
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    // Adopt outside changes (prefills, resets) without losing the cursor more
+    // than necessary; our own typing echoes back identical text and is ignored.
+    if (textFieldValue.text != value) {
+        val selection = textFieldValue.selection
+        textFieldValue = TextFieldValue(
+            text = value,
+            selection = TextRange(
+                selection.start.coerceIn(0, value.length),
+                selection.end.coerceIn(0, value.length)
+            )
+        )
+    }
+    val handleChange: (TextFieldValue) -> Unit = { candidate ->
+        val sanitized = if (numeric) {
+            AmountInput.sanitize(
+                previous = textFieldValue.text,
+                candidate = candidate.text,
+                allowDecimal = keyboardType == KeyboardType.Decimal,
+                allowNegative = allowNegative
+            )
+        } else candidate.text
+        val updated = if (sanitized == candidate.text) candidate else candidate.copy(
+            text = sanitized,
+            selection = TextRange(sanitized.length)
+        )
+        textFieldValue = updated
+        currentOnValueChange(updated.text)
+    }
+
     if (!compact) {
         val actions = KeyboardActions(
             onDone = {
@@ -415,9 +507,12 @@ fun AppTextField(
             }
         )
         OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
+            value = textFieldValue,
+            onValueChange = handleChange,
             label = { Text(label) },
+            textStyle = if (numeric) {
+                LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+            } else LocalTextStyle.current,
             enabled = enabled,
             isError = isError,
             supportingText = supportingText?.let { { Text(it) } },
@@ -452,11 +547,16 @@ fun AppTextField(
         )
         Spacer(Modifier.height(if (tight) 2.dp else 3.dp))
         BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
+            value = textFieldValue,
+            onValueChange = handleChange,
             enabled = enabled,
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
+            textStyle = MaterialTheme.typography.bodyLarge.let { base ->
+                base.copy(
+                    color = textColor,
+                    textDirection = if (numeric) TextDirection.Ltr else base.textDirection
+                )
+            },
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
             keyboardActions = KeyboardActions(
                 onDone = {
@@ -503,17 +603,23 @@ fun AppTextField(
                             true
                         }
                         keyboardType == KeyboardType.Decimal || keyboardType == KeyboardType.Number -> {
-                            val typed = hardwareChar(event.key)
+                            val typed = hardwareChar(event.key) ?: hardwareUnicodeChar(event.utf16CodePoint)
                                 ?: return@onPreviewKeyEvent false
-                            val numeric = KeypadInput.appendChar(
-                                current = value,
+                            // Read the field's live value: the hoisted [value] can be
+                            // a frame stale under fast key repeats and appended over
+                            // the character typed just before.
+                            val appended = KeypadInput.appendChar(
+                                current = textFieldValue.text,
                                 char = typed,
                                 allowDecimal = keyboardType == KeyboardType.Decimal,
                                 allowNegative = allowNegative
                             )
                             // Consume rejected keys too (e.g. a second decimal point)
                             // so the text field cannot insert a raw character behind us.
-                            if (numeric != null) onValueChange(numeric)
+                            if (appended != null) {
+                                textFieldValue = TextFieldValue(appended, TextRange(appended.length))
+                                currentOnValueChange(appended)
+                            }
                             true
                         }
                         event.key == Key.Enter || event.key == Key.NumPadEnter -> {
@@ -527,7 +633,7 @@ fun AppTextField(
                 },
             decorationBox = { innerTextField ->
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    if (value.isEmpty() && placeholder != null) {
+                    if (textFieldValue.text.isEmpty() && placeholder != null) {
                         Text(
                             text = placeholder,
                             style = MaterialTheme.typography.bodyLarge,
@@ -928,4 +1034,20 @@ private fun hardwareChar(key: Key): Char? = when (key) {
     Key.Period, Key.NumPadDot, Key.Comma, Key.NumPadComma, Key.Multiply -> '.'
     Key.Minus, Key.NumPadSubtract -> '-'
     else -> null
+}
+
+/**
+ * Fallback for keypads whose symbols do not map onto the named [Key] constants:
+ * a phone '*' key reports KEYCODE_STAR (its unicode char is '*'), not the
+ * numpad-multiply code behind [Key.Multiply]. The typed character itself is
+ * unambiguous, so amount fields can trust it.
+ */
+private fun hardwareUnicodeChar(codePoint: Int): Char? {
+    if (codePoint <= 0 || codePoint > 0xFFFF) return null
+    return when (val c = codePoint.toChar()) {
+        in '0'..'9' -> c
+        '.', ',', '*' -> '.'
+        '-' -> '-'
+        else -> null
+    }
 }

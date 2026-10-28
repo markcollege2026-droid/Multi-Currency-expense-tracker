@@ -83,7 +83,7 @@ fun CompactDatePickerDialog(
     val hardwareKeypad = LocalHardwareKeypad.current
 
     LaunchedEffect(Unit) {
-        dayFocus.requestFocus()
+        runCatching { dayFocus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 

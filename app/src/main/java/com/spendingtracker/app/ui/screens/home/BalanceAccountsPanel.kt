@@ -30,6 +30,7 @@ import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.YearMonth
+import com.spendingtracker.app.util.parseAmountOrNull
 
 @Composable
 fun BalanceAccountsPanel(
@@ -257,6 +258,7 @@ fun BalanceAccountsPanel(
         CreateAccountDialog(
             type = type,
             mainCurrency = state.balanceCurrency,
+            orderedCurrencies = state.orderedCurrencies,
             onDismiss = { onCreateTypeChange(null) },
             onCreate = { name, opening, currency ->
                 viewModel.createBalanceAccount(name, type, opening, currency)
@@ -314,10 +316,12 @@ fun BalanceAccountsPanel(
         val entries = state.accountEntries[account.id] ?: 0
         AppConfirmDialog(
             title = "Delete ${account.name}?",
-            message = "This removes the ${account.type.replace('_', ' ').lowercase()} balance and its " +
+            message = "This removes only the ${account.type.replace('_', ' ').lowercase()} balance \u201C${account.name}\u201D and its " +
                 "$entries " + (if (entries == 1) "entry" else "entries") +
-                " (expenses, deposits, payments and transfers), and returns withdrawn money to main. " +
-                "Main/debit and loans are shared and kept. This cannot be undone.",
+                " (expenses, deposits, payments and transfers); " +
+                "transferred money returns to the balances it came from. " +
+                "Every other account and its data are untouched, and loans are shared and kept " +
+                "(settlements paid from this balance become external). This cannot be undone.",
             confirmLabel = "Delete",
             onDismiss = { deleteAccount = null },
             onConfirm = {
@@ -538,6 +542,7 @@ private fun EditAccountDialog(
 private fun CreateAccountDialog(
     type: String,
     mainCurrency: String,
+    orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies,
     onDismiss: () -> Unit,
     onCreate: (name: String, opening: String, currency: String) -> Unit
 ) {
@@ -551,7 +556,7 @@ private fun CreateAccountDialog(
     val hardwareKeypad = LocalHardwareKeypad.current
 
     LaunchedEffect(Unit) {
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 
@@ -561,7 +566,7 @@ private fun CreateAccountDialog(
         confirmLabel = "Create",
         confirmEnabled = name.isNotBlank(),
         onConfirm = {
-            val value = opening.trim().replace(',', '.').toBigDecimalOrNull()
+            val value = opening.parseAmountOrNull()
             // A card opening balance is signed (debt is negative); cash cannot be negative.
             val invalid = name.isBlank() || value == null ||
                 (type != "CREDIT_CARD" && value < BigDecimal.ZERO)
@@ -613,7 +618,7 @@ private fun CreateAccountDialog(
     }
     if (showCurrencyPicker) {
         CurrencyPickerDialog(
-            orderedCurrencies = CurrencyProvider.allCurrencies,
+            orderedCurrencies = orderedCurrencies,
             balanceCurrency = currency,
             onDismiss = { showCurrencyPicker = false },
             onCurrencySelected = { code ->
@@ -638,10 +643,10 @@ private fun MoneyDialog(
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val hardwareKeypad = LocalHardwareKeypad.current
-    val valid = amount.trim().replace(',', '.').toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true
+    val valid = amount.parseAmountOrNull()?.let { it > BigDecimal.ZERO } == true
 
     LaunchedEffect(Unit) {
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 
@@ -691,7 +696,7 @@ private fun AutopayDialog(
     var mode by remember { mutableStateOf(card.autopayMode) }
     var fixed by remember { mutableStateOf(card.autopayFixedAmount ?: "") }
     val valid = (day.toIntOrNull() ?: 0) in 1..31 &&
-        (mode != "FIXED_AMOUNT" || fixed.trim().replace(',', '.').toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true)
+        (mode != "FIXED_AMOUNT" || fixed.parseAmountOrNull()?.let { it > BigDecimal.ZERO } == true)
 
     AppDialog(
         onDismissRequest = onDismiss,

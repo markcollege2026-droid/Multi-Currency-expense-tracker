@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.CurrencyProvider
 
 data class RecurringDraft(
     val id: Long? = null,
@@ -32,6 +33,7 @@ data class RecurringUiState(
     val categories: List<Category> = emptyList(),
     val isLoading: Boolean = true,
     val editing: RecurringDraft? = null,
+    val orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies,
     val error: String? = null,
     val message: String? = null
 )
@@ -56,6 +58,7 @@ class RecurringViewModel @Inject constructor(
                         payments = payments,
                         account = account,
                         categories = financeRepository.getAllCategoriesSync(),
+                        orderedCurrencies = financeRepository.orderedCurrencies(),
                         isLoading = false
                     )
                 }
@@ -92,7 +95,14 @@ class RecurringViewModel @Inject constructor(
     }
 
     fun onDraftChanged(draft: RecurringDraft) {
+        val previous = _uiState.value.editing
         _uiState.value = _uiState.value.copy(editing = draft)
+        if (previous != null && previous.currency != draft.currency) {
+            viewModelScope.launch {
+                financeRepository.recordRecentCurrency(draft.currency)
+                _uiState.value = _uiState.value.copy(orderedCurrencies = financeRepository.orderedCurrencies())
+            }
+        }
     }
 
     fun save() {

@@ -67,6 +67,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import com.spendingtracker.app.util.parseAmountOrNull
 
 private val ConverterBlue = Color(0xFF1B7A50)
 private val PositiveGreenBg = Color(0xFFE6F4EA)
@@ -216,6 +217,7 @@ private fun ConverterScreenBody(
     if (showAddDialog) {
         AddCurrencyOrCommodityDialog(
             selectedCodes = uiState.selectedCodes,
+            orderedCodes = uiState.orderedCurrencies.map { it.code },
             onToggleCode = { code -> viewModel.toggleCurrencyInList(code) },
             onMakeTop = { code ->
                 viewModel.addAndMakeTop(code)
@@ -274,6 +276,7 @@ private fun ConverterScreenBody(
     chartPickerMode?.let { mode ->
         SingleCurrencyCommodityPickerDialog(
             title = if (mode == "BASE") "Select Chart Base" else "Select Chart Target",
+            orderedCodes = uiState.orderedCurrencies.map { it.code },
             currentCode = if (mode == "BASE") uiState.chartBaseCode else uiState.chartTargetCode,
             onSelect = { chosen ->
                 if (mode == "BASE") {
@@ -632,7 +635,7 @@ private fun AmountSelectionDialog(
     val presetAmounts = remember {
         listOf("1", "5", "10", "25", "50", "100", "250", "500", "1000", "5000")
     }
-    val parsedAmount = amountText.trim().replace(",", "").toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val parsedAmount = amountText.parseAmountOrNull() ?: BigDecimal.ZERO
     val apply = {
         onConfirmAmount(amountText.ifBlank { "1" })
     }
@@ -648,10 +651,7 @@ private fun AmountSelectionDialog(
     ) {
         AppTextField(
             value = amountText,
-            onValueChange = { value ->
-                val cleaned = value.filter { it.isDigit() || it == '.' || it == '-' }
-                if (cleaned.count { it == '.' } <= 1) amountText = cleaned
-            },
+            onValueChange = { amountText = it },
             label = "Amount in ${topItem.info.code} (${topItem.info.symbol})",
             keyboardType = KeyboardType.Decimal,
             allowNegative = false,
@@ -1242,9 +1242,20 @@ private fun InteractiveRateLineChart(
     }
 }
 
+/** Orders picker results by the Settings currency order; unranked entries (commodities) follow, A-Z. */
+private fun rankByConfiguredOrder(
+    items: List<CurrencyProvider.CurrencyInfo>,
+    orderedCodes: List<String>
+): List<CurrencyProvider.CurrencyInfo> {
+    if (orderedCodes.isEmpty()) return items
+    val rank = orderedCodes.withIndex().associate { it.value to it.index }
+    return items.sortedWith(compareBy({ rank[it.code] ?: Int.MAX_VALUE }, { it.code }))
+}
+
 @Composable
 private fun AddCurrencyOrCommodityDialog(
     selectedCodes: List<String>,
+    orderedCodes: List<String> = emptyList(),
     onToggleCode: (String) -> Unit,
     onMakeTop: (String) -> Unit,
     onDismiss: () -> Unit
@@ -1252,8 +1263,8 @@ private fun AddCurrencyOrCommodityDialog(
     val compact = LocalCompactUi.current
     var searchQuery by remember { mutableStateOf("") }
     var filterTab by remember { mutableStateOf("ALL") } // ALL, CURRENCIES, COMMODITIES
-    val filteredItems = remember(searchQuery, filterTab) {
-        CurrencyProvider.searchAll(searchQuery, filterTab)
+    val filteredItems = remember(searchQuery, filterTab, orderedCodes) {
+        rankByConfiguredOrder(CurrencyProvider.searchAll(searchQuery, filterTab), orderedCodes)
     }
     val maxList = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
         if (compact) 0.46f else 0.5f).dp
@@ -1368,13 +1379,16 @@ private fun AddCurrencyOrCommodityDialog(
 @Composable
 private fun SingleCurrencyCommodityPickerDialog(
     title: String,
+    orderedCodes: List<String> = emptyList(),
     currentCode: String,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val compact = LocalCompactUi.current
     var searchQuery by remember { mutableStateOf("") }
-    val items = remember(searchQuery) { CurrencyProvider.searchAll(searchQuery, "ALL") }
+    val items = remember(searchQuery, orderedCodes) {
+        rankByConfiguredOrder(CurrencyProvider.searchAll(searchQuery, "ALL"), orderedCodes)
+    }
     val maxList = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
         if (compact) 0.56f else 0.55f).dp
 

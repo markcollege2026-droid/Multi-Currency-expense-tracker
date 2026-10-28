@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class SettingsUiState(
     val settings: AppSettings? = null,
@@ -48,6 +49,8 @@ data class SettingsUiState(
     val message: String? = null,
     val error: String? = null,
     val accounts: List<Account> = emptyList(),
+    /** Every account incl. cash/card children, so each one can be managed (and deleted) on its own. */
+    val balanceAccounts: List<Account> = emptyList(),
     /** Entries and derived balance per account, so deleting one can say what is at stake. */
     val accountSummaries: Map<Long, com.spendingtracker.app.data.repository.AccountSummary> = emptyMap(),
     val activeAccountId: Long = 1,
@@ -118,6 +121,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             financeRepository.getAllAccounts().collect { accounts ->
                 _uiState.value = _uiState.value.copy(accounts = accounts)
+            }
+        }
+        viewModelScope.launch {
+            financeRepository.observeBalanceAccounts().collect { accounts ->
+                _uiState.value = _uiState.value.copy(balanceAccounts = accounts)
             }
         }
         viewModelScope.launch {
@@ -199,7 +207,9 @@ class SettingsViewModel @Inject constructor(
         if (_uiState.value.backupBusy) return
         viewModelScope.launch {
             try {
-                val snapshot = if (account.type == "MAIN") snapshotBeforeDelete(account) else null
+                // Snapshot before deleting ANY single account (main, cash or card):
+                // the copy is whole-ledger JSON, cheap insurance for a misclick.
+                val snapshot = snapshotBeforeDelete(account)
                 val survivor = withContext(NonCancellable) { financeRepository.deleteAccountCascade(account) }
                 val summary = _uiState.value.accountSummaries[account.id]
                 _uiState.value = _uiState.value.copy(
@@ -237,6 +247,24 @@ class SettingsViewModel @Inject constructor(
         throw e
     } catch (e: Exception) {
         null
+    }
+
+    /** Adds a cash balance under [mainId] from Settings -> Manage accounts. */
+    fun createCashBalance(mainId: Long, name: String, opening: String, currency: String) {
+        viewModelScope.launch {
+            try {
+                val amount = if (opening.isBlank()) BigDecimal.ZERO
+                else opening.parseAmountOrNull()
+                    ?: run {
+                        _uiState.value = _uiState.value.copy(error = "Opening amount must be a number")
+                        return@launch
+                    }
+                financeRepository.createBalanceAccount(mainId, name.trim(), "CASH", amount, currency)
+                _uiState.value = _uiState.value.copy(message = "Cash balance added")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Could not add cash balance")
+            }
+        }
     }
 
     fun onThresholdChanged(v: String) { _uiState.value = _uiState.value.copy(lowBalanceThreshold = v) }
@@ -438,26 +466,6 @@ class SettingsViewModel @Inject constructor(
             val newJson = currentFavs.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
             financeRepository.saveFavoriteCurrencies(newJson)
             _uiState.value = _uiState.value.copy(message = if (currentFavs.contains(code)) "$code added to favorites" else "$code removed from favorites")
-        }
-    }
-
-    fun moveCurrencyInCustomOrder(fromIndex: Int, toIndex: Int) {
-        viewModelScope.launch {
-            val current = financeRepository.getSettingsSync() ?: return@launch
-            val order = current.customCurrencyOrder?.let { json ->
-                try {
-                    json.trim().removePrefix("[").removeSuffix("]")
-                        .split(",").map { it.trim().trim('"', '\'', ' ') }.filter { it.isNotBlank() }.toMutableList()
-                } catch (e: Exception) { mutableListOf() }
-            } ?: CurrencyProvider.allCurrencies.map { it.code }.toMutableList()
-
-            if (fromIndex in order.indices && toIndex in order.indices) {
-                val item = order.removeAt(fromIndex)
-                order.add(toIndex, item)
-                val newJson = order.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
-                financeRepository.saveCustomCurrencyOrder(newJson, "CUSTOM")
-                _uiState.value = _uiState.value.copy(message = "Order updated")
-            }
         }
     }
 
