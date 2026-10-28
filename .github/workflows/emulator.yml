@@ -7,7 +7,7 @@ on:
     paths: ['.ci-emulator/**']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   emulator:
     runs-on: ubuntu-24.04
