@@ -54,7 +54,7 @@ fun AddTopUpScreen(
 
     LaunchedEffect(topUpId) {
         viewModel.loadTopUp(topUpId)
-        amountFocus.requestFocus()
+        runCatching { amountFocus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 

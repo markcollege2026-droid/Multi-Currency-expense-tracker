@@ -788,7 +788,7 @@ fun AdjustBalanceDialog(
     val diff = remember(desired, currentBalance) { desired?.subtract(currentBalance) }
 
     LaunchedEffect(Unit) {
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 

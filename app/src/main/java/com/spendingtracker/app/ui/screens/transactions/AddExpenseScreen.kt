@@ -181,7 +181,7 @@ fun AddExpenseContent(
 
     LaunchedEffect(state.isLoading) {
         if (!state.isLoading) {
-            amountFocus.requestFocus()
+            runCatching { amountFocus.requestFocus() }
             if (hardwareKeypad) keyboard?.hide()
         }
     }
@@ -569,7 +569,7 @@ private fun AddCategoryDialog(onDismiss: () -> Unit, onAdd: (String, Int) -> Uni
     val keyboard = LocalSoftwareKeyboardController.current
     val hardwareKeypad = LocalHardwareKeypad.current
     LaunchedEffect(Unit) {
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
     AppDialog(

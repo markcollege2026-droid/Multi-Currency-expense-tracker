@@ -556,7 +556,7 @@ private fun CreateAccountDialog(
     val hardwareKeypad = LocalHardwareKeypad.current
 
     LaunchedEffect(Unit) {
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 
@@ -646,7 +646,7 @@ private fun MoneyDialog(
     val valid = amount.parseAmountOrNull()?.let { it > BigDecimal.ZERO } == true
 
     LaunchedEffect(Unit) {
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 

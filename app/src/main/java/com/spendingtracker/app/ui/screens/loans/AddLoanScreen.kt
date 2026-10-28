@@ -51,7 +51,7 @@ fun AddLoanScreen(
 
     LaunchedEffect(loanId, initialType) {
         viewModel.loadLoan(loanId, initialType)
-        focus.requestFocus()
+        runCatching { focus.requestFocus() }
         if (hardwareKeypad) keyboard?.hide()
     }
 
