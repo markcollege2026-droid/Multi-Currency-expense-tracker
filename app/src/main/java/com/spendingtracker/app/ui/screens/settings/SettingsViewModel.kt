@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class SettingsUiState(
     val settings: AppSettings? = null,
@@ -248,6 +249,24 @@ class SettingsViewModel @Inject constructor(
         null
     }
 
+    /** Adds a cash balance under [mainId] from Settings -> Manage accounts. */
+    fun createCashBalance(mainId: Long, name: String, opening: String, currency: String) {
+        viewModelScope.launch {
+            try {
+                val amount = if (opening.isBlank()) BigDecimal.ZERO
+                else opening.parseAmountOrNull()
+                    ?: run {
+                        _uiState.value = _uiState.value.copy(error = "Opening amount must be a number")
+                        return@launch
+                    }
+                financeRepository.createBalanceAccount(mainId, name.trim(), "CASH", amount, currency)
+                _uiState.value = _uiState.value.copy(message = "Cash balance added")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Could not add cash balance")
+            }
+        }
+    }
+
     fun onThresholdChanged(v: String) { _uiState.value = _uiState.value.copy(lowBalanceThreshold = v) }
     fun onThemeChanged(t: String) {
         viewModelScope.launch {
@@ -447,26 +466,6 @@ class SettingsViewModel @Inject constructor(
             val newJson = currentFavs.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
             financeRepository.saveFavoriteCurrencies(newJson)
             _uiState.value = _uiState.value.copy(message = if (currentFavs.contains(code)) "$code added to favorites" else "$code removed from favorites")
-        }
-    }
-
-    fun moveCurrencyInCustomOrder(fromIndex: Int, toIndex: Int) {
-        viewModelScope.launch {
-            val current = financeRepository.getSettingsSync() ?: return@launch
-            val order = current.customCurrencyOrder?.let { json ->
-                try {
-                    json.trim().removePrefix("[").removeSuffix("]")
-                        .split(",").map { it.trim().trim('"', '\'', ' ') }.filter { it.isNotBlank() }.toMutableList()
-                } catch (e: Exception) { mutableListOf() }
-            } ?: CurrencyProvider.allCurrencies.map { it.code }.toMutableList()
-
-            if (fromIndex in order.indices && toIndex in order.indices) {
-                val item = order.removeAt(fromIndex)
-                order.add(toIndex, item)
-                val newJson = order.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"$it\"" }
-                financeRepository.saveCustomCurrencyOrder(newJson, "CUSTOM")
-                _uiState.value = _uiState.value.copy(message = "Order updated")
-            }
         }
     }
 

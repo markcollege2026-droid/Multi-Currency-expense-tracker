@@ -35,6 +35,7 @@ import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.*
+import com.spendingtracker.app.util.parseAmountOrNull
 
 @Composable
 fun AddExpenseScreen(
@@ -154,8 +155,10 @@ fun AddExpenseContent(
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val amountFocus = remember { FocusRequester() }
-    val amountParsed = state.amount.trim().replace(',', '.').toBigDecimalOrNull()
-    val amountError = state.amount.isNotBlank() && amountParsed == null
+    val amountParsed = state.amount.parseAmountOrNull()
+    // Transient text on the way to a number (".", "-.") is not an error yet.
+    val amountError = state.amount.isNotBlank() && amountParsed == null &&
+        !com.spendingtracker.app.util.AmountInput.isIncomplete(state.amount)
     val rateError = amountParsed != null && state.convertedAmount == null
     val supporting = when {
         amountError -> "Enter a valid amount"
@@ -393,10 +396,12 @@ fun CurrencyPickerDialog(
     var query by remember { mutableStateOf("") }
     val filtered = remember(query, orderedCurrencies) {
         val q = query.lowercase().trim()
-        if (q.isBlank()) orderedCurrencies.take(120)
+        // No truncation: the list used to stop at 120 of ~155 currencies, so
+        // the tail was unreachable without searching.
+        if (q.isBlank()) orderedCurrencies
         else orderedCurrencies.filter {
             it.code.lowercase().contains(q) || it.name.lowercase().contains(q)
-        }.take(120)
+        }
     }
     val compact = LocalCompactUi.current
     val maxListHeight = (LocalConfiguration.current.screenHeightDp * if (compact) 0.48f else 0.5f).dp

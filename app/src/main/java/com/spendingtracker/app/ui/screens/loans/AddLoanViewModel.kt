@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.CurrencyProvider
 
 data class AddLoanUiState(
     val type: String = LoanDebt.TYPE_DEBT,
@@ -33,7 +34,8 @@ data class AddLoanUiState(
     // Settlement bookkeeping is carried through edits untouched - saving an
     // archived loan must never un-settle it or orphan its settlement transaction.
     val settledAt: Long? = null,
-    val settlementRepaymentId: Long? = null
+    val settlementRepaymentId: Long? = null,
+    val orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies
 )
 
 @HiltViewModel
@@ -59,7 +61,8 @@ class AddLoanViewModel @Inject constructor(
                 val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 _uiState.value = _uiState.value.copy(
                     balanceCurrency = account?.currency ?: "USD",
-                    currency = account?.currency ?: "USD"
+                    currency = account?.currency ?: "USD",
+                    orderedCurrencies = financeRepository.orderedCurrencies()
                 )
             }
             return
@@ -86,7 +89,8 @@ class AddLoanViewModel @Inject constructor(
                         isEditMode = true,
                         createdAt = loan.createdAt,
                         settledAt = loan.settledAt,
-                        settlementRepaymentId = loan.settlementRepaymentId
+                        settlementRepaymentId = loan.settlementRepaymentId,
+                        orderedCurrencies = financeRepository.orderedCurrencies()
                     )
                 }
             } catch (e: Exception) {
@@ -100,7 +104,13 @@ class AddLoanViewModel @Inject constructor(
     fun onTypeChanged(t: String) { _uiState.value = _uiState.value.copy(type = t) }
     fun onPersonChanged(v: String) { _uiState.value = _uiState.value.copy(personName = v) }
     fun onAmountChanged(v: String) { _uiState.value = _uiState.value.copy(amount = v) }
-    fun onCurrencyChanged(v: String) { _uiState.value = _uiState.value.copy(currency = v) }
+    fun onCurrencyChanged(v: String) {
+        _uiState.value = _uiState.value.copy(currency = v)
+        viewModelScope.launch {
+            financeRepository.recordRecentCurrency(v)
+            _uiState.value = _uiState.value.copy(orderedCurrencies = financeRepository.orderedCurrencies())
+        }
+    }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun onDueDateChanged(v: Long?) { _uiState.value = _uiState.value.copy(dueDate = v) }
     fun onRepaymentAmountChanged(v: String) { _uiState.value = _uiState.value.copy(newRepaymentAmount = v) }

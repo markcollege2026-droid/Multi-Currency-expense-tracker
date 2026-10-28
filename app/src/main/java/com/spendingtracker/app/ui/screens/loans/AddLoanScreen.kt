@@ -321,6 +321,8 @@ fun AddLoanScreen(
 
         if (showCurrencyPicker) {
             CurrencyPickerDialog(
+                orderedCurrencies = uiState.orderedCurrencies,
+                balanceCurrency = uiState.balanceCurrency,
                 onDismiss = { showCurrencyPicker = false },
                 onCurrencySelected = { code ->
                     viewModel.onCurrencyChanged(code)

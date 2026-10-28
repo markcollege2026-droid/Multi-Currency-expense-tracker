@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class AddExpenseUiState(
     val amount: String = "",
@@ -182,7 +183,7 @@ class AddExpenseViewModel @Inject constructor(
         conversionJob?.cancel()
         conversionJob = viewModelScope.launch {
             val state = _uiState.value
-            val amount = state.amount.trim().replace(',', '.').toBigDecimalOrNull()
+            val amount = state.amount.parseAmountOrNull()
             if (amount == null || state.currency.isBlank()) {
                 _uiState.update { it.copy(convertedAmount = null, rateUsed = null) }
                 return@launch

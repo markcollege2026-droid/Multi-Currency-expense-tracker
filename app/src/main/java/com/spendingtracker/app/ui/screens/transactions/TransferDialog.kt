@@ -35,6 +35,7 @@ import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.theme.AppType
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.math.BigDecimal
+import com.spendingtracker.app.util.parseAmountOrNull
 
 /** Which side of the transfer the account picker is choosing. */
 enum class TransferPickerSide { FROM, TO }
@@ -62,7 +63,7 @@ fun transferFormState(
     typedInTargetCurrency: Boolean,
     hasPair: Boolean
 ): TransferFormState {
-    val typed = amount.trim().replace(',', '.').toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+    val typed = amount.parseAmountOrNull()?.takeIf { it > BigDecimal.ZERO }
     if (typed == null) {
         val error = if (amount.isNotBlank()) "Enter a positive amount" else null
         return TransferFormState(null, null, null, error, false)

@@ -30,6 +30,7 @@ import com.spendingtracker.app.util.CurrencyProvider
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.YearMonth
+import com.spendingtracker.app.util.parseAmountOrNull
 
 @Composable
 fun BalanceAccountsPanel(
@@ -257,6 +258,7 @@ fun BalanceAccountsPanel(
         CreateAccountDialog(
             type = type,
             mainCurrency = state.balanceCurrency,
+            orderedCurrencies = state.orderedCurrencies,
             onDismiss = { onCreateTypeChange(null) },
             onCreate = { name, opening, currency ->
                 viewModel.createBalanceAccount(name, type, opening, currency)
@@ -540,6 +542,7 @@ private fun EditAccountDialog(
 private fun CreateAccountDialog(
     type: String,
     mainCurrency: String,
+    orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies,
     onDismiss: () -> Unit,
     onCreate: (name: String, opening: String, currency: String) -> Unit
 ) {
@@ -563,7 +566,7 @@ private fun CreateAccountDialog(
         confirmLabel = "Create",
         confirmEnabled = name.isNotBlank(),
         onConfirm = {
-            val value = opening.trim().replace(',', '.').toBigDecimalOrNull()
+            val value = opening.parseAmountOrNull()
             // A card opening balance is signed (debt is negative); cash cannot be negative.
             val invalid = name.isBlank() || value == null ||
                 (type != "CREDIT_CARD" && value < BigDecimal.ZERO)
@@ -615,7 +618,7 @@ private fun CreateAccountDialog(
     }
     if (showCurrencyPicker) {
         CurrencyPickerDialog(
-            orderedCurrencies = CurrencyProvider.allCurrencies,
+            orderedCurrencies = orderedCurrencies,
             balanceCurrency = currency,
             onDismiss = { showCurrencyPicker = false },
             onCurrencySelected = { code ->
@@ -640,7 +643,7 @@ private fun MoneyDialog(
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val hardwareKeypad = LocalHardwareKeypad.current
-    val valid = amount.trim().replace(',', '.').toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true
+    val valid = amount.parseAmountOrNull()?.let { it > BigDecimal.ZERO } == true
 
     LaunchedEffect(Unit) {
         focus.requestFocus()
@@ -693,7 +696,7 @@ private fun AutopayDialog(
     var mode by remember { mutableStateOf(card.autopayMode) }
     var fixed by remember { mutableStateOf(card.autopayFixedAmount ?: "") }
     val valid = (day.toIntOrNull() ?: 0) in 1..31 &&
-        (mode != "FIXED_AMOUNT" || fixed.trim().replace(',', '.').toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true)
+        (mode != "FIXED_AMOUNT" || fixed.parseAmountOrNull()?.let { it > BigDecimal.ZERO } == true)
 
     AppDialog(
         onDismissRequest = onDismiss,

@@ -27,7 +27,22 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.10.0 — cash-to-cash transfers and loan settlements
+## Current release: 1.11.0 — amount entry, currency order, live theme & Manage Accounts
+
+**Decimal amounts type cleanly, the currency order applies everywhere, the
+theme applies immediately, and accounts are managed from Settings.**
+Version code **12**; database and backup schema unchanged (DB **v6**, backups
+**schema 6**). Fixes: the amount-field cursor jumping while typing after a
+decimal point (String-hoisted field + RTL bidi), un-sanitised soft-keyboard
+input (second separators, thousands grouping), the currency-order setting
+being ignored by the Loans/Recurring/Home/Converter pickers and the
+Customize dialog persisting per-tap (plus a 120-currency picker cap), and
+the theme only applying after a restart. New: **Settings → Manage accounts**
+(list → per-account contents: cash balances and cards, Use/Rename/Delete,
+add cash balance). Favorites behaviour unchanged. Full notes:
+[RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+## Previous release: 1.10.0 — cash-to-cash transfers and loan settlements
 
 **Transfers between any two balances, loans that settle through real accounts.**
 Version code **11**, database **version 6** (explicit 5→6 migration), JSON backups
@@ -47,7 +62,7 @@ Balances now also include account-linked loan settlements (`AccountBalances` gai
 repayments/loans; external repayments - including every repayment from before 1.10 -
 never move a balance). Totals on the Loans page count active loans only.
 
-## Previous release: 1.9.1 — account safety (no more "history wiped" after a restart)
+## Earlier release: 1.9.1 — account safety (no more "history wiped" after a restart)
 
 **Fixed: a ledger could look completely empty after a reboot even though nothing was
 deleted.** An "erase all data" left `isSetupComplete = false` behind; creating an
@@ -76,7 +91,7 @@ reopened - committed rows and the active pointer survive a restart), and
 `AccountVisibilityMessageTest` (empty-state wording). Version code **10**, database
 still **version 5**, JSON backups still **schema 5**.
 
-## Earlier release: 1.9.0 — one Add menu, deposits and cash transfers
+## Release 1.9.0 — one Add menu, deposits and cash transfers
 
 **[Download v1.9.0](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/releases/tag/v1.9.0)**
 — `app-release.apk` (signed, ~2.2 MB), `app-release.aab` for Play, R8 `mapping.txt` and

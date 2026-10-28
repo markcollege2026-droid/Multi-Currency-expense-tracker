@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class ConverterListItem(
     val info: CurrencyProvider.CurrencyInfo,
@@ -54,7 +55,9 @@ data class ConverterUiState(
     val chartTargetCode: String = "EUR",
     val chartTimeframe: ChartTimeframe = ChartTimeframe.ONE_MONTH,
     val chartSeries: HistoricalRateSeries? = null,
-    val isChartLoading: Boolean = false
+    val isChartLoading: Boolean = false,
+    /** Currencies in the user's configured order; the pickers rank by this. */
+    val orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies
 ) {
     companion object {
         val DEFAULT_CODES = listOf("USD", "EUR", "GBP", "ILS", "JPY", "XAU", "XAG", "WTI")
@@ -97,6 +100,13 @@ class ConverterViewModel @Inject constructor(
             chartBaseCode = initialBase,
             chartTargetCode = initialTarget
         )
+
+        // Currency pickers follow the order configured in Settings.
+        viewModelScope.launch {
+            runCatching { financeRepository.orderedCurrencies() }.getOrNull()?.let { ordered ->
+                _uiState.value = _uiState.value.copy(orderedCurrencies = ordered)
+            }
+        }
 
         // Observe Room exchange rates so UI automatically updates whenever rates change
         viewModelScope.launch {
@@ -185,8 +195,9 @@ class ConverterViewModel @Inject constructor(
     }
 
     fun updateBaseAmount(newAmountStr: String) {
-        val cleaned = newAmountStr.trim().replace(",", "")
-        val bd = cleaned.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO } ?: return
+        // Same amount rules as every other screen: ',' is a decimal separator.
+        val bd = newAmountStr.parseAmountOrNull()?.takeIf { it >= BigDecimal.ZERO } ?: return
+        val cleaned = newAmountStr.trim()
         prefs.edit().putString("base_amount", cleaned).apply()
         _uiState.value = _uiState.value.copy(
             baseAmountInput = cleaned,

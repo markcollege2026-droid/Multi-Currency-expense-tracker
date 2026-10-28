@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class TransactionsUiState(
     val allExpenses: List<Expense> = emptyList(),
@@ -286,9 +287,9 @@ class TransactionsViewModel @Inject constructor(
     fun transfer(fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String?) {
         viewModelScope.launch {
             try {
-                val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+                val from = amountFrom.parseAmountOrNull()
                     ?: error("Enter a positive amount")
-                val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+                val to = amountTo.parseAmountOrNull()
                     ?: error("Enter a positive amount")
                 val source = financeRepository.getAccountById(fromId) ?: error("Source balance not found")
                 val target = financeRepository.getAccountById(toId) ?: error("Destination balance not found")
@@ -313,9 +314,9 @@ class TransactionsViewModel @Inject constructor(
     fun withdraw(cashId: Long, amountFrom: String, amountTo: String, note: String?) {
         viewModelScope.launch {
             try {
-                val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+                val from = amountFrom.parseAmountOrNull()
                     ?: error("Enter a positive amount")
-                val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+                val to = amountTo.parseAmountOrNull()
                     ?: error("Enter a positive amount")
                 val mainId = financeRepository.getActiveAccountId()
                 val cash = financeRepository.getAccountById(cashId) ?: error("Cash balance not found")

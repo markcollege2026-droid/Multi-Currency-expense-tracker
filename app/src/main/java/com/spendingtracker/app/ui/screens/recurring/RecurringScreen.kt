@@ -33,6 +33,7 @@ import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
+import com.spendingtracker.app.util.CurrencyProvider
 
 @Composable
 fun RecurringScreen(
@@ -101,6 +102,7 @@ fun RecurringScreen(
             RecurringEditDialog(
                 draft = draft,
                 categories = uiState.categories,
+                orderedCurrencies = uiState.orderedCurrencies,
                 error = uiState.error,
                 onDraftChanged = viewModel::onDraftChanged,
                 onDismiss = viewModel::dismissDialog,
@@ -223,6 +225,7 @@ fun frequencyLabel(frequency: String): String = when (frequency) {
 private fun RecurringEditDialog(
     draft: RecurringDraft,
     categories: List<Category>,
+    orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies,
     error: String?,
     onDraftChanged: (RecurringDraft) -> Unit,
     onDismiss: () -> Unit,
@@ -313,6 +316,8 @@ private fun RecurringEditDialog(
 
     if (showCurrencyPicker) {
         CurrencyPickerDialog(
+            orderedCurrencies = orderedCurrencies,
+            balanceCurrency = draft.currency,
             onDismiss = { showCurrencyPicker = false },
             onCurrencySelected = { code ->
                 onDraftChanged(draft.copy(currency = code))

@@ -5,11 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.Account
+import com.spendingtracker.app.data.repository.AccountSummary
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppButton
@@ -30,6 +34,7 @@ import com.spendingtracker.app.ui.components.AppFilterChip
 import com.spendingtracker.app.ui.components.AppHairline
 import com.spendingtracker.app.ui.components.AppOutlinedButton
 import com.spendingtracker.app.ui.components.AppSectionHeader
+import com.spendingtracker.app.ui.components.AppSelectorRow
 import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.ui.components.AppValueRow
@@ -52,17 +57,92 @@ fun SettingsScreen(
     var addAccountCurrency by remember { mutableStateOf("USD") }
     var addAccountBalance by remember { mutableStateOf("") }
     var showAddAccountCurrencyPicker by remember { mutableStateOf(false) }
+    // Settings -> Manage accounts -> one account: a small drill-down inside
+    // the Settings tab, so account management lives where users look for it
+    // (previously the only way in was the account menu at the top of Home).
+    var showManageAccounts by rememberSaveable { mutableStateOf(false) }
+    var selectedAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showAddCash by remember { mutableStateOf(false) }
+    var addCashForAccountId by remember { mutableStateOf<Long?>(null) }
+    var addCashName by remember { mutableStateOf("Cash") }
+    var addCashOpening by remember { mutableStateOf("") }
+    var addCashCurrency by remember { mutableStateOf("USD") }
+    var showAddCashCurrencyPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val dims = LocalAppDimens.current
 
+    val selectedAccount = uiState.accounts.firstOrNull { it.id == selectedAccountId }
+    LaunchedEffect(selectedAccountId, uiState.accounts) {
+        if (selectedAccountId != null && selectedAccount == null && uiState.accounts.isNotEmpty()) {
+            selectedAccountId = null
+        }
+    }
+    BackHandler(enabled = showManageAccounts || selectedAccount != null) {
+        if (selectedAccount != null) selectedAccountId = null else showManageAccounts = false
+    }
+
     Scaffold(
-        topBar = { AppTopBar(title = "Settings", onBack = onBack) }
+        topBar = {
+            AppTopBar(
+                title = when {
+                    selectedAccount != null -> selectedAccount.name
+                    showManageAccounts -> "Manage accounts"
+                    else -> "Settings"
+                },
+                onBack = when {
+                    selectedAccount != null -> ({ selectedAccountId = null })
+                    showManageAccounts -> ({ showManageAccounts = false })
+                    else -> onBack
+                }
+            )
+        }
     ) { padding ->
-        if (uiState.isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+        when {
+            uiState.isLoading -> {
+                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                }
             }
-        } else {
+            selectedAccount != null -> {
+                AccountDetailContent(
+                    account = selectedAccount,
+                    children = uiState.balanceAccounts.filter { it.parentAccountId == selectedAccount.id },
+                    summaries = uiState.accountSummaries,
+                    isActive = selectedAccount.id == uiState.activeAccountId,
+                    canDeleteAccount = uiState.accounts.size > 1,
+                    message = uiState.message,
+                    error = uiState.error,
+                    onDismissMessage = viewModel::clearMessage,
+                    onUseAccount = { viewModel.switchAccount(selectedAccount) },
+                    onRename = { renameTarget = selectedAccount },
+                    onDeleteAccount = { deleteTarget = selectedAccount },
+                    onDeleteChild = { deleteTarget = it },
+                    onAddCash = {
+                        addCashForAccountId = selectedAccount.id
+                        addCashName = "Cash"
+                        addCashOpening = ""
+                        addCashCurrency = selectedAccount.currency
+                        showAddCash = true
+                    },
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                )
+            }
+            showManageAccounts -> {
+                ManageAccountsList(
+                    accounts = uiState.accounts,
+                    balanceAccounts = uiState.balanceAccounts,
+                    summaries = uiState.accountSummaries,
+                    activeAccountId = uiState.activeAccountId,
+                    message = uiState.message,
+                    error = uiState.error,
+                    onDismissMessage = viewModel::clearMessage,
+                    onOpenAccount = { selectedAccountId = it.id },
+                    onUseAccount = viewModel::switchAccount,
+                    onAddAccount = { showAddAccount = true },
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                )
+            }
+            else -> {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(
@@ -106,94 +186,18 @@ fun SettingsScreen(
                 item(key = "accounts") {
                     SettingsSection("Accounts") {
                         Text(
-                            text = "Balances, expenses and deposits are tracked per account; loans are shared. " +
-                                "Deleting an account removes only that account and its own entries - every other account keeps its data.",
+                            text = "Balances, expenses and deposits are tracked per account; loans are shared.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        uiState.accounts.forEach { account ->
-                            val isActive = account.id == uiState.activeAccountId
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = account.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    val summary = uiState.accountSummaries[account.id]
-                                    val entries = summary?.entries ?: 0
-                                    Text(
-                                        text = "Now " + CurrencyFormatter.formatSimple(
-                                            summary?.balance ?: account.startingBalanceAsBigDecimal(),
-                                            account.currency
-                                        ) + " · $entries " + if (entries == 1) "entry" else "entries",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                if (isActive) {
-                                    Text(
-                                        text = "ACTIVE",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    SmallAction("Use") { viewModel.switchAccount(account) }
-                                }
-                                SmallAction("Rename") { renameTarget = account }
-                                // The last main account holds the whole ledger: offer
-                                // no delete button for it at all.
-                                if (uiState.accounts.size > 1) {
-                                    SmallAction("Delete", isError = true) { deleteTarget = account }
-                                }
-                            }
-                            // This main account's own cash/card balances. Each can be
-                            // deleted individually, without touching any other account.
-                            uiState.balanceAccounts
-                                .filter { it.parentAccountId == account.id }
-                                .forEach { child ->
-                                    val childSummary = uiState.accountSummaries[child.id]
-                                    val childEntries = childSummary?.entries ?: 0
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 1.dp, bottom = 1.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = child.name,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = (if (child.type == "CASH") "Cash" else "Credit card") +
-                                                    " · " + CurrencyFormatter.formatSimple(
-                                                        childSummary?.balance ?: child.startingBalanceAsBigDecimal(),
-                                                        child.currency
-                                                    ) + " · $childEntries " + if (childEntries == 1) "entry" else "entries" +
-                                                    if (child.type == "CASH" && !child.includedInTotal) " · set aside" else "",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        SmallAction("Delete", isError = true) { deleteTarget = child }
-                                    }
-                                }
-                            AppHairline()
-                        }
-                        AppOutlinedButton(onClick = { showAddAccount = true }) {
-                            Text("+ Add account", maxLines = 1)
-                        }
+                        AppSelectorRow(
+                            label = "Manage accounts",
+                            value = "${uiState.accounts.size} " +
+                                (if (uiState.accounts.size == 1) "account" else "accounts") +
+                                " \u00B7 Active: " +
+                                (uiState.accounts.firstOrNull { it.id == uiState.activeAccountId }?.name ?: "-"),
+                            onClick = { showManageAccounts = true }
+                        )
                     }
                 }
 
@@ -376,6 +380,7 @@ fun SettingsScreen(
                     }
                 }
             }
+            }
         }
 
         if (showCurrencyPicker) {
@@ -418,6 +423,48 @@ fun SettingsScreen(
                     Text("Currency: $addAccountCurrency", maxLines = 1)
                 }
             }
+        }
+
+        if (showAddCash) {
+            AppDialog(
+                onDismissRequest = { showAddCash = false },
+                title = "New cash balance",
+                confirmLabel = "Create",
+                confirmEnabled = addCashName.isNotBlank(),
+                onConfirm = {
+                    addCashForAccountId?.let { mainId ->
+                        viewModel.createCashBalance(mainId, addCashName, addCashOpening, addCashCurrency)
+                    }
+                    showAddCash = false
+                }
+            ) {
+                AppTextField(
+                    value = addCashName,
+                    onValueChange = { addCashName = it },
+                    label = "Cash balance name"
+                )
+                AppTextField(
+                    value = addCashOpening,
+                    onValueChange = { addCashOpening = it },
+                    label = "Opening amount (optional)",
+                    keyboardType = KeyboardType.Decimal
+                )
+                AppOutlinedButton(onClick = { showAddCashCurrencyPicker = true }) {
+                    Text("Currency: $addCashCurrency", maxLines = 1)
+                }
+            }
+        }
+
+        if (showAddCashCurrencyPicker) {
+            CurrencyPickerDialog(
+                orderedCurrencies = uiState.orderedCurrencies,
+                balanceCurrency = selectedAccount?.currency ?: uiState.settings?.balanceCurrency ?: "USD",
+                onDismiss = { showAddCashCurrencyPicker = false },
+                onCurrencySelected = { code ->
+                    addCashCurrency = code
+                    showAddCashCurrencyPicker = false
+                }
+            )
         }
 
         renameTarget?.let { target ->
@@ -559,7 +606,6 @@ fun SettingsScreen(
                 sortMode = uiState.currencySortMode,
                 onDismiss = viewModel::dismissCurrencyOrderDialog,
                 onToggleFavorite = viewModel::toggleFavoriteCurrency,
-                onMove = viewModel::moveCurrencyInCustomOrder,
                 onSaveCustomOrder = viewModel::setCustomOrder,
                 onSortModeChanged = viewModel::onCurrencySortModeChanged
             )
@@ -611,11 +657,14 @@ fun CurrencyOrderDialog(
     sortMode: String,
     onDismiss: () -> Unit,
     onToggleFavorite: (String) -> Unit,
-    onMove: (Int, Int) -> Unit,
     onSaveCustomOrder: (List<String>) -> Unit,
     onSortModeChanged: (String) -> Unit
 ) {
-    var localOrder by remember(customOrder, orderedCurrencies) {
+    // Seeded once when the dialog opens. Keying this on the settings-backed
+    // lists used to reseed it mid-edit: every reorder was also persisted
+    // immediately, Room re-emitted settings, and the list jumped back.
+    // Edits are local now; only Save persists (and Cancel truly cancels).
+    var localOrder by remember {
         mutableStateOf(
             if (customOrder.isNotEmpty()) customOrder
             else orderedCurrencies.map { it.code }
@@ -690,14 +739,15 @@ fun CurrencyOrderDialog(
                         )
                     }
                     SmallAction(if (isFavorite) "★" else "☆") { onToggleFavorite(currency.code) }
-                    if (sortMode == "CUSTOM" && actualIndex != -1) {
+                    // Saving stores this order and switches to CUSTOM, so the
+                    // arrows are useful whatever the current sort mode is.
+                    if (actualIndex != -1) {
                         SmallAction("↑") {
                             if (actualIndex > 0) {
                                 val newOrder = localOrder.toMutableList()
                                 val item = newOrder.removeAt(actualIndex)
                                 newOrder.add(actualIndex - 1, item)
                                 localOrder = newOrder
-                                onMove(actualIndex, actualIndex - 1)
                             }
                         }
                         SmallAction("↓") {
@@ -706,12 +756,310 @@ fun CurrencyOrderDialog(
                                 val item = newOrder.removeAt(actualIndex)
                                 newOrder.add(actualIndex + 1, item)
                                 localOrder = newOrder
-                                onMove(actualIndex, actualIndex + 1)
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** Transient result banner, shared by the Manage-accounts subpages. */
+@Composable
+private fun ManageMessageBanner(message: String?, error: String?, onDismiss: () -> Unit) {
+    if (message == null && error == null) return
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (error != null) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Column(Modifier.fillMaxWidth().padding(7.dp)) {
+            Text(
+                text = error ?: message.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "Dismiss",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onDismiss() }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+private fun entriesLabel(count: Int): String = "$count " + if (count == 1) "entry" else "entries"
+
+/**
+ * Settings -> Manage accounts: every main account with its balance and a
+ * one-line summary of what it holds. Tapping one opens its contents.
+ */
+@Composable
+internal fun ManageAccountsList(
+    accounts: List<Account>,
+    balanceAccounts: List<Account>,
+    summaries: Map<Long, AccountSummary>,
+    activeAccountId: Long,
+    message: String?,
+    error: String?,
+    onDismissMessage: () -> Unit,
+    onOpenAccount: (Account) -> Unit,
+    onUseAccount: (Account) -> Unit,
+    onAddAccount: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val dims = LocalAppDimens.current
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(
+            start = dims.screenPadding,
+            end = dims.screenPadding,
+            top = 4.dp,
+            bottom = 12.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
+    ) {
+        item(key = "manage-messages") {
+            ManageMessageBanner(message, error, onDismissMessage)
+        }
+        item(key = "manage-intro") {
+            Text(
+                text = "Deleting an account removes only that account and its own entries - " +
+                    "every other account keeps its data. Tap an account to see its cash balances and cards.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        items(accounts, key = { it.id }) { account ->
+            val isActive = account.id == activeAccountId
+            val summary = summaries[account.id]
+            val children = balanceAccounts.filter { it.parentAccountId == account.id }
+            val cashCount = children.count { it.type == "CASH" }
+            val cardCount = children.count { it.type == "CREDIT_CARD" }
+            AppCard {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onOpenAccount(account) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = account.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Now " + CurrencyFormatter.formatSimple(
+                                summary?.balance ?: account.startingBalanceAsBigDecimal(),
+                                account.currency
+                            ) + " · " + entriesLabel(summary?.entries ?: 0),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = account.currency + " · " +
+                                "$cashCount cash " + if (cashCount == 1) "balance" else "balances" +
+                                " · $cardCount " + if (cardCount == 1) "card" else "cards",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (isActive) {
+                        Text(
+                            text = "ACTIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        SmallAction("Use") { onUseAccount(account) }
+                    }
+                    Text(
+                        text = "›",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+            }
+        }
+        item(key = "manage-add") {
+            AppOutlinedButton(onClick = onAddAccount) {
+                Text("+ Add account", maxLines = 1)
+            }
+        }
+    }
+}
+
+/** One main account: its figures, actions, and contents (cash balances and cards). */
+@Composable
+internal fun AccountDetailContent(
+    account: Account,
+    children: List<Account>,
+    summaries: Map<Long, AccountSummary>,
+    isActive: Boolean,
+    canDeleteAccount: Boolean,
+    message: String?,
+    error: String?,
+    onDismissMessage: () -> Unit,
+    onUseAccount: () -> Unit,
+    onRename: () -> Unit,
+    onDeleteAccount: () -> Unit,
+    onDeleteChild: (Account) -> Unit,
+    onAddCash: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val dims = LocalAppDimens.current
+    val summary = summaries[account.id]
+    val cash = children.filter { it.type == "CASH" }
+    val cards = children.filter { it.type == "CREDIT_CARD" }
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(
+            start = dims.screenPadding,
+            end = dims.screenPadding,
+            top = 4.dp,
+            bottom = 12.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
+    ) {
+        item(key = "detail-messages") {
+            ManageMessageBanner(message, error, onDismissMessage)
+        }
+        item(key = "detail-overview") {
+            SettingsSection("Account") {
+                AppValueRow(
+                    "Balance now",
+                    CurrencyFormatter.formatSimple(
+                        summary?.balance ?: account.startingBalanceAsBigDecimal(),
+                        account.currency
+                    )
+                )
+                AppValueRow(
+                    "Starting balance",
+                    CurrencyFormatter.formatSimple(account.startingBalanceAsBigDecimal(), account.currency)
+                )
+                AppValueRow("Currency", account.currency)
+                AppValueRow("Entries", entriesLabel(summary?.entries ?: 0))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (isActive) {
+                        Text(
+                            text = "ACTIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                        )
+                    } else {
+                        AppButton(onClick = onUseAccount, modifier = Modifier.weight(1f)) {
+                            Text("Use this account", maxLines = 1)
+                        }
+                    }
+                    AppOutlinedButton(onClick = onRename, modifier = Modifier.weight(1f)) {
+                        Text("Rename", maxLines = 1)
+                    }
+                }
+                if (canDeleteAccount) {
+                    AppOutlinedButton(onClick = onDeleteAccount) {
+                        Text("Delete this account", maxLines = 1, color = MaterialTheme.colorScheme.error)
+                    }
+                } else {
+                    Text(
+                        text = "This is the only main account, so it cannot be deleted.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        item(key = "detail-cash") {
+            SettingsSection("Cash balances") {
+                if (cash.isEmpty()) {
+                    Text(
+                        text = "No cash balances yet.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                cash.forEach { child ->
+                    BalanceChildRow(child, summaries[child.id], onDeleteChild)
+                    AppHairline()
+                }
+                AppOutlinedButton(onClick = onAddCash) {
+                    Text("+ Add cash balance", maxLines = 1)
+                }
+            }
+        }
+        item(key = "detail-cards") {
+            SettingsSection("Credit cards") {
+                if (cards.isEmpty()) {
+                    Text(
+                        text = "No credit cards yet.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                cards.forEach { child ->
+                    BalanceChildRow(child, summaries[child.id], onDeleteChild)
+                    AppHairline()
+                }
+                Text(
+                    text = "Card limits, payment day and autopay are set from Home.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/** A cash balance or card inside an account, deletable on its own. */
+@Composable
+private fun BalanceChildRow(
+    child: Account,
+    summary: AccountSummary?,
+    onDeleteChild: (Account) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = child.name,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = CurrencyFormatter.formatSimple(
+                    summary?.balance ?: child.startingBalanceAsBigDecimal(),
+                    child.currency
+                ) + " · " + entriesLabel(summary?.entries ?: 0) +
+                    if (child.type == "CASH" && !child.includedInTotal) " · set aside" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        SmallAction("Delete", isError = true) { onDeleteChild(child) }
     }
 }

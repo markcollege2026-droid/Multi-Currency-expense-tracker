@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.combine
 import java.math.BigDecimal
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.spendingtracker.app.util.CurrencyProvider
 
 data class TransactionItem(
     val id: Long,
@@ -634,6 +635,32 @@ class FinanceRepository @Inject constructor(
     suspend fun saveFavoriteCurrencies(json: String?) = settingsDao.setFavoriteCurrencies(json)
     suspend fun saveCustomCurrencyOrder(json: String?, mode: String) = settingsDao.setCustomCurrencyOrder(json, mode)
     suspend fun saveRecentCurrencies(json: String?) = settingsDao.setRecentCurrencies(json)
+
+    /**
+     * Currencies in the order the user configured in Settings (sort mode,
+     * custom order, favorites, recents, account currency first). Every picker
+     * must use this - several used to fall back to the raw provider list, so
+     * the currency-order setting had no effect there.
+     */
+    fun orderedCurrenciesFor(settings: AppSettings?): List<CurrencyProvider.CurrencyInfo> =
+        CurrencyProvider.getOrderedCurrencies(
+            sortMode = settings?.currencySortMode ?: "ALPHABETICAL",
+            customOrderJson = settings?.customCurrencyOrder,
+            favoriteJson = settings?.favoriteCurrencies,
+            recentJson = settings?.recentCurrencies,
+            balanceCurrency = settings?.balanceCurrency
+        )
+
+    suspend fun orderedCurrencies(): List<CurrencyProvider.CurrencyInfo> =
+        orderedCurrenciesFor(getSettingsSync())
+
+    /** Best-effort: remember a picked currency for the RECENT sort mode. */
+    suspend fun recordRecentCurrency(code: String) {
+        runCatching {
+            val settings = getSettingsSync() ?: return
+            saveRecentCurrencies(CurrencyProvider.addRecentCurrency(settings.recentCurrencies, code))
+        }
+    }
 
     /**
      * Rewrites the settings row for a fresh ledger. Must run inside the same

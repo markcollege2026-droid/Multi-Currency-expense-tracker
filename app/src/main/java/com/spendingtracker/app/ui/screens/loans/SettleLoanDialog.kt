@@ -33,6 +33,7 @@ import com.spendingtracker.app.ui.theme.AppType
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.math.BigDecimal
 import java.math.RoundingMode
+import com.spendingtracker.app.util.parseAmountOrNull
 
 /** Validated state of the settle form, pure so the rules can be tested directly. */
 data class SettlementFormState(
@@ -74,7 +75,7 @@ fun settlementFormState(
             alreadyRepaid = true
         )
     }
-    val parsed = amountText.trim().replace(',', '.').toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+    val parsed = amountText.parseAmountOrNull()?.takeIf { it > BigDecimal.ZERO }
     if (parsed == null) {
         return SettlementFormState(
             amount = null,

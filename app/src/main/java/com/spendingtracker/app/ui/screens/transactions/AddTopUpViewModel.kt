@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class AddTopUpUiState(
     val amount: String = "",
@@ -37,7 +38,7 @@ data class AddTopUpUiState(
 
     /** Cash needed for the typed deposit, when it is funded from a cash balance. */
     fun cashAmount(): BigDecimal? {
-        val parsed = amount.trim().replace(',', '.').toBigDecimalOrNull() ?: return null
+        val parsed = amount.parseAmountOrNull() ?: return null
         val cash = sourceCash ?: return null
         if (cash.currency == balanceCurrency) return parsed
         if (rate <= BigDecimal.ZERO) return null
@@ -66,7 +67,7 @@ fun depositFormState(
     cashBalance: BigDecimal?,
     cashCurrency: String?
 ): DepositFormState {
-    val parsed = amount.trim().replace(',', '.').toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+    val parsed = amount.parseAmountOrNull()?.takeIf { it > BigDecimal.ZERO }
     if (parsed == null) {
         return DepositFormState(
             amount = null,

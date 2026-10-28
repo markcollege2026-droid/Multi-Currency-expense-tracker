@@ -25,6 +25,7 @@ import com.spendingtracker.app.ui.components.AppTextField
 import com.spendingtracker.app.ui.theme.AppType
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.math.BigDecimal
+import com.spendingtracker.app.util.parseAmountOrNull
 
 /** Which currency the typed withdrawal amount is expressed in. */
 enum class AmountSide { MAIN, CASH }
@@ -57,7 +58,7 @@ fun withdrawFormState(
     inCashCurrency: Boolean,
     hasTarget: Boolean
 ): WithdrawFormState {
-    val typed = amount.trim().replace(',', '.').toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+    val typed = amount.parseAmountOrNull()?.takeIf { it > BigDecimal.ZERO }
     if (typed == null) {
         val error = if (amount.isNotBlank()) "Enter a positive amount" else null
         return WithdrawFormState(null, null, null, error, false)

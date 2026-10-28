@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class LoanWithBalance(
     val loan: LoanDebt,
@@ -152,9 +153,9 @@ class LoansViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             try {
-                val amount = amountLoanCurrency.trim().replace(',', '.').toBigDecimalOrNull()
+                val amount = amountLoanCurrency.parseAmountOrNull()
                     ?: error("Enter a positive amount")
-                val parsedRate = rate.trim().replace(',', '.').toBigDecimalOrNull()
+                val parsedRate = rate.parseAmountOrNull()
                     ?.takeIf { it > BigDecimal.ZERO } ?: BigDecimal.ONE
                 val wasRemaining = item.remaining
                 financeRepository.recordRepayment(

@@ -23,6 +23,8 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.util.Calendar
 import javax.inject.Inject
+import com.spendingtracker.app.util.parseAmountOrNull
+import com.spendingtracker.app.util.CurrencyProvider
 
 data class HomeUiState(
     val balance: BigDecimal = BigDecimal.ZERO,
@@ -43,6 +45,8 @@ data class HomeUiState(
     val accounts: List<Account> = emptyList(),
     val activeAccount: Account? = null,
     val balanceAccounts: List<Account> = emptyList(),
+    /** Currencies in the user's configured order, for the create-account picker. */
+    val orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies,
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
     /** Rows recorded against each balance, so a delete can say what it removes. */
     val accountEntries: Map<Long, Int> = emptyMap(),
@@ -210,6 +214,7 @@ class HomeViewModel @Inject constructor(
                 HomeUiState(
                     balance = mainBalance,
                     balanceCurrency = balanceCurrency,
+                    orderedCurrencies = financeRepository.orderedCurrenciesFor(appSettings),
                     startingBalance = starting,
                     totalSpentWeek = spentWeek,
                     totalSpentMonth = spentMonth,
@@ -309,9 +314,9 @@ class HomeViewModel @Inject constructor(
      * overdraw main.
      */
     fun withdraw(toCashId: Long, amountFrom: String, amountTo: String, note: String? = null) = action {
-        val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+        val from = amountFrom.parseAmountOrNull()
             ?: error("Enter a positive amount")
-        val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+        val to = amountTo.parseAmountOrNull()
             ?: error("Enter a positive amount")
         require(from > BigDecimal.ZERO && to > BigDecimal.ZERO) { "Enter a positive amount" }
         val main = financeRepository.getAccountById(financeRepository.getActiveAccountId())
@@ -343,9 +348,9 @@ class HomeViewModel @Inject constructor(
      * re-checks the source balance inside its transaction.
      */
     fun transfer(fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String? = null) = action {
-        val from = amountFrom.trim().replace(',', '.').toBigDecimalOrNull()
+        val from = amountFrom.parseAmountOrNull()
             ?: error("Enter a positive amount")
-        val to = amountTo.trim().replace(',', '.').toBigDecimalOrNull()
+        val to = amountTo.parseAmountOrNull()
             ?: error("Enter a positive amount")
         require(from > BigDecimal.ZERO && to > BigDecimal.ZERO) { "Enter a positive amount" }
         val source = financeRepository.getAccountById(fromId) ?: error("Source balance not found")

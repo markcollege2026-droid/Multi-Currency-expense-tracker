@@ -1,6 +1,68 @@
+# Spending Tracker 1.11.0 — Amount entry, currency order, live theme & Manage Accounts
+
+Released 28 October 2026.
+
+## Fixed: typing decimal amounts
+Typing digits after a decimal point could make the cursor jump between the
+left and right edges of the amount field (worst on RTL locales, where the
+bidi algorithm parks a trailing "." on the far side of the digits), and
+nothing stopped a second separator from making the amount unparseable and
+silently disabling Save. Amount fields now own a real `TextFieldValue` (the
+cursor is stable), are laid out LTR like numbers everywhere, and sanitise
+input as typed - one separator, comma becomes ".", pasted groupings like
+1,234.56 and 1.234,56 both understood - through a single `AmountInput`
+model shared by every money field. The converter no longer treats "," as
+grouping (1,5 meant 15 there, 1.5 everywhere else). Transient text such as
+"." while typing ".5" no longer shows as an error. Hardware-keypad entry
+also reads the field's live value (fast key repeats could append to stale
+text) and accepts the '*' key by its character.
+
+## Fixed: the currency-order setting now applies everywhere
+The order configured in Settings (A-Z / Favorites / Recent / Custom)
+reached the expense form and Settings, but the pickers in **Add Loan**,
+**Recurring**, **Home's create-cash/card dialog** and the **Converter**
+silently used a hard-coded list that is not even alphabetical. They all use
+`FinanceRepository.orderedCurrencies()` now, and picking a currency records
+it as recent from those screens too. The Customize dialog edits locally and
+persists only on Save - previously every arrow tap wrote to the database,
+Room re-emitted settings, and the list reseeded mid-edit (and Cancel did not
+cancel). Reorder arrows are available whatever the current mode. The picker
+no longer stops after 120 of ~155 currencies. Favorites behaviour is
+unchanged and still floats to the top.
+
+## Fixed: the theme setting applies immediately
+Light/Dark/System was read once at cold start, so changing it in Settings
+looked like it did nothing until the app was fully restarted. MainActivity
+now observes settings live and re-themes instantly; the loading/error
+surfaces are themed too.
+
+## New: Settings -> Manage Accounts
+Account management was only reachable from the account menu at the top of
+Home. Settings now has a **Manage accounts** entry: a list of your accounts
+with balances, entry counts and what each holds; tap one to open it - its
+figures, Use/Rename/Delete, its **cash balances and credit cards** (each
+deletable on its own), and "+ Add cash balance". "+ Add account" stays in
+the list. All existing safeguards (last-account guard, duplicate-name
+confirmation, pre-delete safety copy) apply in the new pages.
+
+## Compatibility and migrations
+Same application ID and signing key; installs over 1.10.x. Version code
+**12**, version name **1.11.0**. No database or backup-schema change (still
+DB v6 / backup schema 6).
+
+## Testing
+GitHub Actions runs the full suite, lint and signed builds. New coverage:
+AmountInput sanitiser/parser (both separator conventions, grouping, pasted
+text, non-ASCII digits), Compose tests typing real decimals into the amount
+field (including in an RTL layout, cursor staying at the end), the
+currency-order dialog's save-only persistence, Manage Accounts list/detail,
+and theme resolution. A new **Emulator tests** workflow runs the
+instrumented suite (decimal entry on the actual expense form through the
+real input pipeline) on an API 33 emulator.
+
 # Spending Tracker 1.10.0 — Cash transfers & loan settlements
 
-Released 25 October 2026.
+Released 28 October 2026.
 
 ## Transfer between any two balances (cash → cash included)
 The Add menu on Home and in History (Transactions) gains a fourth option,
@@ -86,7 +148,7 @@ These are local accounting entries, not bank transfers.
 
 # Spending Tracker 1.9.1 — Account safety
 
-Released 25 October 2026.
+Released 28 October 2026.
 
 ## The bug that made history look deleted
 A ledger could open completely empty after a restart while **nothing had been deleted**.
