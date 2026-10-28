@@ -57,16 +57,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 - <<'PYEOF'
-          import json, glob, os
-          parts = ["**Emulator test report**\n"]
-          for xml in sorted(glob.glob("app/build/outputs/androidTest-results/connected/**/*.xml", recursive=True)):
-              parts.append(f"--- {xml} ---\n")
-              parts.append(open(xml, errors="replace").read()[-6000:])
-          if os.path.exists("emulator.log"):
-              parts.append("\n--- emulator.log (tail) ---\n")
-              parts.append(open("emulator.log", errors="replace").read()[-20000:])
-          body = "".join(parts)[-45000:]
-          open("emu-comment.json", "w").write(json.dumps({"body": body}))
-          PYEOF
+          python3 .github/scripts/emulator_report.py
           gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input emu-comment.json --jq .html_url || true
