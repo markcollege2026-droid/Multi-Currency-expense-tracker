@@ -42,7 +42,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: bash -c "set -o pipefail; ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee emulator.log" 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,11 +52,21 @@ jobs:
           path: |
             app/build/reports/androidTests/**
             app/build/outputs/androidTest-results/**
-      - name: Report failure on commit
-        if: failure() && github.event_name == 'push'
+      - name: Report emulator result on commit
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          printf '{"body":"Emulator tests failed for this commit. Run: %s/%s/actions/runs/%s"}' \
-            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > fail-comment.json
-          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input fail-comment.json --jq .html_url || true
+          python3 - <<'PYEOF'
+          import json, glob, os
+          parts = ["**Emulator test report**\n"]
+          for xml in sorted(glob.glob("app/build/outputs/androidTest-results/connected/**/*.xml", recursive=True)):
+              parts.append(f"--- {xml} ---\n")
+              parts.append(open(xml, errors="replace").read()[-6000:])
+          if os.path.exists("emulator.log"):
+              parts.append("\n--- emulator.log (tail) ---\n")
+              parts.append(open("emulator.log", errors="replace").read()[-20000:])
+          body = "".join(parts)[-45000:]
+          open("emu-comment.json", "w").write(json.dumps({"body": body}))
+          PYEOF
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --input emu-comment.json --jq .html_url || true
