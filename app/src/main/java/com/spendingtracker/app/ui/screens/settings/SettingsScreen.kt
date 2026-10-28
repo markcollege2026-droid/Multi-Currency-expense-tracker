@@ -796,7 +796,7 @@ private fun ManageMessageBanner(message: String?, error: String?, onDismiss: () 
     }
 }
 
-private fun entriesLabel(count: Int): String = "$count " + if (count == 1) "entry" else "entries"
+private fun entriesLabel(count: Int): String = "$count " + (if (count == 1) "entry" else "entries")
 
 /**
  * Settings -> Manage accounts: every main account with its balance and a
@@ -873,8 +873,8 @@ internal fun ManageAccountsList(
                         )
                         Text(
                             text = account.currency + " · " +
-                                "$cashCount cash " + if (cashCount == 1) "balance" else "balances" +
-                                " · $cardCount " + if (cardCount == 1) "card" else "cards",
+                                "$cashCount cash " + (if (cashCount == 1) "balance" else "balances") +
+                                " · $cardCount " + (if (cardCount == 1) "card" else "cards"),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -1053,7 +1053,7 @@ private fun BalanceChildRow(
                     summary?.balance ?: child.startingBalanceAsBigDecimal(),
                     child.currency
                 ) + " · " + entriesLabel(summary?.entries ?: 0) +
-                    if (child.type == "CASH" && !child.includedInTotal) " · set aside" else "",
+                    (if (child.type == "CASH" && !child.includedInTotal) " · set aside" else ""),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

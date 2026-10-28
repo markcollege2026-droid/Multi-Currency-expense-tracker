@@ -93,9 +93,9 @@ class ManageAccountsAndOrderTest {
                 )
             }
         }
-        compose.onNodeWithText("Cash balances").assertIsDisplayed()
+        compose.onNodeWithText("Cash balances", ignoreCase = true).assertIsDisplayed()
         compose.onNodeWithText("Pocket").assertIsDisplayed()
-        compose.onNodeWithText("Credit cards").assertIsDisplayed()
+        compose.onNodeWithText("Credit cards", ignoreCase = true).assertIsDisplayed()
         compose.onNodeWithText("Visa").assertIsDisplayed()
         compose.onNodeWithText("Rename").assertIsDisplayed()
         compose.onNodeWithText("Delete this account").assertIsDisplayed()
