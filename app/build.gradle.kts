@@ -17,8 +17,8 @@ android {
         applicationId = "com.spendingtracker.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.12.1"
+        versionCode = 15
+        versionName = "1.12.2"
 
         // The commit this artifact was built from, stamped in so an installed APK
         // can be matched to a CI run (Settings -> Version). CI passes -PGIT_SHA.

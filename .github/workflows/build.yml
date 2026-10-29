@@ -117,10 +117,18 @@ jobs:
           check "rate refresh"       "Refreshing rates"
           check "settle labels"      "Recording payment" "Settling through a balance"
           check "account delete label" "Deleting "
-          # AppFeedback.kt compiles to a class that only exists when the composables
-          # survive into the artifact.
+          # The composables themselves: AppFeedback.kt compiles to AppFeedbackKt,
+          # which the debug APK keeps verbatim. R8 renames it in the release APK,
+          # so there the evidence is R8's own mapping, which only lists the class
+          # if it survived shrinking.
           grep -aqF "AppFeedbackKt" "$tmp/debug.dex" || { echo "::error::AppFeedbackKt missing from debug APK"; missing="$missing [AppFeedbackKt]"; }
-          grep -aqF "AppFeedbackKt" "$tmp/release.dex" || { echo "::error::AppFeedbackKt missing from release APK (R8 stripped it)"; missing="$missing [AppFeedbackKt release]"; }
+          mapping=app/build/outputs/mapping/release/mapping.txt
+          if grep -qE "^com\.spendingtracker\.app\.ui\.components\.AppFeedbackKt -> " "$mapping"; then
+            echo "marker present: AppFeedbackKt in R8 mapping ($(grep -oE 'AppFeedbackKt -> [^:]+' "$mapping" | head -1))" | tee -a build.log
+          else
+            echo "::error::AppFeedbackKt is absent from mapping.txt - R8 removed it from the release build"
+            missing="$missing [AppFeedbackKt release]"
+          fi
           if [ -n "$missing" ]; then
             echo "::error::APK is missing expected content:$missing"; exit 1
           fi
@@ -136,7 +144,7 @@ jobs:
             echo "builtAt:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "releaseApk:  $(sha256sum "$apk" | cut -d' ' -f1)"
             echo "debugApk:    $(sha256sum "$dbg" | cut -d' ' -f1)"
-            echo "contentMarkers: verified in both debug and release APKs (busy labels, refusal toast, AppFeedbackKt)"
+            echo "contentMarkers: verified in both debug and release APKs (busy labels, refusal toast) + AppFeedbackKt kept by R8"
           } | tee BUILD-INFO.txt
           cp BUILD-INFO.txt app/build/outputs/apk/release/BUILD-INFO.txt
 

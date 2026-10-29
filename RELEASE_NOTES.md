@@ -1,27 +1,31 @@
-# Spending Tracker 1.12.1 — Settle from any account, currency-aware repayments, widget, visible progress
+# Spending Tracker 1.12.2 — Settle from any account, currency-aware repayments, widget, visible progress
 
 Released 29 October 2026.
 
-Version code **14**, version name **1.12.1**. Database and backup schema
+Version code **15**, version name **1.12.2**. Database and backup schema
 unchanged (DB **v6**, backups **schema 6**). Same application ID and signing
 key; installs over 1.11.0 and over 1.12.0.
 
-## Why 1.12.1 exists
+## Why 1.12.2 exists
 
-The 1.12.0 release was published with the tag still on an earlier commit, so its
-APK did not contain the "visible progress and refusals" work described below -
-the release page said one thing and the binary did another. This build is the
-first artifact that is provably the current source. It also carries a higher
-version code, so a 1.12.0 install is actually replaced instead of being rejected
-by the installer.
+The 1.12.0 release was published with the tag still on an earlier commit, and the
+publishing action does not replace assets when the tag already exists, so later
+builds uploaded nothing while the release page kept claiming the newer work.
+1.12.2 is the first artifact where CI verifies the shipped binaries themselves:
+it reads the version back out of both APKs, greps the busy-label and
+refusal-toast strings out of *both* DEX files (the release APK is the one R8
+rewrites), checks the R8 mapping for the feedback composables, and fails the run
+if the release tag does not point at the commit that was just built. The version
+code is higher than 1.12.0's, so an existing install is actually replaced
+instead of being refused by the installer.
 
 ## Confirming you are running this build
 
 Open **Settings → Data** and read the **Version** row at the bottom. It shows
-`1.12.1 (14) · <commit>` - the commit is the SHA CI built this APK from. The
+`1.12.2 (15) · <commit>` - the commit is the SHA CI built this APK from. The
 release also ships **BUILD-INFO.txt** with the same version, commit, run id and
 the SHA-256 of both APKs, and CI posts those values as a commit comment. If the
-row says `1.12.0 (13)` you still have the old APK installed.
+row says `1.12.0 (13)` or `1.12.1 (14)` you have an older APK installed.
 
 The debug APK now installs as `com.spendingtracker.app.debug`, side by side with
 a release install, so a debug build can never be confused with (or silently
