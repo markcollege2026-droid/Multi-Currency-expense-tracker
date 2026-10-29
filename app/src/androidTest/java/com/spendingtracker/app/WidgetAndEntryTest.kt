@@ -2,6 +2,7 @@ package com.spendingtracker.app
 
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.appwidget.AppWidgetProviderInfo
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.widget.RemoteViews
@@ -11,6 +12,7 @@ import com.spendingtracker.app.util.AppEntry
 import com.spendingtracker.app.widget.SpendingWidgetProvider
 import com.spendingtracker.app.widget.WidgetSnapshot
 import com.spendingtracker.app.widget.WidgetSnapshotStore
+import com.spendingtracker.app.widget.WidgetPin
 import com.spendingtracker.app.widget.WidgetText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -51,6 +53,60 @@ class WidgetAndEntryTest {
             "android.appwidget.provider metadata is what makes it selectable",
             info.metaData?.getInt(AppWidgetManager.META_DATA_APPWIDGET_PROVIDER)
         )
+    }
+
+    /**
+     * The real gate for "why is there no widget in my widget list": the system,
+     * not the manifest, decides what the launcher's picker can offer. If the
+     * provider is not in [AppWidgetManager.getInstalledProviders], no launcher can
+     * show it no matter how correct the rest is - which is exactly what a
+     * receiver with a broken intent-filter, missing metadata or an unparseable
+     * appwidget-provider XML looks like.
+     */
+    @Test
+    fun theSystemListsTheWidgetAsAnInstalledProvider() {
+        val component = ComponentName(context, SpendingWidgetProvider::class.java)
+        val installed = AppWidgetManager.getInstance(context).installedProviders
+        val mine = installed.firstOrNull { it.provider == component }
+        assertNotNull(
+            "AppWidgetManager does not list $component, so no widget picker can offer it. " +
+                "Registered providers: " + installed.joinToString { it.provider.flattenToShortString() },
+            mine
+        )
+        // The values below come from parsing res/xml/spending_widget_info.xml, so a
+        // malformed attribute surfaces here rather than as an invisible widget.
+        assertTrue("minWidth must be positive", mine!!.minWidth > 0)
+        assertTrue("minHeight must be positive", mine.minHeight > 0)
+        assertTrue("initialLayout must resolve", mine.initialLayout != 0)
+        assertTrue("the widget must be resizeable", mine.resizeMode != 0)
+        assertEquals("home_screen widgets only", AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
+            mine.widgetCategory and AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN)
+        // A provider whose minimum does not fit the launcher grid is not offered
+        // at all. Requiring the minimum to fit in half the screen holds whether the
+        // framework reports dp or px, and rules out the 180dp minimum this used to
+        // ship with on a 320dp-wide launcher.
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        assertTrue(
+            "minWidth ${mine.minWidth} must fit within half of ${screenWidth}px",
+            mine.minWidth * 2 <= screenWidth
+        )
+    }
+
+    @Test
+    fun widgetPlacementIsReportedHonestly() {
+        // Whether this launcher can pin a widget is a system answer, not a guess:
+        // the button must offer the in-app path only when the launcher supports it
+        // and otherwise fall back to written steps.
+        assertEquals(
+            "isSupported must report the launcher's own answer",
+            AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported,
+            WidgetPin.isSupported(context)
+        )
+        assertTrue("the fallback instructions must say where to add it", WidgetPin.manualInstructions.contains("Widgets"))
+        // No widget is placed during an instrumented run, and asking for a redraw
+        // must stay a no-op rather than throwing.
+        assertEquals(0, SpendingWidgetProvider.widgetIds(context).size)
+        SpendingWidgetProvider.requestUpdate(context)
     }
 
     @Test

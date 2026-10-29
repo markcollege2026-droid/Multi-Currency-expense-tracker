@@ -5,11 +5,20 @@
   snapshot, and when the (unique, 12-hour, network-gated) refresh worker runs.
   That is the battery-cheap path; a 30-minute period with network I/O would keep
   waking the radio on a device like the Qin F21.
+
+  The minimum size is deliberately small (one 110x40dp cell area) rather than the
+  3x1 it prefers: on a 320dp-wide launcher grid a 180dp minimum could not be
+  satisfied, and a provider whose minimum does not fit the grid is silently not
+  offered. targetCell* still asks for the nicer 3x1 where the launcher supports
+  it, and the text lines ellipsize when squeezed.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_spending"
-    android:minWidth="180dp"
-    android:minHeight="70dp"
+    android:previewLayout="@layout/widget_spending"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
     android:targetCellWidth="3"
     android:targetCellHeight="1"
     android:resizeMode="horizontal|vertical"

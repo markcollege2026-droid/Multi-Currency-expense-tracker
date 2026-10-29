@@ -18,6 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.awaitCancellation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +46,7 @@ import com.spendingtracker.app.ui.components.AppToast
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.ui.components.AppValueRow
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
+import com.spendingtracker.app.widget.WidgetPin
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
@@ -88,6 +93,20 @@ fun SettingsScreen(
     var showAddCashCurrencyPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val dims = LocalAppDimens.current
+    // The widget lives outside the app, so whether it is placed and whether the
+    // launcher can pin it are read from the system, not from app state.
+    var widgetMessage by remember { mutableStateOf<String?>(null) }
+    var widgetPlaced by remember { mutableStateOf(false) }
+    var widgetPinnable by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            widgetPinnable = WidgetPin.isSupported(context)
+            widgetPlaced = WidgetPin.isPlaced(context)
+            awaitCancellation()
+        }
+    }
+    AppToast(widgetMessage, onShown = { widgetMessage = null })
 
     val selectedAccount = uiState.accounts.firstOrNull { it.id == selectedAccountId }
     LaunchedEffect(selectedAccountId, uiState.accounts) {
@@ -223,6 +242,45 @@ fun SettingsScreen(
                                 (uiState.accounts.firstOrNull { it.id == uiState.activeAccountId }?.name ?: "-"),
                             onClick = { showManageAccounts = true }
                         )
+                    }
+                }
+
+                item(key = "widget") {
+                    SettingsSection("Home-screen widget") {
+                        Text(
+                            text = if (widgetPlaced) {
+                                "The widget is on a home screen. It shows the active ledger's " +
+                                    "total available and one conversion rate, with a + Expense button."
+                            } else {
+                                "Shows the active ledger's total available and one conversion rate, " +
+                                    "with a + Expense button that opens the expense form. " +
+                                    "It updates itself every 12 hours while it is placed."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        AppButton(
+                            onClick = {
+                                widgetMessage = when {
+                                    !widgetPinnable -> WidgetPin.manualInstructions
+                                    WidgetPin.request(context) -> "Confirm on the home screen to place the widget"
+                                    else -> WidgetPin.manualInstructions
+                                }
+                                widgetPlaced = WidgetPin.isPlaced(context)
+                            }
+                        ) {
+                            Text(
+                                if (widgetPlaced) "Add another widget" else "Add widget to home screen",
+                                maxLines = 1
+                            )
+                        }
+                        if (!widgetPinnable) {
+                            Text(
+                                text = WidgetPin.manualInstructions,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 

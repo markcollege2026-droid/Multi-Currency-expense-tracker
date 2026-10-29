@@ -1,8 +1,8 @@
-# Spending Tracker 1.12.2 — Settle from any account, currency-aware repayments, widget, visible progress
+# Spending Tracker 1.12.3 — Settle from any account, currency-aware repayments, widget, visible progress
 
 Released 29 October 2026.
 
-Version code **15**, version name **1.12.2**. Database and backup schema
+Version code **16**, version name **1.12.3**. Database and backup schema
 unchanged (DB **v6**, backups **schema 6**). Same application ID and signing
 key; installs over 1.11.0 and over 1.12.0.
 
@@ -19,13 +19,38 @@ if the release tag does not point at the commit that was just built. The version
 code is higher than 1.12.0's, so an existing install is actually replaced
 instead of being refused by the installer.
 
+## New: the widget can be added from inside the app
+
+Finding a widget means leaving the app, long-pressing the home screen and hunting
+through the launcher's widget list - and some launchers only refresh that list
+after a restart, so a freshly installed widget looks missing. Settings now has a
+**Home-screen widget** section:
+
+- It says whether the widget is already on a home screen.
+- **Add widget to home screen** asks the launcher to place it
+  (`requestPinAppWidget`). When the launcher does not support that - many small
+  launchers do not - the same section prints the manual path instead of a button
+  that silently does nothing.
+- The widget is labelled **Spending Tracker** (it used to be **Spending**, so
+  looking for the app by name in the widget list found nothing), and the debug
+  build's copy is labelled **Spending Tracker (debug)** now that it installs
+  beside the release app.
+- Its minimum size dropped from 180x70dp to 110x40dp. A provider whose minimum
+  cannot fit the launcher grid is not offered at all, which is a silent
+  disappearance on a 320dp-wide screen. It still asks for a 3x1 cell where the
+  launcher supports `targetCellWidth`.
+
+Step-by-step instructions are in `WIDGET.md`.
+
 ## Confirming you are running this build
 
 Open **Settings → Data** and read the **Version** row at the bottom. It shows
-`1.12.2 (15) · <commit>` - the commit is the SHA CI built this APK from. The
+`1.12.3 (16) · <commit>` - the commit is the SHA CI built this APK from. The
 release also ships **BUILD-INFO.txt** with the same version, commit, run id and
 the SHA-256 of both APKs, and CI posts those values as a commit comment. If the
-row says `1.12.0 (13)` or `1.12.1 (14)` you have an older APK installed.
+row says `1.12.0 (13)`, `1.12.1 (14)` or `1.12.2 (15)` you have an older APK
+installed. The same row sits under a **Home-screen widget** section in Settings,
+which is itself new - if that section is missing, you are not running this build.
 
 The debug APK now installs as `com.spendingtracker.app.debug`, side by side with
 a release install, so a debug build can never be confused with (or silently
