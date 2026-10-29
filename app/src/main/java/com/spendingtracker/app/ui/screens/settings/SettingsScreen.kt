@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.spendingtracker.app.BuildConfig
 import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.repository.AccountSummary
 import com.spendingtracker.app.ui.compact.LocalAppDimens
@@ -400,6 +401,18 @@ fun SettingsScreen(
                             }
                         }
 
+                        AppValueRow(
+                            "Version",
+                            BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")" +
+                                " · " + BuildConfig.GIT_SHA
+                        )
+                        Text(
+                            text = "Built from commit " + BuildConfig.GIT_SHA +
+                                ". Quote this when reporting a bug so the exact build can be checked.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
                         AppButton(
                             onClick = viewModel::requestErase,
                             enabled = !uiState.backupBusy,

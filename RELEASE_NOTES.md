@@ -1,9 +1,35 @@
-# Spending Tracker 1.12.0 — Settle from any account, currency-aware repayments, widget
+# Spending Tracker 1.12.1 — Settle from any account, currency-aware repayments, widget, visible progress
 
 Released 29 October 2026.
 
-Version code **13**, database and backup schema unchanged (DB **v6**, backups
-**schema 6**). Same application ID and signing key; installs over 1.11.0.
+Version code **14**, version name **1.12.1**. Database and backup schema
+unchanged (DB **v6**, backups **schema 6**). Same application ID and signing
+key; installs over 1.11.0 and over 1.12.0.
+
+## Why 1.12.1 exists
+
+The 1.12.0 release was published with the tag still on an earlier commit, so its
+APK did not contain the "visible progress and refusals" work described below -
+the release page said one thing and the binary did another. This build is the
+first artifact that is provably the current source. It also carries a higher
+version code, so a 1.12.0 install is actually replaced instead of being rejected
+by the installer.
+
+## Confirming you are running this build
+
+Open **Settings → Data** and read the **Version** row at the bottom. It shows
+`1.12.1 (14) · <commit>` - the commit is the SHA CI built this APK from. The
+release also ships **BUILD-INFO.txt** with the same version, commit, run id and
+the SHA-256 of both APKs, and CI posts those values as a commit comment. If the
+row says `1.12.0 (13)` you still have the old APK installed.
+
+The debug APK now installs as `com.spendingtracker.app.debug`, side by side with
+a release install, so a debug build can never be confused with (or silently
+fail to replace) the real app.
+
+Everything below is in this build:
+
+## Settle from any account, currency-aware repayments, widget
 
 ## Fixed: a loan can be settled through any account (#18)
 The Settle dropdown listed only the **active** account and its own cash

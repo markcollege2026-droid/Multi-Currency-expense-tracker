@@ -17,8 +17,13 @@ android {
         applicationId = "com.spendingtracker.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.12.0"
+        versionCode = 14
+        versionName = "1.12.1"
+
+        // The commit this artifact was built from, stamped in so an installed APK
+        // can be matched to a CI run (Settings -> Version). CI passes -PGIT_SHA.
+        val gitSha = (project.findProperty("GIT_SHA") as String?)?.take(7) ?: "local"
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -49,6 +54,12 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // Different applicationId, so a debug APK installs *beside* a
+            // release-signed install instead of failing with
+            // INSTALL_FAILED_UPDATE_INCOMPATIBLE and silently leaving the old app
+            // in place - which is what makes a build look like it "has no changes".
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
     }
     compileOptions {
@@ -59,6 +70,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
