@@ -61,7 +61,7 @@ jobs:
         with:
           tag_name: ${{ steps.appver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Spending Tracker v${{ steps.appver.outputs.version }} — Amount entry, currency order, live theme & Manage Accounts
+          name: Spending Tracker v${{ steps.appver.outputs.version }}
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |

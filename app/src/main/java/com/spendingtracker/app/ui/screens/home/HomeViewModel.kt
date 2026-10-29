@@ -200,7 +200,9 @@ class HomeViewModel @Inject constructor(
                 }
                 val entriesByAccount: Map<Long, Int> = accounts.associate { acc ->
                     acc.id to (
-                        allExpenses.count { it.accountId == acc.id } +
+                        // Same rule as AccountBalances: an expense belongs to the
+                        // balance that paid it, not only to its main account.
+                        allExpenses.count { (it.balanceAccountId ?: it.accountId) == acc.id } +
                             allTopUps.count { it.accountId == acc.id } +
                             withdrawals.count { it.fromAccountId == acc.id || it.toAccountId == acc.id } +
                             payments.count { it.cardId == acc.id || it.sourceAccountId == acc.id } +

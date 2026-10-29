@@ -83,4 +83,12 @@
     <string name="system">System</string>
     <string name="notification_channel_balance">Balance alerts</string>
     <string name="notification_channel_loans">Loan reminders</string>
+
+    <!-- Home-screen widget -->
+    <string name="widget_description">Balance, a conversion rate and a one-tap expense button.</string>
+    <string name="widget_label">Spending</string>
+    <string name="widget_add_expense">+ Expense</string>
+    <string name="widget_placeholder_balance">Open the app</string>
+    <string name="widget_placeholder_rate">Rates not loaded yet</string>
+    <string name="widget_placeholder_updated">Not updated yet</string>
 </resources>

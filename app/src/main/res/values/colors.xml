@@ -2,4 +2,13 @@
     <color name="seed">#6750A4</color>
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
+
+    <!-- Home-screen widget. Static colours: a RemoteViews widget cannot follow
+         the in-app Compose theme, so it uses one dark-on-light card that stays
+         legible on both wallpaper styles. -->
+    <color name="widget_background">#F2EFEA</color>
+    <color name="widget_button">#6750A4</color>
+    <color name="widget_button_text">#FFFFFF</color>
+    <color name="widget_text_primary">#1C1B1F</color>
+    <color name="widget_text_secondary">#5D5A62</color>
 </resources>

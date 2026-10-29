@@ -8,6 +8,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.spendingtracker.app.util.NotificationHelper
 import com.spendingtracker.app.worker.LoanReminderWorker
+import com.spendingtracker.app.widget.SpendingWidgetProvider
+import com.spendingtracker.app.widget.WidgetRefreshWorker
 import com.spendingtracker.app.worker.RecurringPaymentWorker
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
@@ -31,6 +33,18 @@ class SpendingTrackerApp : Application(), Configuration.Provider {
             "credit_card_autopay", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<com.spendingtracker.app.worker.CardAutopayWorker>(1, TimeUnit.HOURS).build()
         )
+        scheduleWidgetRefresh()
+    }
+
+    /**
+     * The widget's snapshot is refreshed by unique work only while a widget is
+     * actually placed, so removing it from the home screen stops the work.
+     */
+    private fun scheduleWidgetRefresh() {
+        if (SpendingWidgetProvider.widgetIds(this).isNotEmpty()) {
+            WidgetRefreshWorker.schedulePeriodic(this)
+            WidgetRefreshWorker.refreshNow(this)
+        }
     }
 
     private fun scheduleLoanReminders() {

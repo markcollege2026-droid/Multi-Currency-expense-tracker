@@ -252,6 +252,7 @@ fun LoansScreen(
             accounts = uiState.settleAccounts,
             balances = uiState.accountBalances,
             rateLookup = viewModel::conversionRate,
+            activeAccountId = uiState.activeAccountId,
             onConfirm = { amount, accountId, rate, note ->
                 viewModel.settle(item, amount, accountId, rate, note)
                 pendingSettle = null

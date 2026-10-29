@@ -46,6 +46,12 @@ import java.util.*
 @Composable
 fun SettingsScreen(
     onBack: (() -> Unit)? = null,
+    /**
+     * Opens Settings -> Manage accounts straight away. Home's account menu says
+     * "Manage accounts…", so it has to land there instead of on the Settings root.
+     */
+    initialManageAccounts: Boolean = false,
+    onInitialManageAccountsConsumed: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -61,6 +67,13 @@ fun SettingsScreen(
     // the Settings tab, so account management lives where users look for it
     // (previously the only way in was the account menu at the top of Home).
     var showManageAccounts by rememberSaveable { mutableStateOf(false) }
+    // Consumed once: a restored flag must not re-open the subpage after Back.
+    LaunchedEffect(initialManageAccounts) {
+        if (initialManageAccounts) {
+            showManageAccounts = true
+            onInitialManageAccountsConsumed()
+        }
+    }
     var selectedAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAddCash by remember { mutableStateOf(false) }
     var addCashForAccountId by remember { mutableStateOf<Long?>(null) }
@@ -110,6 +123,7 @@ fun SettingsScreen(
                     summaries = uiState.accountSummaries,
                     isActive = selectedAccount.id == uiState.activeAccountId,
                     canDeleteAccount = uiState.accounts.size > 1,
+                    summariesLoaded = uiState.summariesLoaded,
                     message = uiState.message,
                     error = uiState.error,
                     onDismissMessage = viewModel::clearMessage,
@@ -133,6 +147,7 @@ fun SettingsScreen(
                     balanceAccounts = uiState.balanceAccounts,
                     summaries = uiState.accountSummaries,
                     activeAccountId = uiState.activeAccountId,
+                    summariesLoaded = uiState.summariesLoaded,
                     message = uiState.message,
                     error = uiState.error,
                     onDismissMessage = viewModel::clearMessage,
@@ -814,6 +829,7 @@ internal fun ManageAccountsList(
     onOpenAccount: (Account) -> Unit,
     onUseAccount: (Account) -> Unit,
     onAddAccount: () -> Unit,
+    summariesLoaded: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val dims = LocalAppDimens.current
@@ -832,8 +848,15 @@ internal fun ManageAccountsList(
         }
         item(key = "manage-intro") {
             Text(
-                text = "Deleting an account removes only that account and its own entries - " +
-                    "every other account keeps its data. Tap an account to see its cash balances and cards.",
+                text = if (accounts.size == 1) {
+                    // One ledger: everything is managed from this one page, and a
+                    // second account is what unlocks moving money between ledgers.
+                    "You have one account. Tap it to manage its cash balances and cards, " +
+                        "or add another account to keep a second ledger."
+                } else {
+                    "Deleting an account removes only that account and its own entries - " +
+                        "every other account keeps its data. Tap an account to see its cash balances and cards."
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -862,10 +885,14 @@ internal fun ManageAccountsList(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Now " + CurrencyFormatter.formatSimple(
-                                summary?.balance ?: account.startingBalanceAsBigDecimal(),
-                                account.currency
-                            ) + " · " + entriesLabel(summary?.entries ?: 0),
+                            text = if (!summariesLoaded) {
+                                "Calculating\u2026"
+                            } else {
+                                "Now " + CurrencyFormatter.formatSimple(
+                                    summary?.balance ?: account.startingBalanceAsBigDecimal(),
+                                    account.currency
+                                ) + " · " + entriesLabel(summary?.entries ?: 0)
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -916,6 +943,7 @@ internal fun AccountDetailContent(
     summaries: Map<Long, AccountSummary>,
     isActive: Boolean,
     canDeleteAccount: Boolean,
+    summariesLoaded: Boolean = true,
     message: String?,
     error: String?,
     onDismissMessage: () -> Unit,
@@ -947,17 +975,20 @@ internal fun AccountDetailContent(
             SettingsSection("Account") {
                 AppValueRow(
                     "Balance now",
-                    CurrencyFormatter.formatSimple(
+                    if (summariesLoaded) CurrencyFormatter.formatSimple(
                         summary?.balance ?: account.startingBalanceAsBigDecimal(),
                         account.currency
-                    )
+                    ) else "Calculating\u2026"
                 )
                 AppValueRow(
                     "Starting balance",
                     CurrencyFormatter.formatSimple(account.startingBalanceAsBigDecimal(), account.currency)
                 )
                 AppValueRow("Currency", account.currency)
-                AppValueRow("Entries", entriesLabel(summary?.entries ?: 0))
+                AppValueRow(
+                    "Entries",
+                    if (summariesLoaded) entriesLabel(summary?.entries ?: 0) else "Calculating\u2026"
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (isActive) {
                         Text(
@@ -999,7 +1030,7 @@ internal fun AccountDetailContent(
                     )
                 }
                 cash.forEach { child ->
-                    BalanceChildRow(child, summaries[child.id], onDeleteChild)
+                    BalanceChildRow(child, summaries[child.id], summariesLoaded, onDeleteChild)
                     AppHairline()
                 }
                 AppOutlinedButton(onClick = onAddCash) {
@@ -1017,7 +1048,7 @@ internal fun AccountDetailContent(
                     )
                 }
                 cards.forEach { child ->
-                    BalanceChildRow(child, summaries[child.id], onDeleteChild)
+                    BalanceChildRow(child, summaries[child.id], summariesLoaded, onDeleteChild)
                     AppHairline()
                 }
                 Text(
@@ -1035,6 +1066,7 @@ internal fun AccountDetailContent(
 private fun BalanceChildRow(
     child: Account,
     summary: AccountSummary?,
+    summariesLoaded: Boolean = true,
     onDeleteChild: (Account) -> Unit
 ) {
     Row(
@@ -1049,10 +1081,11 @@ private fun BalanceChildRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = CurrencyFormatter.formatSimple(
+                text = (if (summariesLoaded) CurrencyFormatter.formatSimple(
                     summary?.balance ?: child.startingBalanceAsBigDecimal(),
                     child.currency
-                ) + " · " + entriesLabel(summary?.entries ?: 0) +
+                ) + " · " + entriesLabel(summary?.entries ?: 0)
+                else "Calculating\u2026") +
                     (if (child.type == "CASH" && !child.includedInTotal) " · set aside" else ""),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

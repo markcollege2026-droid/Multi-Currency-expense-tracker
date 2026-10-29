@@ -49,6 +49,7 @@ fun HomeScreen(
     onNavigateToTransactions: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToLoans: () -> Unit,
+    onManageAccounts: () -> Unit = onNavigateToSettings,
     onEditExpense: (Long) -> Unit,
     onEditTopUp: (Long) -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
@@ -122,7 +123,8 @@ fun HomeScreen(
                                 text = { Text("Manage accounts…", style = MaterialTheme.typography.bodyMedium) },
                                 onClick = {
                                     accountMenuExpanded = false
-                                    onNavigateToSettings()
+                                    // Goes to Settings -> Manage accounts, not just the tab.
+                                    onManageAccounts()
                                 }
                             )
                         }

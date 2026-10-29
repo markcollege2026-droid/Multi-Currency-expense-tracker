@@ -240,7 +240,10 @@ class FinanceRepository @Inject constructor(
         val (withdrawals, repayments, loans) = loanLedger
         val balances = AccountBalances.calculate(accounts, expenses, topUps, payments, withdrawals, repayments, loans)
         accounts.associate { account ->
-            val entries = expenses.count { it.accountId == account.id } +
+            // Count an expense against the balance it was actually paid from -
+            // the same rule AccountBalances uses. Counting by `accountId` alone
+            // made a cash wallet show "0 entries" while its balance dropped.
+            val entries = expenses.count { (it.balanceAccountId ?: it.accountId) == account.id } +
                 topUps.count { it.accountId == account.id } +
                 withdrawals.count { it.fromAccountId == account.id || it.toAccountId == account.id } +
                 payments.count { it.cardId == account.id || it.sourceAccountId == account.id } +

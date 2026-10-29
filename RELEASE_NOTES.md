@@ -1,3 +1,72 @@
+# Spending Tracker 1.12.0 — Settle from any account, currency-aware repayments, widget
+
+Released 29 October 2026.
+
+Version code **13**, database and backup schema unchanged (DB **v6**, backups
+**schema 6**). Same application ID and signing key; installs over 1.11.0.
+
+## Fixed: a loan can be settled through any account (#18)
+The Settle dropdown listed only the **active** account and its own cash
+balances, so with two accounts the other one - and every wallet inside it -
+was unreachable, even though loans are shared between accounts. Every main
+account and every cash balance in the database is offered now, active ledger
+first; credit cards stay excluded (they hold debt, not spendable money). Cash
+balances that belong to a different account are prefixed with that account's
+name, so two balances both called "Cash" are distinguishable.
+
+## Fixed: repayments convert currency, everywhere (#19)
+Recording a payment from the loan's own edit screen called the repository with
+no account and no rate, so a loan could only ever be repaid in its own
+currency from outside every balance. That second, poorer path is gone: the
+edit screen now opens the same **Settle** dialog as the Loans tab, which can
+pay from - or receive into - any balance, converting between the loan's
+currency and the balance's currency. The amount can be typed in **either**
+currency (there is a switch when they differ), part payments included.
+
+A missing rate no longer becomes a silent 1:1 conversion: if the device has no
+quote for the pair, the dialog says so and refuses to confirm.
+
+## Fixed: Manage accounts reflects reality (#20)
+- **Deleting** an account now says "Deleting X…" while it works. The
+  whole-ledger safety copy is taken only for a main account - deleting a single
+  cash wallet or card can no longer lose the ledger, so it skips the full
+  export that was making the delete feel stuck.
+- **Entry counts** are counted against the balance that actually paid, the
+  same rule the balance itself uses. A cash wallet used to show "0 entries"
+  while its balance dropped; the main account no longer claims cash-paid
+  expenses. Numbers shown in the delete confirmation follow the same rule.
+- **While summaries load**, the pages say "Calculating…" instead of showing the
+  starting balance and "0 entries" as if they were current.
+- The summary combine runs off the main thread.
+
+## Fixed: Manage accounts is reachable with one account (#16)
+Home's account menu item "Manage accounts…" went to the Settings **tab** and
+stopped there. It now opens Settings → Manage accounts directly, one-shot so a
+rotation cannot reopen it. With a single account the page explains what it is
+for; the last-account delete guard is unchanged (erase-all remains the way to
+start over).
+
+## New: home-screen widget (#15)
+A compact widget shows the active ledger's **total available**, one live
+conversion rate (your first favourite currency, else USD/EUR) and a
+**+ Expense** button that opens the expense form directly.
+
+Built for low battery and RAM: plain `RemoteViews` (no Compose runtime for the
+widget), no database or network access in `onUpdate` - it draws a cached
+snapshot - and a 12-hour, network-gated refresh that only exists while a
+widget is placed. Fresh snapshots are also pushed when the app starts. The
+rate line shows its age, and says "No … rate" rather than pretending 1:1.
+
+## Testing
+Unit/Compose suite plus the instrumented suite on an API 33 emulator. New
+coverage: settlement account selection and labels, cross-currency settlement
+from either side, missing-rate refusal, wallet entry counts, the Manage
+accounts loading/single-account states, widget text and selection rules, and
+on-device checks that the widget layout is RemoteViews-compatible, that the
+receiver is declared with its provider metadata, that the snapshot survives a
+process-free reload, and that `MainActivity` is `singleTop` so the widget's
+button reuses the running task.
+
 # Spending Tracker 1.11.0 — Amount entry, currency order, live theme & Manage Accounts
 
 Released 28 October 2026.

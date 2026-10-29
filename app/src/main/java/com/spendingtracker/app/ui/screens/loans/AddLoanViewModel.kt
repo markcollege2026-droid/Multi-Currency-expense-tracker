@@ -2,17 +2,22 @@ package com.spendingtracker.app.ui.screens.loans
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.local.entity.LoanDebt
 import com.spendingtracker.app.data.local.entity.Repayment
+import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.data.repository.LoanRepository
+import com.spendingtracker.app.domain.SettlementAccounts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.domain.LoanCalculator
 import com.spendingtracker.app.util.CurrencyProvider
+import com.spendingtracker.app.util.parseAmountOrNull
 
 data class AddLoanUiState(
     val type: String = LoanDebt.TYPE_DEBT,
@@ -25,10 +30,16 @@ data class AddLoanUiState(
     val isSettled: Boolean = false,
     val balanceCurrency: String = "USD",
     val repayments: List<Repayment> = emptyList(),
-    val newRepaymentAmount: String = "",
-    val newRepaymentNote: String = "",
+    /** Still owed, in [currency]; drives the settle dialog's default amount. */
+    val remaining: BigDecimal = BigDecimal.ZERO,
+    /** Balances a payment can move through - every ledger, not just the active one. */
+    val settleAccounts: List<Account> = emptyList(),
+    val accountBalances: Map<Long, BigDecimal> = emptyMap(),
+    /** Ledger being viewed, used to shorten the dropdown labels. */
+    val activeAccountId: Long? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
+    val message: String? = null,
     val isEditMode: Boolean = false,
     val createdAt: Long? = null,
     // Settlement bookkeeping is carried through edits untouched - saving an
@@ -41,7 +52,9 @@ data class AddLoanUiState(
 @HiltViewModel
 class AddLoanViewModel @Inject constructor(
     private val loanRepository: LoanRepository,
-    private val financeRepository: FinanceRepository
+    private val financeRepository: FinanceRepository,
+    private val rateRepository: ExchangeRateRepository,
+    private val loanCalculator: LoanCalculator
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddLoanUiState())
@@ -62,7 +75,13 @@ class AddLoanViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     balanceCurrency = account?.currency ?: "USD",
                     currency = account?.currency ?: "USD",
-                    orderedCurrencies = financeRepository.orderedCurrencies()
+                    orderedCurrencies = financeRepository.orderedCurrencies(),
+                    settleAccounts = SettlementAccounts.options(
+                        financeRepository.getAllAccountsSync(),
+                        account?.id
+                    ),
+                    accountBalances = financeRepository.balances(),
+                    activeAccountId = account?.id
                 )
             }
             return
@@ -74,6 +93,7 @@ class AddLoanViewModel @Inject constructor(
                 val settings = financeRepository.getSettingsSync()
                 val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 val reps = loanRepository.getRepaymentsForLoanSync(loanId)
+                val remaining = loan?.let { loanCalculator.calculateRemaining(it.amountAsBigDecimal(), reps.map { r -> r.amountAsBigDecimal() }).remaining } ?: BigDecimal.ZERO
                 if (loan != null) {
                     _uiState.value = AddLoanUiState(
                         type = loan.type,
@@ -86,6 +106,13 @@ class AddLoanViewModel @Inject constructor(
                         isSettled = loan.isSettled,
                         balanceCurrency = account?.currency ?: "USD",
                         repayments = reps,
+                        remaining = remaining,
+                        settleAccounts = SettlementAccounts.options(
+                            financeRepository.getAllAccountsSync(),
+                            account?.id
+                        ),
+                        accountBalances = financeRepository.balances(),
+                        activeAccountId = account?.id,
                         isEditMode = true,
                         createdAt = loan.createdAt,
                         settledAt = loan.settledAt,
@@ -154,31 +181,52 @@ class AddLoanViewModel @Inject constructor(
         }
     }
 
-    fun addRepayment(loanId: Long) {
+    /**
+     * Records a payment on this loan through the same rules as the Loans tab.
+     *
+     * The old form here called [FinanceRepository.recordRepayment] with no account
+     * and no rate, so a loan could only ever be repaid in its own currency from
+     * outside every balance. [accountId] null still means external revenue;
+     * otherwise the money moves through that balance, converted with [rate].
+     */
+    fun settle(
+        loanId: Long,
+        amountLoanCurrency: String,
+        accountId: Long?,
+        rate: String,
+        note: String?
+    ) {
         viewModelScope.launch {
-            val s = _uiState.value
-            val amount = try { BigDecimal(s.newRepaymentAmount.trim().replace(',', '.')) } catch (e: Exception) {
-                _uiState.value = s.copy(error = "Invalid repayment amount"); return@launch
+            val amount = amountLoanCurrency.parseAmountOrNull()
+            if (amount == null || amount <= BigDecimal.ZERO) {
+                _uiState.value = _uiState.value.copy(error = "Enter a positive amount")
+                return@launch
             }
-            if (amount <= BigDecimal.ZERO) {
-                _uiState.value = s.copy(error = "Repayment must be positive"); return@launch
-            }
-            // External by default (no balance moves); account-funded settlements
-            // are recorded from the Loans tab's Settle action. Repaying in full
-            // settles the loan and moves it to the archive.
+            val parsedRate = rate.parseAmountOrNull()
+                ?.takeIf { it > BigDecimal.ZERO } ?: BigDecimal.ONE
             try {
                 financeRepository.recordRepayment(
                     loanId = loanId,
                     amount = amount,
-                    note = s.newRepaymentNote.ifBlank { null }
+                    accountId = accountId,
+                    rate = parsedRate,
+                    note = note
                 )
             } catch (e: Exception) {
-                _uiState.value = s.copy(error = e.message ?: "Unable to record repayment")
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Unable to record repayment")
                 return@launch
             }
+            _uiState.value = _uiState.value.copy(
+                newRepaymentNote = "",
+                message = "Payment recorded"
+            )
             reloadLoan(loanId)
         }
     }
+
+    /** Strict rate for the settle dialog: null when this device has no quote. */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal? =
+        rateRepository.getConversionRateStrict(fromCurrency, toCurrency)
 
     fun deleteRepayment(repayment: Repayment, loanId: Long) {
         viewModelScope.launch {
@@ -193,11 +241,17 @@ class AddLoanViewModel @Inject constructor(
     private suspend fun reloadLoan(loanId: Long) {
         val reps = loanRepository.getRepaymentsForLoanSync(loanId)
         val loan = loanRepository.getLoanDebtById(loanId)
+        val active = financeRepository.getAccountById(financeRepository.getActiveAccountId())
         _uiState.value = _uiState.value.copy(
             repayments = reps,
+            remaining = loan?.let {
+                loanCalculator.calculateRemaining(it.amountAsBigDecimal(), reps.map { r -> r.amountAsBigDecimal() }).remaining
+            } ?: BigDecimal.ZERO,
             isSettled = loan?.isSettled ?: _uiState.value.isSettled,
             settledAt = loan?.settledAt,
             settlementRepaymentId = loan?.settlementRepaymentId,
+            settleAccounts = SettlementAccounts.options(financeRepository.getAllAccountsSync(), active?.id),
+            accountBalances = financeRepository.balances(),
             newRepaymentAmount = "",
             newRepaymentNote = "",
             error = null

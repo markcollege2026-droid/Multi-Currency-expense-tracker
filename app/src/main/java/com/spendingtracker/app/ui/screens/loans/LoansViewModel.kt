@@ -8,6 +8,7 @@ import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.data.repository.LoanRepository
 import com.spendingtracker.app.domain.LoanCalculator
+import com.spendingtracker.app.domain.SettlementAccounts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -36,8 +37,10 @@ data class LoansUiState(
     val totalOwedByMe: BigDecimal = BigDecimal.ZERO,
     val totalOwedToMe: BigDecimal = BigDecimal.ZERO,
     val balanceCurrency: String = "USD",
-    /** Main + cash balances a settlement can move money through. */
+    /** Main + cash balances a settlement can move money through, active ledger first. */
     val settleAccounts: List<Account> = emptyList(),
+    /** Ledger the user is looking at; only used to shorten the dropdown labels. */
+    val activeAccountId: Long? = null,
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
     val message: String? = null,
     val isLoading: Boolean = true
@@ -111,10 +114,11 @@ class LoansViewModel @Inject constructor(
                     totalOwedByMe = totalDebtConverted,
                     totalOwedToMe = totalLoanConverted,
                     balanceCurrency = balanceCurrency,
-                    settleAccounts = accounts.filter {
-                        (account?.id != null && it.id == account.id) ||
-                            (it.parentAccountId == account?.id && it.type == "CASH")
-                    },
+                    // Loans are shared, so every main account and every cash balance
+                    // anywhere can settle one - not only the active ledger's own
+                    // balances, which made the other accounts unreachable.
+                    settleAccounts = SettlementAccounts.options(accounts, account?.id),
+                    activeAccountId = account?.id,
                     accountBalances = summaries.mapValues { it.value.balance },
                     message = _uiState.value.message,
                     isLoading = false
@@ -204,7 +208,12 @@ class LoansViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 
-    /** Rate preview for the settle dialog: 1 [fromCurrency] = ? [toCurrency]. */
-    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
-        rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
+    /**
+     * Rate for the settle dialog: 1 [fromCurrency] = ? [toCurrency].
+     *
+     * Strict on purpose - null means "no rate on this device", and the dialog then
+     * refuses to confirm instead of converting at an invented 1:1.
+     */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal? =
+        rateRepository.getConversionRateStrict(fromCurrency, toCurrency)
 }

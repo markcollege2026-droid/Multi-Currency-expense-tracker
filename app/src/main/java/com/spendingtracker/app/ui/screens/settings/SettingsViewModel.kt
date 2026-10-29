@@ -23,6 +23,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import java.io.File
 import java.math.BigDecimal
@@ -56,7 +57,15 @@ data class SettingsUiState(
     val activeAccountId: Long = 1,
     val backupBusy: Boolean = false,
     val restoreEncrypted: Boolean? = null,
-    val backupDocumentName: String? = null
+    val backupDocumentName: String? = null,
+    /**
+     * False until the first summary emission. The list/detail pages used to fall
+     * back to the starting balance and "0 entries" in the meantime, which read as
+     * stale data instead of "still calculating".
+     */
+    val summariesLoaded: Boolean = false,
+    /** Name of the account being deleted, so the page can show that work is happening. */
+    val deleteInProgress: String? = null
 )
 
 @HiltViewModel
@@ -129,9 +138,15 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            financeRepository.observeAccountSummaries().collect { summaries ->
-                _uiState.value = _uiState.value.copy(accountSummaries = summaries)
-            }
+            financeRepository.observeAccountSummaries()
+                // One combine over every ledger table; keep it off the main thread.
+                .flowOn(Dispatchers.Default)
+                .collect { summaries ->
+                    _uiState.value = _uiState.value.copy(
+                        accountSummaries = summaries,
+                        summariesLoaded = true
+                    )
+                }
         }
     }
 
@@ -204,16 +219,26 @@ class SettingsViewModel @Inject constructor(
      * account cannot be deleted at all.
      */
     fun deleteAccount(account: Account) {
-        if (_uiState.value.backupBusy) return
+        if (_uiState.value.backupBusy || _uiState.value.deleteInProgress != null) return
+        // The list is behind a dialog that closes immediately, so say what is
+        // happening: a full-ledger safety copy can take seconds on a big ledger.
+        _uiState.value = _uiState.value.copy(
+            deleteInProgress = account.name,
+            error = null,
+            message = "Deleting ${account.name}\u2026"
+        )
         viewModelScope.launch {
             try {
-                // Snapshot before deleting ANY single account (main, cash or card):
-                // the copy is whole-ledger JSON, cheap insurance for a misclick.
-                val snapshot = snapshotBeforeDelete(account)
+                // A whole-ledger JSON snapshot before deleting a MAIN account is
+                // cheap insurance for a misclick. Deleting one cash wallet or card
+                // cannot lose the ledger, so it skips the full export entirely -
+                // that export runs inside a write transaction and was the slow part.
+                val snapshot = if (account.type == Account.TYPE_MAIN) snapshotBeforeDelete(account) else null
                 val survivor = withContext(NonCancellable) { financeRepository.deleteAccountCascade(account) }
                 val summary = _uiState.value.accountSummaries[account.id]
                 _uiState.value = _uiState.value.copy(
                     activeAccountId = survivor?.id ?: _uiState.value.activeAccountId,
+                    deleteInProgress = null,
                     message = buildString {
                         append(account.name)
                         append(" deleted")
@@ -225,7 +250,11 @@ class SettingsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(error = e.message ?: "Account not deleted")
+                _uiState.value = _uiState.value.copy(
+                    deleteInProgress = null,
+                    message = null,
+                    error = e.message ?: "Account not deleted"
+                )
             }
         }
     }

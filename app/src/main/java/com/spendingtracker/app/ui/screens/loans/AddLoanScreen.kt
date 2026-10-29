@@ -30,6 +30,8 @@ import com.spendingtracker.app.ui.components.*
 import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
 import com.spendingtracker.app.util.CurrencyFormatter
+import com.spendingtracker.app.util.parseAmountOrNull
+import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -44,6 +46,7 @@ fun AddLoanScreen(
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showDueDatePicker by remember { mutableStateOf(false) }
     var pendingRepaymentDelete by remember { mutableStateOf<Repayment?>(null) }
+    var showSettle by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
     val hardwareKeypad = LocalHardwareKeypad.current
@@ -242,37 +245,14 @@ fun AddLoanScreen(
                 item(key = "repayments_header") {
                     AppSectionHeader("Repayments")
                 }
-                item(key = "repayment_form") {
-                    AppTextField(
-                        value = uiState.newRepaymentAmount,
-                        onValueChange = viewModel::onRepaymentAmountChanged,
-                        label = "Repayment amount",
-                        keyboardType = KeyboardType.Decimal,
-                        imeAction = ImeAction.Next
-                    )
-                }
-                item(key = "repayment_note") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        AppTextField(
-                            value = uiState.newRepaymentNote,
-                            onValueChange = viewModel::onRepaymentNoteChanged,
-                            label = "Repayment note",
-                            imeAction = ImeAction.Done,
-                            modifier = Modifier.weight(1f)
-                        )
-                        AppButton(
-                            onClick = {
-                                keyboard?.hide()
-                                viewModel.addRepayment(loanId)
-                            },
-                            modifier = Modifier.widthIn(min = 52.dp),
-                            enabled = uiState.newRepaymentAmount.isNotBlank(),
-                            fillWidth = false
-                        ) { Text("Add", maxLines = 1) }
+                if (!uiState.isSettled) {
+                    item(key = "record_payment") {
+                        // One repayment path for the whole app: this opens the same
+                        // dialog the Loans tab uses, so the payment can come from any
+                        // balance in any currency instead of being external-only.
+                        AppOutlinedButton(onClick = { showSettle = true }) {
+                            Text("Record a payment…", maxLines = 1)
+                        }
                     }
                 }
                 items(uiState.repayments, key = { "rep_${it.id}" }) { rep ->
@@ -339,6 +319,36 @@ fun AddLoanScreen(
                     viewModel.onDueDateChanged(millis)
                     showDueDatePicker = false
                 }
+            )
+        }
+
+        if (showSettle && uiState.isEditMode && loanId != null) {
+            SettleLoanDialog(
+                loan = LoanDebt(
+                    id = loanId,
+                    type = uiState.type,
+                    personName = uiState.personName,
+                    // The field may be mid-edit or blank; the dialog only needs a
+                    // readable "of X" figure, and remaining stays authoritative.
+                    amountOriginal = (uiState.amount.parseAmountOrNull()
+                        ?: uiState.remaining.max(BigDecimal.ZERO)).toPlainString(),
+                    currencyOriginal = uiState.currency,
+                    date = uiState.date,
+                    dueDate = uiState.dueDate,
+                    note = uiState.note.ifBlank { null },
+                    isSettled = uiState.isSettled
+                ),
+                remaining = uiState.remaining,
+                accounts = uiState.settleAccounts,
+                balances = uiState.accountBalances,
+                rateLookup = viewModel::conversionRate,
+                activeAccountId = uiState.activeAccountId,
+                onConfirm = { amount, accountId, rate, note ->
+                    keyboard?.hide()
+                    viewModel.settle(loanId, amount, accountId, rate, note)
+                    showSettle = false
+                },
+                onDismiss = { showSettle = false }
             )
         }
 
