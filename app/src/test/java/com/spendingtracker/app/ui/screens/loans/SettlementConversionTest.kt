@@ -15,6 +15,9 @@ import java.math.BigDecimal
  * in the loan's currency or in the balance's currency, and a missing rate must
  * refuse to confirm instead of quietly converting at 1:1.
  */
+private fun assertMoney(expected: String, actual: java.math.BigDecimal?) =
+    assertEquals("expected $expected but was $actual", 0, java.math.BigDecimal(expected).compareTo(requireNotNull(actual)))
+
 class SettlementConversionTest {
 
     private val ilsMain = Account(id = 1, name = "Everyday", currency = "ILS", startingBalance = "1000")
@@ -44,8 +47,8 @@ class SettlementConversionTest {
     @Test
     fun typingInTheLoanCurrencyConvertsTheAccountSide() {
         val state = form("400", account = eurCash, balance = "200", rate = "0.25")
-        assertEquals(0, BigDecimal("400").compareTo(state.amount))
-        assertEquals(0, BigDecimal("100").compareTo(state.accountAmount))
+        assertMoney("400", state.amount)
+        assertMoney("100", state.accountAmount)
         assertTrue(state.canConfirm)
         assertTrue("the full remainder settles the loan", state.settlesFully)
     }
@@ -54,8 +57,8 @@ class SettlementConversionTest {
     fun typingInTheAccountCurrencyDerivesTheLoanSide() {
         // €100 typed at 1 ILS = 0.25 EUR is ₪400 of the loan.
         val state = form("100", account = eurCash, balance = "150", rate = "0.25", typedInAccountCurrency = true)
-        assertEquals(0, BigDecimal("400").compareTo(state.amount))
-        assertEquals(0, BigDecimal("100").compareTo(state.accountAmount))
+        assertMoney("400", state.amount)
+        assertMoney("100", state.accountAmount)
         assertTrue(state.canConfirm)
         assertTrue(state.settlesFully)
         assertTrue(state.typedInAccountCurrency)
@@ -65,11 +68,11 @@ class SettlementConversionTest {
     fun partPaymentsWorkFromEitherSide() {
         val fromLoanSide = form("200", account = eurCash, balance = "200", rate = "0.25")
         assertFalse(fromLoanSide.settlesFully)
-        assertEquals(0, BigDecimal("50").compareTo(fromLoanSide.accountAmount))
+        assertMoney("50", fromLoanSide.accountAmount)
 
         val fromAccountSide = form("25", account = eurCash, balance = "200", rate = "0.25", typedInAccountCurrency = true)
         assertFalse(fromAccountSide.settlesFully)
-        assertEquals(0, BigDecimal("100").compareTo(fromAccountSide.amount))
+        assertMoney("100", fromAccountSide.amount)
     }
 
     @Test
@@ -104,7 +107,7 @@ class SettlementConversionTest {
         // Paying from a different main account (Travel, USD) is allowed and converts.
         val state = form("400", account = usdMain, balance = "500", rate = "0.27")
         assertTrue(state.canConfirm)
-        assertEquals(0, BigDecimal("108.00").compareTo(state.accountAmount))
+        assertMoney("108.00", state.accountAmount)
     }
 
     @Test

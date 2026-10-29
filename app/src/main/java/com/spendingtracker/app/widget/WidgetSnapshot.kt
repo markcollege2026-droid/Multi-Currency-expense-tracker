@@ -28,7 +28,7 @@ object WidgetText {
 
     fun balanceLine(snapshot: WidgetSnapshot): String =
         com.spendingtracker.app.util.CurrencyFormatter.formatSimple(
-            snapshot.balance.toBigDecimalOrNullSafe(),
+            snapshot.balance.toBigDecimalOrNullSafe() ?: BigDecimal.ZERO,
             snapshot.balanceCurrency
         ) + " available"
 

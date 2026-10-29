@@ -140,8 +140,6 @@ class AddLoanViewModel @Inject constructor(
     }
     fun onNoteChanged(v: String) { _uiState.value = _uiState.value.copy(note = v) }
     fun onDueDateChanged(v: Long?) { _uiState.value = _uiState.value.copy(dueDate = v) }
-    fun onRepaymentAmountChanged(v: String) { _uiState.value = _uiState.value.copy(newRepaymentAmount = v) }
-    fun onRepaymentNoteChanged(v: String) { _uiState.value = _uiState.value.copy(newRepaymentNote = v) }
 
     fun saveLoan(loanId: Long?, onSaved: () -> Unit) {
         viewModelScope.launch {
@@ -216,10 +214,7 @@ class AddLoanViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(error = e.message ?: "Unable to record repayment")
                 return@launch
             }
-            _uiState.value = _uiState.value.copy(
-                newRepaymentNote = "",
-                message = "Payment recorded"
-            )
+            _uiState.value = _uiState.value.copy(message = "Payment recorded")
             reloadLoan(loanId)
         }
     }
@@ -252,8 +247,6 @@ class AddLoanViewModel @Inject constructor(
             settlementRepaymentId = loan?.settlementRepaymentId,
             settleAccounts = SettlementAccounts.options(financeRepository.getAllAccountsSync(), active?.id),
             accountBalances = financeRepository.balances(),
-            newRepaymentAmount = "",
-            newRepaymentNote = "",
             error = null
         )
     }
