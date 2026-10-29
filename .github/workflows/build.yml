@@ -83,26 +83,46 @@ jobs:
           test "$dpkg" = "com.spendingtracker.app.debug" || { echo "::error::debug APK package $dpkg is not the side-by-side build"; exit 1; }
 
           # Content markers. Each one is a user-visible string introduced by work
-          # that must be inside this build; a missing marker means a stale artifact.
+          # that must be inside this build; a missing marker means a stale
+          # artifact. Checked in the debug APK (nothing stripped, so this also
+          # catches "the source never had it") AND in the release APK (R8 ran, so
+          # this catches "the shrinker removed it"): the release APK is what gets
+          # installed, so it has to be checked directly, not inferred.
           tmp=$(mktemp -d)
-          unzip -q -o "$dbg" 'classes*.dex' -d "$tmp"
-          cat "$tmp"/classes*.dex > "$tmp/all.dex"
+          dexdump() {
+            rm -rf "$tmp/x"; mkdir -p "$tmp/x"
+            unzip -q -o "$1" 'classes*.dex' -d "$tmp/x"
+            cat "$tmp/x"/classes*.dex > "$2"
+          }
+          dexdump "$dbg" "$tmp/debug.dex"
+          dexdump "$apk" "$tmp/release.dex"
+
           missing=""
           check() {
-            if grep -aqF -- "$1" "$tmp/all.dex"; then
-              echo "marker present: $1" | tee -a build.log
-            else
-              echo "::error::marker missing from debug APK: $1"; missing="$missing [$1]"
-            fi
+            label=$1; shift
+            for marker in "$@"; do
+              where=""
+              for f in "$tmp/debug.dex" "$tmp/release.dex"; do
+                grep -aqF -- "$marker" "$f" || where="$where ${f##*/}"
+              done
+              if [ -z "$where" ]; then
+                echo "marker present in both APKs: $label ($marker)" | tee -a build.log
+              else
+                echo "::error::marker missing from$where: $label ($marker)"
+                missing="$missing [$label]"
+              fi
+            done
           }
-          check "Still busy: "
-          check "Refreshing rates"
-          check "Deleting "
-          check "Recording payment"
-          check "Settling through a balance"
-          check "AppFeedbackKt"
+          check "refusal toast"      "Still busy: "
+          check "rate refresh"       "Refreshing rates"
+          check "settle labels"      "Recording payment" "Settling through a balance"
+          check "account delete label" "Deleting "
+          # AppFeedback.kt compiles to a class that only exists when the composables
+          # survive into the artifact.
+          grep -aqF "AppFeedbackKt" "$tmp/debug.dex" || { echo "::error::AppFeedbackKt missing from debug APK"; missing="$missing [AppFeedbackKt]"; }
+          grep -aqF "AppFeedbackKt" "$tmp/release.dex" || { echo "::error::AppFeedbackKt missing from release APK (R8 stripped it)"; missing="$missing [AppFeedbackKt release]"; }
           if [ -n "$missing" ]; then
-            echo "::error::debug APK is missing expected content:$missing"; exit 1
+            echo "::error::APK is missing expected content:$missing"; exit 1
           fi
 
           {
@@ -116,7 +136,7 @@ jobs:
             echo "builtAt:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "releaseApk:  $(sha256sum "$apk" | cut -d' ' -f1)"
             echo "debugApk:    $(sha256sum "$dbg" | cut -d' ' -f1)"
-            echo "contentMarkers: verified (busy labels, refusal toast, AppFeedbackKt)"
+            echo "contentMarkers: verified in both debug and release APKs (busy labels, refusal toast, AppFeedbackKt)"
           } | tee BUILD-INFO.txt
           cp BUILD-INFO.txt app/build/outputs/apk/release/BUILD-INFO.txt
 
