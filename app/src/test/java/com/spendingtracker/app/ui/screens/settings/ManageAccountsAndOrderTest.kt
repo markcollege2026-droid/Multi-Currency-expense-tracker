@@ -119,6 +119,28 @@ class ManageAccountsAndOrderTest {
     }
 
     @Test
+    fun aRunningDeleteIsShownOnTheList() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                ManageAccountsList(
+                    accounts = listOf(main, other),
+                    balanceAccounts = listOf(main, pocket, visa, other),
+                    summaries = summaries,
+                    activeAccountId = 1,
+                    message = null,
+                    error = null,
+                    onDismissMessage = {},
+                    onOpenAccount = {},
+                    onUseAccount = {},
+                    onAddAccount = {},
+                    busyLabel = "Deleting Travel\u2026"
+                )
+            }
+        }
+        compose.onNodeWithText("Deleting Travel\u2026").assertIsDisplayed()
+    }
+
+    @Test
     fun accountDetailShowsCashAndCards() {
         var addCash = false
         var deletedChild: Long? = null

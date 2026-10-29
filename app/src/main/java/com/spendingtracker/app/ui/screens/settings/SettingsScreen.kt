@@ -27,6 +27,7 @@ import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.repository.AccountSummary
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppBusyRow
 import com.spendingtracker.app.ui.components.AppButton
 import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppDialog
@@ -36,6 +37,7 @@ import com.spendingtracker.app.ui.components.AppOutlinedButton
 import com.spendingtracker.app.ui.components.AppSectionHeader
 import com.spendingtracker.app.ui.components.AppSelectorRow
 import com.spendingtracker.app.ui.components.AppTextField
+import com.spendingtracker.app.ui.components.AppToast
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.ui.components.AppValueRow
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
@@ -55,6 +57,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    // Refusals and short results ("Still deleting…", "Rates refreshed").
+    AppToast(uiState.toast, viewModel::clearToast)
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showAddAccount by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Account?>(null) }
@@ -124,6 +128,7 @@ fun SettingsScreen(
                     isActive = selectedAccount.id == uiState.activeAccountId,
                     canDeleteAccount = uiState.accounts.size > 1,
                     summariesLoaded = uiState.summariesLoaded,
+                    busyLabel = uiState.busy,
                     message = uiState.message,
                     error = uiState.error,
                     onDismissMessage = viewModel::clearMessage,
@@ -148,6 +153,7 @@ fun SettingsScreen(
                     summaries = uiState.accountSummaries,
                     activeAccountId = uiState.activeAccountId,
                     summariesLoaded = uiState.summariesLoaded,
+                    busyLabel = uiState.busy,
                     message = uiState.message,
                     error = uiState.error,
                     onDismissMessage = viewModel::clearMessage,
@@ -168,6 +174,9 @@ fun SettingsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
+                uiState.busy?.let { label ->
+                    item(key = "busy") { AppBusyRow(label) }
+                }
                 if (uiState.message != null || uiState.error != null) {
                     item(key = "messages") {
                         Surface(
@@ -343,18 +352,27 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        AppButton(onClick = viewModel::refreshRates) {
-                            Text("Refresh rates", maxLines = 1)
+                        AppButton(
+                            onClick = viewModel::refreshRates,
+                            enabled = uiState.busy == null
+                        ) {
+                            Text(if (uiState.busy == null) "Refresh rates" else "Working\u2026", maxLines = 1)
                         }
                     }
                 }
 
                 item(key = "data") {
                     SettingsSection("Data") {
-                        AppOutlinedButton(onClick = viewModel::exportJson) {
+                        AppOutlinedButton(
+                            onClick = viewModel::exportJson,
+                            enabled = uiState.busy == null
+                        ) {
                             Text("Export all as JSON", maxLines = 1)
                         }
-                        AppOutlinedButton(onClick = viewModel::exportCsv) {
+                        AppOutlinedButton(
+                            onClick = viewModel::exportCsv,
+                            enabled = uiState.busy == null
+                        ) {
                             Text("Export transactions as CSV", maxLines = 1)
                         }
                         BackupControls(uiState, viewModel)
@@ -596,9 +614,10 @@ fun SettingsScreen(
 
         if (uiState.showEraseDialog) {
             AppDialog(
-                onDismissRequest = viewModel::dismissErase,
+                onDismissRequest = { if (uiState.busy == null) viewModel.dismissErase() },
                 title = "Erase all data?",
-                confirmLabel = "Erase",
+                confirmLabel = if (uiState.busy == null) "Erase" else "Erasing\u2026",
+                confirmEnabled = uiState.busy == null,
                 // The erase is one transaction; afterwards there is no ledger, so the
                 // app restarts into setup instead of showing empty screens.
                 onConfirm = {
@@ -610,6 +629,7 @@ fun SettingsScreen(
                         "Save a backup from this screen first if you might want the data back.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                uiState.busy?.let { AppBusyRow(it) }
             }
         }
 
@@ -830,6 +850,7 @@ internal fun ManageAccountsList(
     onUseAccount: (Account) -> Unit,
     onAddAccount: () -> Unit,
     summariesLoaded: Boolean = true,
+    busyLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     val dims = LocalAppDimens.current
@@ -843,6 +864,9 @@ internal fun ManageAccountsList(
         ),
         verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
     ) {
+        busyLabel?.let { label ->
+            item(key = "manage-busy") { AppBusyRow(label) }
+        }
         item(key = "manage-messages") {
             ManageMessageBanner(message, error, onDismissMessage)
         }
@@ -944,6 +968,7 @@ internal fun AccountDetailContent(
     isActive: Boolean,
     canDeleteAccount: Boolean,
     summariesLoaded: Boolean = true,
+    busyLabel: String? = null,
     message: String?,
     error: String?,
     onDismissMessage: () -> Unit,
@@ -968,6 +993,9 @@ internal fun AccountDetailContent(
         ),
         verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
     ) {
+        busyLabel?.let { label ->
+            item(key = "detail-busy") { AppBusyRow(label) }
+        }
         item(key = "detail-messages") {
             ManageMessageBanner(message, error, onDismissMessage)
         }

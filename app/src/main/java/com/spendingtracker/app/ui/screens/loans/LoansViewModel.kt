@@ -43,6 +43,8 @@ data class LoansUiState(
     val activeAccountId: Long? = null,
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
     val message: String? = null,
+    /** What is running right now, or null. Shown as an inline progress row. */
+    val busy: String? = null,
     val isLoading: Boolean = true
 )
 
@@ -121,6 +123,7 @@ class LoansViewModel @Inject constructor(
                     activeAccountId = account?.id,
                     accountBalances = summaries.mapValues { it.value.balance },
                     message = _uiState.value.message,
+                    busy = _uiState.value.busy,
                     isLoading = false
                 )
             }
@@ -131,6 +134,7 @@ class LoansViewModel @Inject constructor(
     }
 
     fun deleteLoan(loan: LoanDebt) {
+        if (busyStarting("Deleting \"${loan.personName}\"\u2026")) return
         viewModelScope.launch {
             try {
                 // Repayments are removed by the foreign-key cascade, which also
@@ -139,9 +143,28 @@ class LoansViewModel @Inject constructor(
                 _uiState.update { it.copy(message = "\"${loan.personName}\" deleted") }
             } catch (e: Exception) {
                 _uiState.update { it.copy(message = e.message ?: "Unable to delete") }
+            } finally {
+                busyDone()
             }
         }
     }
+
+    /**
+     * Marks work as started and returns false when something else is already
+     * running, in which case the caller must not start. Refusals are reported
+     * through [LoansUiState.message] so the screen can say why nothing happened.
+     */
+    private fun busyStarting(label: String): Boolean {
+        val current = _uiState.value.busy
+        if (current != null) {
+            _uiState.update { it.copy(message = "Still busy: $current") }
+            return true
+        }
+        _uiState.update { it.copy(busy = label, message = null) }
+        return false
+    }
+
+    private fun busyDone() { _uiState.update { it.copy(busy = null) } }
 
     /**
      * Records a settlement payment (or archives an already-repaid loan when
@@ -155,6 +178,7 @@ class LoansViewModel @Inject constructor(
         rate: String,
         note: String?
     ) {
+        if (busyStarting(if (accountId == null) "Recording payment\u2026" else "Settling through a balance\u2026")) return
         viewModelScope.launch {
             try {
                 val amount = amountLoanCurrency.parseAmountOrNull()
@@ -188,18 +212,23 @@ class LoansViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(message = e.message ?: "Unable to settle") }
+            } finally {
+                busyDone()
             }
         }
     }
 
     /** Reopens an archived loan, reversing the transaction that settled it. */
     fun reopen(loan: LoanDebt) {
+        if (busyStarting("Reopening \"${loan.personName}\"\u2026")) return
         viewModelScope.launch {
             try {
                 financeRepository.reopenLoan(loan.id)
                 _uiState.update { it.copy(message = "\"${loan.personName}\" reopened") }
             } catch (e: Exception) {
                 _uiState.update { it.copy(message = e.message ?: "Unable to reopen") }
+            } finally {
+                busyDone()
             }
         }
     }

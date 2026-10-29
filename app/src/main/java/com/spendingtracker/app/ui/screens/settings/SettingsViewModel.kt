@@ -64,8 +64,14 @@ data class SettingsUiState(
      * stale data instead of "still calculating".
      */
     val summariesLoaded: Boolean = false,
-    /** Name of the account being deleted, so the page can show that work is happening. */
-    val deleteInProgress: String? = null
+    /**
+     * What the app is doing right now ("Deleting Travel…", "Refreshing rates…"),
+     * or null. Set before the work starts and cleared in a `finally`, so the UI can
+     * show progress without polling and without delaying the operation.
+     */
+    val busy: String? = null,
+    /** One-shot message for a toast; the screen clears it after showing it. */
+    val toast: String? = null
 )
 
 @HiltViewModel
@@ -219,13 +225,22 @@ class SettingsViewModel @Inject constructor(
      * account cannot be deleted at all.
      */
     fun deleteAccount(account: Account) {
-        if (_uiState.value.backupBusy || _uiState.value.deleteInProgress != null) return
+        if (_uiState.value.backupBusy) {
+            _uiState.value = _uiState.value.copy(toast = "A backup or restore is running. Try again when it finishes.")
+            return
+        }
+        if (_uiState.value.busy != null) {
+            // Refused before any work: a toast, because there is nothing to wait
+            // for and an extra spinner would only add noise.
+            _uiState.value = _uiState.value.copy(toast = "Still ${_uiState.value.busy?.replaceFirstChar { it.lowercase() }} - try again in a moment.")
+            return
+        }
         // The list is behind a dialog that closes immediately, so say what is
         // happening: a full-ledger safety copy can take seconds on a big ledger.
         _uiState.value = _uiState.value.copy(
-            deleteInProgress = account.name,
+            busy = "Deleting ${account.name}\u2026",
             error = null,
-            message = "Deleting ${account.name}\u2026"
+            message = null
         )
         viewModelScope.launch {
             try {
@@ -238,7 +253,7 @@ class SettingsViewModel @Inject constructor(
                 val summary = _uiState.value.accountSummaries[account.id]
                 _uiState.value = _uiState.value.copy(
                     activeAccountId = survivor?.id ?: _uiState.value.activeAccountId,
-                    deleteInProgress = null,
+                    busy = null,
                     message = buildString {
                         append(account.name)
                         append(" deleted")
@@ -251,10 +266,12 @@ class SettingsViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    deleteInProgress = null,
                     message = null,
                     error = e.message ?: "Account not deleted"
                 )
+            } finally {
+                // Also on cancellation: a stuck label would disable every other action.
+                if (_uiState.value.busy != null) _uiState.value = _uiState.value.copy(busy = null)
             }
         }
     }
@@ -295,6 +312,9 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+
+    /** Called by the screen once [SettingsUiState.toast] has been shown. */
+    fun clearToast() { _uiState.update { it.copy(toast = null) } }
 
     fun onThresholdChanged(v: String) { _uiState.value = _uiState.value.copy(lowBalanceThreshold = v) }
     fun onThemeChanged(t: String) {
@@ -348,6 +368,11 @@ class SettingsViewModel @Inject constructor(
      * with no active account.
      */
     fun confirmErase(onErased: () -> Unit = {}) {
+        if (_uiState.value.busy != null) {
+            _uiState.value = _uiState.value.copy(toast = "Still ${_uiState.value.busy?.replaceFirstChar { it.lowercase() }}")
+            return
+        }
+        _uiState.value = _uiState.value.copy(busy = "Erasing all data\u2026")
         viewModelScope.launch {
             try {
                 // ONE transaction. Split across three calls, an interruption (or the
@@ -364,7 +389,8 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     showEraseDialog = false,
                     activeAccountId = 1L,
-                    message = "All data erased"
+                    message = "All data erased",
+                    busy = null
                 )
                 if (financeRepository.needsSetup()) onErased()
             } catch (e: CancellationException) {
@@ -374,6 +400,8 @@ class SettingsViewModel @Inject constructor(
                     showEraseDialog = false,
                     error = "Nothing was erased: ${e.message}"
                 )
+            } finally {
+                if (_uiState.value.busy != null) _uiState.value = _uiState.value.copy(busy = null)
             }
         }
     }
@@ -437,23 +465,43 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun exportJson() {
+        if (_uiState.value.busy != null) {
+            _uiState.value = _uiState.value.copy(toast = "Still ${_uiState.value.busy?.replaceFirstChar { it.lowercase() }}")
+            return
+        }
+        _uiState.value = _uiState.value.copy(busy = "Preparing JSON\u2026")
         viewModelScope.launch {
             try {
                 val json = exportImportManager.exportAll()
-                _uiState.value = _uiState.value.copy(exportJson = json, message = "JSON prepared for sharing; not saved to a file")
+                _uiState.value = _uiState.value.copy(
+                    exportJson = json,
+                    message = "JSON prepared for sharing; not saved to a file"
+                )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
+            } finally {
+                _uiState.value = _uiState.value.copy(busy = null)
             }
         }
     }
 
     fun exportCsv() {
+        if (_uiState.value.busy != null) {
+            _uiState.value = _uiState.value.copy(toast = "Still ${_uiState.value.busy?.replaceFirstChar { it.lowercase() }}")
+            return
+        }
+        _uiState.value = _uiState.value.copy(busy = "Preparing CSV\u2026")
         viewModelScope.launch {
             try {
                 val csv = exportImportManager.exportTransactionsCsv()
-                _uiState.value = _uiState.value.copy(exportCsv = csv, message = "CSV prepared for sharing; not saved to a file")
+                _uiState.value = _uiState.value.copy(
+                    exportCsv = csv,
+                    message = "CSV prepared for sharing; not saved to a file"
+                )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
+            } finally {
+                _uiState.value = _uiState.value.copy(busy = null)
             }
         }
     }
@@ -517,15 +565,34 @@ class SettingsViewModel @Inject constructor(
 
     fun clearMessage() { _uiState.value = _uiState.value.copy(message = null, error = null, exportJson = null, exportCsv = null) }
 
+    /**
+     * Network refresh: up to two API calls plus a commodity fetch, each with the
+     * client's 10s connect / 15s read timeouts. The button shows progress for as
+     * long as this runs; the result is a toast because it lands after the user has
+     * moved on.
+     */
     fun refreshRates() {
+        if (_uiState.value.busy != null) {
+            _uiState.value = _uiState.value.copy(toast = "Still ${_uiState.value.busy?.replaceFirstChar { it.lowercase() }}")
+            return
+        }
+        _uiState.value = _uiState.value.copy(busy = "Refreshing rates\u2026", error = null, message = null)
         viewModelScope.launch {
-            val settings = financeRepository.getSettingsSync() ?: return@launch
-            val result = rateRepository.refreshRates(settings.balanceCurrency)
-            result.onSuccess { ts ->
-                financeRepository.saveRatesTimestamp(ts)
-                _uiState.value = _uiState.value.copy(message = "Rates refreshed")
-            }.onFailure {
-                _uiState.value = _uiState.value.copy(error = "Failed to refresh: ${it.message}")
+            try {
+                val settings = financeRepository.getSettingsSync()
+                    ?: run { _uiState.value = _uiState.value.copy(toast = "No account yet"); return@launch }
+                rateRepository.refreshRates(settings.balanceCurrency)
+                    .onSuccess { ts ->
+                        financeRepository.saveRatesTimestamp(ts)
+                        _uiState.value = _uiState.value.copy(toast = "Rates refreshed")
+                    }
+                    .onFailure { failure ->
+                        _uiState.value = _uiState.value.copy(
+                            error = "Failed to refresh: ${failure.message}"
+                        )
+                    }
+            } finally {
+                _uiState.value = _uiState.value.copy(busy = null)
             }
         }
     }

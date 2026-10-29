@@ -23,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.LoanDebt
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppBusyRow
 import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppDialog
@@ -133,6 +134,9 @@ fun LoansScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
+                uiState.busy?.let { label ->
+                    item(key = "busy") { AppBusyRow(label) }
+                }
                 uiState.message?.let { message ->
                     item(key = "message") {
                         Row(

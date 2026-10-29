@@ -54,7 +54,9 @@ data class HomeUiState(
     /** Cash balances that count toward [totalAvailable], converted into [balanceCurrency]. */
     val cashTotal: BigDecimal = BigDecimal.ZERO,
     val cardPayments: List<CreditCardPayment> = emptyList(),
-    val message: String? = null
+    val message: String? = null,
+    /** What is running right now, or null. Shown as an inline progress row. */
+    val busy: String? = null
 )
 
 @HiltViewModel
@@ -238,7 +240,8 @@ class HomeViewModel @Inject constructor(
                     totalAvailable = totalAvailable,
                     cashTotal = cashTotal,
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
-                    message = _uiState.value.message
+                    message = _uiState.value.message,
+                    busy = _uiState.value.busy
                 )
             }
                 // Heavy aggregation (BigDecimal math, grouping, trend) runs off the main thread.
@@ -267,7 +270,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun createBalanceAccount(name: String, type: String, opening: String, currency: String = "") = action {
+    fun createBalanceAccount(name: String, type: String, opening: String, currency: String = "") = action("Adding balance\u2026") {
         financeRepository.createBalanceAccount(
             financeRepository.getActiveAccountId(),
             name,
@@ -277,12 +280,12 @@ class HomeViewModel @Inject constructor(
         )
         _uiState.update { it.copy(message = "$name added") }
     }
-    fun fundCash(cashId: Long, amount: String) = action {
+    fun fundCash(cashId: Long, amount: String) = action("Recording cash income\u2026") {
         val value = BigDecimal(amount)
         require(value > BigDecimal.ZERO) { "Amount must be positive" }
         financeRepository.insertTopUp(TopUp(accountId = cashId, amount = value.toPlainString(), date = System.currentTimeMillis(), note = "Cash income"))
     }
-    fun payCard(cardId: Long, amount: String, overpayment: Boolean) = action {
+    fun payCard(cardId: Long, amount: String, overpayment: Boolean) = action("Paying the card\u2026") {
         val result = financeRepository.payCard(cardId, BigDecimal(amount), overpayment)
         if (result.status != "COMPLETED") {
             notificationHelper.showAutopayFailure(cardId.toInt())
@@ -290,9 +293,9 @@ class HomeViewModel @Inject constructor(
         }
         _uiState.update { it.copy(message = "Credit card payment completed") }
     }
-    fun configureAutopay(card: Account) = action { financeRepository.configureAutopay(card); runAutopay() }
+    fun configureAutopay(card: Account) = action("Saving autopay\u2026") { financeRepository.configureAutopay(card); runAutopay() }
     /** Renames a balance account or changes its warning threshold / credit limit. */
-    fun updateBalanceAccount(account: Account) = action {
+    fun updateBalanceAccount(account: Account) = action("Saving ${account.name}\u2026") {
         financeRepository.updateBalanceAccountFields(account)
         _uiState.update { it.copy(message = "${account.name} updated") }
     }
@@ -315,7 +318,7 @@ class HomeViewModel @Inject constructor(
      * typed. The repository re-checks the main balance, so the UI can never
      * overdraw main.
      */
-    fun withdraw(toCashId: Long, amountFrom: String, amountTo: String, note: String? = null) = action {
+    fun withdraw(toCashId: Long, amountFrom: String, amountTo: String, note: String? = null) = action("Withdrawing\u2026") {
         val from = amountFrom.parseAmountOrNull()
             ?: error("Enter a positive amount")
         val to = amountTo.parseAmountOrNull()
@@ -349,7 +352,7 @@ class HomeViewModel @Inject constructor(
      * cash to cash) from Home. The dialog supplies both sides; the repository
      * re-checks the source balance inside its transaction.
      */
-    fun transfer(fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String? = null) = action {
+    fun transfer(fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String? = null) = action("Transferring\u2026") {
         val from = amountFrom.parseAmountOrNull()
             ?: error("Enter a positive amount")
         val to = amountTo.parseAmountOrNull()
@@ -372,7 +375,7 @@ class HomeViewModel @Inject constructor(
     suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
         rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
     /** Removes a cash or card balance together with its own transactions. */
-    fun deleteBalanceAccount(account: Account) = action {
+    fun deleteBalanceAccount(account: Account) = action("Deleting ${account.name}\u2026") {
         // NonCancellable: a delete interrupted by closing the app must not stop
         // halfway through the cascade.
         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
@@ -382,9 +385,33 @@ class HomeViewModel @Inject constructor(
     }
     fun dismissPayment(payment: CreditCardPayment) = action { financeRepository.dismissPayment(payment) }
     fun clearMessage() { _uiState.update { it.copy(message = null) } }
-    private fun action(block: suspend () -> Unit) {
+    /**
+     * Runs one repository operation, reporting failures in [HomeUiState.message].
+     *
+     * [busyLabel] turns the inline progress row on for the duration; it is set
+     * before the work starts and cleared in a `finally`, so it costs one state
+     * write and cannot delay the operation. Only operations that touch many rows
+     * (card payment, transfers, deletes, recurring postings) pass a label - the
+     * instant ones stay silent rather than flashing a spinner.
+     */
+    private fun action(busyLabel: String? = null, block: suspend () -> Unit) {
+        if (busyLabel != null) {
+            val current = _uiState.value.busy
+            if (current != null) {
+                _uiState.update { it.copy(message = "Still busy: $current") }
+                return
+            } else {
+                _uiState.update { it.copy(busy = busyLabel, message = null) }
+            }
+        }
         viewModelScope.launch {
-            try { block() } catch (e: Exception) { _uiState.update { it.copy(message = e.message ?: "Unable to complete operation") } }
+            try {
+                block()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(message = e.message ?: "Unable to complete operation") }
+            } finally {
+                if (busyLabel != null) _uiState.update { it.copy(busy = null) }
+            }
         }
     }
 

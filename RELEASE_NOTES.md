@@ -57,6 +57,34 @@ snapshot - and a 12-hour, network-gated refresh that only exists while a
 widget is placed. Fresh snapshots are also pushed when the app starts. The
 rate line shows its age, and says "No … rate" rather than pretending 1:1.
 
+## Feedback for slow work and refused actions
+Long operations no longer look like a frozen screen, and actions that are
+skipped now say so.
+
+- **Inline progress**, shown for as long as the work runs: deleting an account
+  (Manage accounts and the Settings list), erasing all data, refreshing exchange
+  rates, preparing a JSON/CSV export, settling a loan, deleting or reopening a
+  loan, and Home's transfers, withdrawals, card payments, balance deletes and
+  cash income. The label says what is happening ("Deleting Travel…",
+  "Refreshing rates…"); the buttons involved disable themselves so the same work
+  cannot be started twice.
+- **Toasts** for the results that arrive too fast to warrant a spinner, and for
+  anything refused before work starts: a second delete while one is running, a
+  rate refresh or erase while something else is busy, "Rates refreshed", "No
+  account yet".
+- **Home finally shows its results.** Messages were only drawn inside the
+  expandable accounts panel, which starts collapsed on the compact layout, so a
+  failed transfer or card payment looked like nothing had happened. Home now
+  toasts its messages.
+- Backup/restore and the Converter's refresh/charts already had progress
+  indicators and are unchanged.
+
+These states are set before the work starts and cleared in a `finally` - no
+timers, no polling, no minimum display time - so they add a single state write
+and a recomposition, never work. That is also why some actions (switching
+accounts, dismissing a payment, saving a threshold) deliberately get **no**
+progress state: they finish in milliseconds and a spinner would only add noise.
+
 ## Testing
 Unit/Compose suite plus the instrumented suite on an API 33 emulator. New
 coverage: settlement account selection and labels, cross-currency settlement

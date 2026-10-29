@@ -55,6 +55,10 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    // Home's messages were only drawn inside the expandable accounts panel, so on
+    // the compact layout (where that panel starts collapsed) a failed transfer or
+    // card payment looked like nothing happened. A toast always reaches the user.
+    AppToast(uiState.message, viewModel::clearMessage)
     var showQuickAdd by remember { mutableStateOf(false) }
     var showAdjustBalance by remember { mutableStateOf(false) }
     var showWithdraw by remember { mutableStateOf(false) }
@@ -158,6 +162,9 @@ fun HomeScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
+                uiState.busy?.let { label ->
+                    item(key = "busy") { AppBusyRow(label) }
+                }
                 item(key = "balance") {
                     BalanceHero(
                         balance = uiState.balance,
