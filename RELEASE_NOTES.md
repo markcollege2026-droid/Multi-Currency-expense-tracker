@@ -1,8 +1,75 @@
-# Spending Tracker 1.12.3 — Settle from any account, currency-aware repayments, widget, visible progress
+# Spending Tracker 1.12.4 — Manage accounts fixed, loan payments in other currencies
 
 Released 29 October 2026.
 
-Version code **16**, version name **1.12.3**. Database and backup schema
+Version code **17**, version name **1.12.4**.
+
+## Fixed: Manage accounts said "0 accounts · Active: -"
+
+The Settings page could show **0 accounts** and **Active: -** with one account,
+then show both accounts once a second one was created, leave a deleted account on
+screen until the app was restarted, and come back to zero after that restart - all
+while Home looked perfectly normal.
+
+The cause was a lost update, not data loss. The Settings view model rebuilt its
+state with `_uiState.value = _uiState.value.copy(...)` and one of the values in that
+`copy(...)` - the account's low-balance threshold - was a suspending database call.
+Kotlin evaluates the receiver (`_uiState.value`) *before* the arguments, so the
+collector captured the whole state, suspended on the query, and then wrote that
+stale snapshot back: everything the other collectors stored in between (the account
+list, its summaries, the progress label, the toast) was discarded. Home was immune
+because its state comes from a single `combine` over the database with no second
+writer.
+
+- That collector now reads the threshold **before** touching state and writes with
+  the atomic `_uiState.update { }`, so nothing written while it suspends is lost.
+- The same pattern was found and fixed in **Recurring** (an emission could close
+  the add/edit dialog while typing), **Add loan** (settle dropdown and balances),
+  **Add expense** and **Add top-up** (a load could overwrite typed input).
+- If the balance calculation ever fails, the page now says so ("Balances could not
+  be calculated…") instead of sitting on "Calculating…" forever - the collector used
+  to die silently.
+
+Reproduced and guarded in CI: `ManageAccountsStateTest` holds that collector inside
+its suspension with a gated DAO and asserts the account list and a toast survive it.
+
+## Fixed: no feedback in Manage accounts
+
+- **Use this account** and **Rename** now confirm with a toast; rename also reports
+  failures instead of having no error handling at all.
+- **Deleting a cash balance or card** finishes in a single write, so its progress
+  row was cleared before a frame was drawn and nothing was ever shown: the result is
+  now a toast as well as the inline message.
+- Creating an account or cash balance confirms the same way.
+
+## Fixed: no feedback on the Loans tab
+
+Refusals ("Still busy: …"), settlement results and loan deletions were drawn only in
+the inline banner at the top of the Loans list - off-screen when the settled loan is
+further down, so the action looked like it did nothing. Loans now shows the same
+toasts Settings and Home do.
+
+## Fixed: payments in another currency could still be recorded 1:1
+
+The settle dialog refuses to confirm a cross-currency payment without a rate, but
+both view models then parsed the rate themselves and fell back to `1` - undoing that
+guarantee at the last step. A single rule (`SettlementRate`) now decides, and a
+payment that needs a rate it does not have is refused with a message naming both
+currencies.
+
+## Fixed: "there is no option to pay a loan in another currency"
+
+The option was there and hidden: the **Type in ILS / Type in EUR** chips only appear
+once you choose a balance whose currency differs from the loan's, and the dialog's
+default source is **External revenue** - where nothing converts, so there is nothing
+to choose. The dialog now says so where the missing choice would be: *"Paying in
+another currency? Choose a balance under PAY FROM - e.g. Euro wallet (EUR) - and the
+amount can be typed in either currency."* That line is absent when no balance in
+another currency exists, so it never promises something impossible.
+
+## Confirming you are running this build
+
+Open **Settings → Data** and read the **Version** row: `1.12.4 (17) · <commit>`. Database and backup schema
 unchanged (DB **v6**, backups **schema 6**). Same application ID and signing
 key; installs over 1.11.0 and over 1.12.0.
 
@@ -48,8 +115,7 @@ Open **Settings → Data** and read the **Version** row at the bottom. It shows
 `1.12.3 (16) · <commit>` - the commit is the SHA CI built this APK from. The
 release also ships **BUILD-INFO.txt** with the same version, commit, run id and
 the SHA-256 of both APKs, and CI posts those values as a commit comment. If the
-row says `1.12.0 (13)`, `1.12.1 (14)` or `1.12.2 (15)` you have an older APK
-installed. The same row sits under a **Home-screen widget** section in Settings,
+row says `1.12.0`–`1.12.3` you have an older APK installed. The same row sits under a **Home-screen widget** section in Settings,
 which is itself new - if that section is missing, you are not running this build.
 
 The debug APK now installs as `com.spendingtracker.app.debug`, side by side with

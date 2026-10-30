@@ -22,6 +22,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
@@ -64,6 +65,11 @@ data class SettingsUiState(
      * stale data instead of "still calculating".
      */
     val summariesLoaded: Boolean = false,
+    /**
+     * Set when the summary combine fails. Without it the pages sat on
+     * "Calculating…" forever after one error - the collector simply died.
+     */
+    val summariesError: String? = null,
     /**
      * What the app is doing right now ("Deleting Travel…", "Refreshing rates…"),
      * or null. Set before the work starts and cleared in a `finally`, so the UI can
@@ -118,40 +124,67 @@ class SettingsViewModel @Inject constructor(
                     balanceCurrency = settings?.balanceCurrency
                 )
 
-                _uiState.value = _uiState.value.copy(
-                    settings = settings,
-                    lowBalanceThreshold = financeRepository.getAccountById(settings?.activeAccountId ?: 1)?.lowBalanceThreshold ?: "",
-                    theme = settings?.theme ?: "SYSTEM",
-                    currencySortMode = sortMode,
-                    customOrder = customOrder,
-                    favoriteCurrencies = favorites,
-                    recentCurrencies = recents,
-                    currencies = CurrencyProvider.allCurrencies,
-                    orderedCurrencies = ordered,
-                    activeAccountId = settings?.activeAccountId ?: 1L,
-                    isLoading = false
-                )
+                // Read the threshold BEFORE touching state. This used to be a
+                // suspend call inside the copy() argument list, and Kotlin evaluates
+                // the receiver (_uiState.value) before the arguments: the collector
+                // therefore captured the whole state, suspended on the query, and
+                // then wrote that stale snapshot back - discarding `accounts`,
+                // `accountSummaries`, `busy` and `toast` stored in the meantime.
+                // That is what made Manage accounts say "0 accounts - Active: -",
+                // lose a deleted row and swallow toasts. update() re-reads on write,
+                // so nothing written while this suspends can be lost.
+                val threshold = financeRepository
+                    .getAccountById(settings?.activeAccountId ?: 1)
+                    ?.lowBalanceThreshold ?: ""
+                _uiState.update { current ->
+                    current.copy(
+                        settings = settings,
+                        lowBalanceThreshold = threshold,
+                        theme = settings?.theme ?: "SYSTEM",
+                        currencySortMode = sortMode,
+                        customOrder = customOrder,
+                        favoriteCurrencies = favorites,
+                        recentCurrencies = recents,
+                        currencies = CurrencyProvider.allCurrencies,
+                        orderedCurrencies = ordered,
+                        activeAccountId = settings?.activeAccountId ?: 1L,
+                        isLoading = false
+                    )
+                }
             }
         }
         viewModelScope.launch {
             financeRepository.getAllAccounts().collect { accounts ->
-                _uiState.value = _uiState.value.copy(accounts = accounts)
+                _uiState.update { it.copy(accounts = accounts) }
             }
         }
         viewModelScope.launch {
             financeRepository.observeBalanceAccounts().collect { accounts ->
-                _uiState.value = _uiState.value.copy(balanceAccounts = accounts)
+                _uiState.update { it.copy(balanceAccounts = accounts) }
             }
         }
         viewModelScope.launch {
             financeRepository.observeAccountSummaries()
                 // One combine over every ledger table; keep it off the main thread.
                 .flowOn(Dispatchers.Default)
+                .catch { failure ->
+                    // A dead collector used to look like a page stuck on
+                    // "Calculating…": no error, no retry, no way to tell.
+                    _uiState.update {
+                        it.copy(
+                            summariesError = "Balances could not be calculated (" +
+                                (failure.message ?: "unknown error") + "). Reopen Settings to retry."
+                        )
+                    }
+                }
                 .collect { summaries ->
-                    _uiState.value = _uiState.value.copy(
-                        accountSummaries = summaries,
-                        summariesLoaded = true
-                    )
+                    _uiState.update {
+                        it.copy(
+                            accountSummaries = summaries,
+                            summariesLoaded = true,
+                            summariesError = null
+                        )
+                    }
                 }
         }
     }
@@ -162,11 +195,20 @@ class SettingsViewModel @Inject constructor(
                 // Creates the settings row when it is missing; the old code used to
                 // return silently and the switcher became a no-op.
                 financeRepository.setActiveAccount(account.id)
-                _uiState.value = _uiState.value.copy(activeAccountId = account.id)
+                // Switching is instant, so it gets a toast rather than a spinner -
+                // the only visible change used to be a small "ACTIVE" badge.
+                _uiState.update {
+                    it.copy(activeAccountId = account.id, toast = "Using " + account.name)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(error = e.message ?: "Could not switch account")
+                _uiState.update {
+                    it.copy(
+                        error = e.message ?: "Could not switch account",
+                        toast = "Could not switch account"
+                    )
+                }
             }
         }
     }
@@ -199,7 +241,9 @@ class SettingsViewModel @Inject constructor(
                     financeRepository.setActiveAccount(newId)
                     newId
                 }
-                _uiState.value = _uiState.value.copy(activeAccountId = id, message = "Account created")
+                _uiState.update {
+                    it.copy(activeAccountId = id, message = "Account created", toast = "Account created")
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -210,9 +254,26 @@ class SettingsViewModel @Inject constructor(
 
     fun renameAccount(account: Account, newName: String) {
         val trimmed = newName.trim()
-        if (trimmed.isBlank()) return
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(toast = "A name is required") }
+            return
+        }
         viewModelScope.launch {
-            financeRepository.updateAccount(account.copy(name = trimmed))
+            try {
+                financeRepository.updateAccount(account.copy(name = trimmed))
+                _uiState.update { it.copy(toast = "Renamed to " + trimmed) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // This used to have no catch at all: a failure was either silent or
+                // a crash, never a message.
+                _uiState.update {
+                    it.copy(
+                        error = e.message ?: "Account not renamed",
+                        toast = "Account not renamed"
+                    )
+                }
+            }
         }
     }
 
@@ -251,27 +312,36 @@ class SettingsViewModel @Inject constructor(
                 val snapshot = if (account.type == Account.TYPE_MAIN) snapshotBeforeDelete(account) else null
                 val survivor = withContext(NonCancellable) { financeRepository.deleteAccountCascade(account) }
                 val summary = _uiState.value.accountSummaries[account.id]
-                _uiState.value = _uiState.value.copy(
-                    activeAccountId = survivor?.id ?: _uiState.value.activeAccountId,
-                    busy = null,
-                    message = buildString {
-                        append(account.name)
-                        append(" deleted")
-                        summary?.let { append(" with ${it.entries} entries") }
-                        survivor?.let { append(" · ${it.name} is now active") }
-                        snapshot?.let { append(" · safety copy: $it") }
-                    }
-                )
+                _uiState.update { current ->
+                    current.copy(
+                        activeAccountId = survivor?.id ?: current.activeAccountId,
+                        busy = null,
+                        message = buildString {
+                            append(account.name)
+                            append(" deleted")
+                            summary?.let { append(" with ${it.entries} entries") }
+                            survivor?.let { append(" · ${it.name} is now active") }
+                            snapshot?.let { append(" · safety copy: $it") }
+                        },
+                        // Deleting a cash balance or card finishes in one write, so
+                        // the busy row above it is gone before a frame is drawn - the
+                        // toast is the only feedback that path can have.
+                        toast = account.name + " deleted"
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    message = null,
-                    error = e.message ?: "Account not deleted"
-                )
+                _uiState.update {
+                    it.copy(
+                        message = null,
+                        error = e.message ?: "Account not deleted",
+                        toast = e.message ?: "Account not deleted"
+                    )
+                }
             } finally {
                 // Also on cancellation: a stuck label would disable every other action.
-                if (_uiState.value.busy != null) _uiState.value = _uiState.value.copy(busy = null)
+                _uiState.update { if (it.busy != null) it.copy(busy = null) else it }
             }
         }
     }
@@ -306,9 +376,16 @@ class SettingsViewModel @Inject constructor(
                         return@launch
                     }
                 financeRepository.createBalanceAccount(mainId, name.trim(), "CASH", amount, currency)
-                _uiState.value = _uiState.value.copy(message = "Cash balance added")
+                _uiState.update {
+                    it.copy(message = "Cash balance added", toast = "Cash balance added")
+                }
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(error = e.message ?: "Could not add cash balance")
+                _uiState.update {
+                    it.copy(
+                        error = e.message ?: "Could not add cash balance",
+                        toast = e.message ?: "Could not add cash balance"
+                    )
+                }
             }
         }
     }

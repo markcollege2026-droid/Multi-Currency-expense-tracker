@@ -24,6 +24,7 @@ import com.spendingtracker.app.data.local.entity.LoanDebt
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
 import com.spendingtracker.app.ui.components.AppBusyRow
+import com.spendingtracker.app.ui.components.AppToast
 import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppDialog
@@ -49,6 +50,10 @@ fun LoansScreen(
     viewModel: LoansViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    // Refusals ("Still busy: …") and short results. The inline banner stays for the
+    // full message, but it sits at the top of the list and is off-screen when the
+    // user taps Settle on a loan further down - so those actions looked inert.
+    AppToast(uiState.toast, viewModel::clearToast)
     val dims = LocalAppDimens.current
 
     var pendingDelete by remember { mutableStateOf<LoanWithBalance?>(null) }

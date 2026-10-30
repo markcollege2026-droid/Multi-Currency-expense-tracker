@@ -8,6 +8,7 @@ import com.spendingtracker.app.data.repository.ExchangeRateRepository
 import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.data.repository.LoanRepository
 import com.spendingtracker.app.domain.LoanCalculator
+import com.spendingtracker.app.domain.SettlementRate
 import com.spendingtracker.app.domain.SettlementAccounts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,13 @@ data class LoansUiState(
     val activeAccountId: Long? = null,
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
     val message: String? = null,
+    /**
+     * One-shot toast, cleared by the screen once shown. Refusals and results that
+     * arrive too fast for a spinner used to be drawn only in the inline banner at
+     * the top of the list, which is off-screen when the user has scrolled to the
+     * loan they tapped - so the action looked like it did nothing.
+     */
+    val toast: String? = null,
     /** What is running right now, or null. Shown as an inline progress row. */
     val busy: String? = null,
     val isLoading: Boolean = true
@@ -142,7 +150,8 @@ class LoansViewModel @Inject constructor(
                 loanRepository.deleteLoanDebt(loan)
                 _uiState.update { it.copy(message = "\"${loan.personName}\" deleted") }
             } catch (e: Exception) {
-                _uiState.update { it.copy(message = e.message ?: "Unable to delete") }
+                val failure = e.message ?: "Unable to delete"
+                _uiState.update { it.copy(message = failure, toast = failure) }
             } finally {
                 busyDone()
             }
@@ -157,7 +166,8 @@ class LoansViewModel @Inject constructor(
     private fun busyStarting(label: String): Boolean {
         val current = _uiState.value.busy
         if (current != null) {
-            _uiState.update { it.copy(message = "Still busy: $current") }
+            val refusal = "Still busy: $current"
+            _uiState.update { it.copy(message = refusal, toast = refusal) }
             return true
         }
         _uiState.update { it.copy(busy = label, message = null) }
@@ -165,6 +175,9 @@ class LoansViewModel @Inject constructor(
     }
 
     private fun busyDone() { _uiState.update { it.copy(busy = null) } }
+
+    /** Called by the screen once [LoansUiState.toast] has been shown. */
+    fun clearToast() { _uiState.update { it.copy(toast = null) } }
 
     /**
      * Records a settlement payment (or archives an already-repaid loan when
@@ -178,13 +191,24 @@ class LoansViewModel @Inject constructor(
         rate: String,
         note: String?
     ) {
+        // A cross-currency settlement without a real rate must be refused, not
+        // quietly recorded 1:1: the old `?: BigDecimal.ONE` here re-introduced
+        // exactly the silent conversion the dialog refuses to do.
+        val targetCurrency = accountId?.let { id ->
+            _uiState.value.settleAccounts.firstOrNull { it.id == id }?.currency
+        }
+        val appliedRate = SettlementRate.resolve(item.loan.currencyOriginal, targetCurrency, rate)
+        if (appliedRate == null) {
+            val refusal = SettlementRate.missingRateMessage(item.loan.currencyOriginal, targetCurrency)
+            _uiState.update { it.copy(message = refusal, toast = refusal) }
+            return
+        }
         if (busyStarting(if (accountId == null) "Recording payment\u2026" else "Settling through a balance\u2026")) return
         viewModelScope.launch {
             try {
                 val amount = amountLoanCurrency.parseAmountOrNull()
                     ?: error("Enter a positive amount")
-                val parsedRate = rate.parseAmountOrNull()
-                    ?.takeIf { it > BigDecimal.ZERO } ?: BigDecimal.ONE
+                val parsedRate = appliedRate
                 val wasRemaining = item.remaining
                 financeRepository.recordRepayment(
                     loanId = item.loan.id,
@@ -196,20 +220,17 @@ class LoansViewModel @Inject constructor(
                 val accountName = accountId?.let { id ->
                     _uiState.value.settleAccounts.firstOrNull { it.id == id }?.name
                 }
-                _uiState.update {
-                    it.copy(
-                        message = when {
-                            amount.compareTo(BigDecimal.ZERO) == 0 ->
-                                "\"${item.loan.personName}\" moved to the settled archive"
-                            amount.compareTo(wasRemaining) == 0 ->
-                                "\"${item.loan.personName}\" settled" +
-                                    (accountName?.let { name ->
-                                        if (item.loan.type == LoanDebt.TYPE_DEBT) " from $name" else " into $name"
-                                    } ?: " (external)") + " · see History"
-                            else -> "Payment recorded for \"${item.loan.personName}\""
-                        }
-                    )
+                val result = when {
+                    amount.compareTo(BigDecimal.ZERO) == 0 ->
+                        "\"${item.loan.personName}\" moved to the settled archive"
+                    amount.compareTo(wasRemaining) == 0 ->
+                        "\"${item.loan.personName}\" settled" +
+                            (accountName?.let { name ->
+                                if (item.loan.type == LoanDebt.TYPE_DEBT) " from $name" else " into $name"
+                            } ?: " (external)") + " · see History"
+                    else -> "Payment recorded for \"${item.loan.personName}\""
                 }
+                _uiState.update { it.copy(message = result, toast = result) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(message = e.message ?: "Unable to settle") }
             } finally {

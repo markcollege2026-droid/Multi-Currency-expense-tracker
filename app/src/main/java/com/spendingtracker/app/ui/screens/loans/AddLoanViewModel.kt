@@ -11,11 +11,13 @@ import com.spendingtracker.app.data.repository.LoanRepository
 import com.spendingtracker.app.domain.SettlementAccounts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
 import com.spendingtracker.app.domain.LoanCalculator
+import com.spendingtracker.app.domain.SettlementRate
 import com.spendingtracker.app.util.CurrencyProvider
 import com.spendingtracker.app.util.parseAmountOrNull
 
@@ -72,17 +74,24 @@ class AddLoanViewModel @Inject constructor(
             _uiState.value = AddLoanUiState(type = chosenType ?: LoanDebt.TYPE_DEBT)
             viewModelScope.launch {
                 val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
-                _uiState.value = _uiState.value.copy(
-                    balanceCurrency = account?.currency ?: "USD",
-                    currency = account?.currency ?: "USD",
-                    orderedCurrencies = financeRepository.orderedCurrencies(),
-                    settleAccounts = SettlementAccounts.options(
-                        financeRepository.getAllAccountsSync(),
-                        account?.id
-                    ),
-                    accountBalances = financeRepository.balances(),
-                    activeAccountId = account?.id
+                // Read everything first, assign once: suspend calls inside copy()
+                // captured the state before suspending and could overwrite input.
+                val ordered = financeRepository.orderedCurrencies()
+                val settleables = SettlementAccounts.options(
+                    financeRepository.getAllAccountsSync(),
+                    account?.id
                 )
+                val balances = financeRepository.balances()
+                _uiState.update {
+                    it.copy(
+                        balanceCurrency = account?.currency ?: "USD",
+                        currency = account?.currency ?: "USD",
+                        orderedCurrencies = ordered,
+                        settleAccounts = settleables,
+                        accountBalances = balances,
+                        activeAccountId = account?.id
+                    )
+                }
             }
             return
         }
@@ -95,6 +104,12 @@ class AddLoanViewModel @Inject constructor(
                 val reps = loanRepository.getRepaymentsForLoanSync(loanId)
                 val remaining = loan?.let { loanCalculator.calculateRemaining(it.amountAsBigDecimal(), reps.map { r -> r.amountAsBigDecimal() }).remaining } ?: BigDecimal.ZERO
                 if (loan != null) {
+                    val settleables = SettlementAccounts.options(
+                        financeRepository.getAllAccountsSync(),
+                        account?.id
+                    )
+                    val balances = financeRepository.balances()
+                    val ordered = financeRepository.orderedCurrencies()
                     _uiState.value = AddLoanUiState(
                         type = loan.type,
                         personName = loan.personName,
@@ -107,17 +122,14 @@ class AddLoanViewModel @Inject constructor(
                         balanceCurrency = account?.currency ?: "USD",
                         repayments = reps,
                         remaining = remaining,
-                        settleAccounts = SettlementAccounts.options(
-                            financeRepository.getAllAccountsSync(),
-                            account?.id
-                        ),
-                        accountBalances = financeRepository.balances(),
+                        settleAccounts = settleables,
+                        accountBalances = balances,
                         activeAccountId = account?.id,
                         isEditMode = true,
                         createdAt = loan.createdAt,
                         settledAt = loan.settledAt,
                         settlementRepaymentId = loan.settlementRepaymentId,
-                        orderedCurrencies = financeRepository.orderedCurrencies()
+                        orderedCurrencies = ordered
                     )
                 }
             } catch (e: Exception) {
@@ -200,8 +212,17 @@ class AddLoanViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(error = "Enter a positive amount")
                 return@launch
             }
-            val parsedRate = rate.parseAmountOrNull()
-                ?.takeIf { it > BigDecimal.ZERO } ?: BigDecimal.ONE
+            // Same rule as LoansViewModel: a cross-currency payment with no rate is
+            // refused instead of being recorded 1:1.
+            val targetCurrency = accountId?.let { id ->
+                _uiState.value.settleAccounts.firstOrNull { it.id == id }?.currency
+            }
+            val parsedRate = SettlementRate.resolve(_uiState.value.currency, targetCurrency, rate)
+            if (parsedRate == null) {
+                val refusal = SettlementRate.missingRateMessage(_uiState.value.currency, targetCurrency)
+                _uiState.value = _uiState.value.copy(error = refusal)
+                return@launch
+            }
             try {
                 financeRepository.recordRepayment(
                     loanId = loanId,
@@ -237,17 +258,22 @@ class AddLoanViewModel @Inject constructor(
         val reps = loanRepository.getRepaymentsForLoanSync(loanId)
         val loan = loanRepository.getLoanDebtById(loanId)
         val active = financeRepository.getAccountById(financeRepository.getActiveAccountId())
-        _uiState.value = _uiState.value.copy(
-            repayments = reps,
-            remaining = loan?.let {
-                loanCalculator.calculateRemaining(it.amountAsBigDecimal(), reps.map { r -> r.amountAsBigDecimal() }).remaining
-            } ?: BigDecimal.ZERO,
-            isSettled = loan?.isSettled ?: _uiState.value.isSettled,
-            settledAt = loan?.settledAt,
-            settlementRepaymentId = loan?.settlementRepaymentId,
-            settleAccounts = SettlementAccounts.options(financeRepository.getAllAccountsSync(), active?.id),
-            accountBalances = financeRepository.balances(),
-            error = null
-        )
+        val remaining = loan?.let {
+            loanCalculator.calculateRemaining(it.amountAsBigDecimal(), reps.map { r -> r.amountAsBigDecimal() }).remaining
+        } ?: BigDecimal.ZERO
+        val settleables = SettlementAccounts.options(financeRepository.getAllAccountsSync(), active?.id)
+        val balances = financeRepository.balances()
+        _uiState.update {
+            it.copy(
+                repayments = reps,
+                remaining = remaining,
+                isSettled = loan?.isSettled ?: it.isSettled,
+                settledAt = loan?.settledAt,
+                settlementRepaymentId = loan?.settlementRepaymentId,
+                settleAccounts = settleables,
+                accountBalances = balances,
+                error = null
+            )
+        }
     }
 }

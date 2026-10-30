@@ -351,6 +351,24 @@ fun SettleLoanDialogBody(
         supportingText = form.error,
         focusRequester = focusRequester
     )
+    // Why there is no currency choice here: the amount is in the loan's currency
+    // because no balance is involved yet. Without this line the dialog looked like
+    // it could only ever record payments in one currency - the "Type in ILS / Type
+    // in EUR" chips only appear once a balance in another currency is chosen.
+    if (account == null) {
+        val otherCurrency = accounts.firstOrNull { it.currency != loan.currencyOriginal }
+        if (otherCurrency != null) {
+            Text(
+                text = "Paying in another currency? Choose a balance under " +
+                    (if (isDebt) "PAY FROM" else "RECEIVE INTO") + " - e.g. " +
+                    otherCurrency.name + " (" + otherCurrency.currency + ") - and the amount " +
+                    "can be typed in either currency.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 3
+            )
+        }
+    }
     // Which currency the typed amount is in. Only offered when it can differ.
     if (account != null && account.currency != loan.currencyOriginal) {
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

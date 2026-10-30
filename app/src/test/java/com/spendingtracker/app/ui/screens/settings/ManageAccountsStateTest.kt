@@ -53,9 +53,10 @@ import org.robolectric.annotation.Config
  * single `combine` over the database flows, so there is no second copy to clobber.
  *
  * [GatedAccountDao] holds the settings collector inside `getAccountById`, which makes
- * the interleaving deterministic instead of a race. The key test asserts the
- * **buggy** outcome on purpose (characterisation): it is the proof, and it must be
- * flipped when the collector is fixed.
+ * the interleaving deterministic instead of a race. The first test reproduces that
+ * interleaving and asserts the **fixed** outcome: the collector must not lose the
+ * account list (or a toast) that was stored while it was suspended. Before the fix
+ * the same test failed with `expected:<1> but was:<0>`.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [33], manifest = Config.NONE)
@@ -141,7 +142,7 @@ class ManageAccountsStateTest {
     // ---- the reported fault, deterministically ----
 
     @Test
-    fun aSettingsLoadThatSuspendsDiscardsTheAccountListItRacesWith() = runBlocking {
+    fun aSettingsLoadThatSuspendsKeepsTheAccountListItRacesWith() = runBlocking {
         val id = addMain("Main", 1)
         repository.saveSettings(AppSettings(activeAccountId = id, balanceCurrency = "ILS"))
 
@@ -160,16 +161,34 @@ class ManageAccountsStateTest {
         gate.complete(Unit)
         val settled = viewModel.awaitState { !it.isLoading }
 
-        // The stale write wins and nothing re-emits, so this is the final state.
-        assertEquals("the Settings row renders '0 accounts' from here", 0, settled.accounts.size)
-        assertEquals("and 'Active: -'", "-", activeLabel(settled))
-        // The data is intact: this is a lost state update, not a lost account.
-        assertEquals(1, repository.getAllAccountsSync().count { it.type == "MAIN" })
-        assertEquals(
-            "Home reads the database, which is why it looks normal",
-            id,
-            repository.resolveActiveAccountId()
-        )
+        // The fix: the late settings write must not resurrect the pre-suspension
+        // snapshot. This is the exact state that rendered "0 accounts - Active: -".
+        assertEquals("the account list must survive the settings write", 1, settled.accounts.size)
+        assertEquals("and the row can name the active account", "Main", activeLabel(settled))
+        assertEquals(id, settled.activeAccountId)
+    }
+
+    /**
+     * The same window also swallowed `busy` and `toast`, which is why deleting an
+     * account could look like it did nothing: the completion toast was written and
+     * then reverted by this collector before a frame was drawn.
+     */
+    @Test
+    fun aToastWrittenWhileTheSettingsLoadSuspendsIsNotSwallowed() = runBlocking {
+        val id = addMain("Main", 1)
+        repository.saveSettings(AppSettings(activeAccountId = id, balanceCurrency = "ILS"))
+
+        val gate = CompletableDeferred<Unit>()
+        val viewModel = settingsViewModel(repositoryWith(GatedAccountDao(db.accountDao(), gate)))
+
+        // Switch account while the collector is parked: it writes a toast.
+        withTimeout(15_000) { viewModel.uiState.first { it.accounts.isNotEmpty() } }
+        viewModel.switchAccount(viewModel.uiState.value.accounts.first())
+        assertEquals("Using Main", viewModel.uiState.value.toast)
+
+        gate.complete(Unit)
+        val settled = viewModel.awaitState { !it.isLoading }
+        assertEquals("the toast must survive to be shown", "Using Main", settled.toast)
     }
 
     /**
