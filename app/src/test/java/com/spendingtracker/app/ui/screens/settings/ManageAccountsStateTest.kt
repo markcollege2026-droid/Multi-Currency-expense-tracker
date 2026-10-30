@@ -209,7 +209,8 @@ class ManageAccountsStateTest {
             first,
             repository.getSettingsSync()?.activeAccountId
         )
-        viewModel.awaitState { it.busy == null && !it.isLoading }
+        // Ends with an assertion, not a bare expression: JUnit requires a void method.
+        assertTrue(viewModel.awaitState { it.busy == null && !it.isLoading }.busy == null)
     }
 
     @Test
