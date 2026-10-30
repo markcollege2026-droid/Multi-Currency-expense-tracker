@@ -227,7 +227,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f build.log ]; then gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(tail -c 45000 build.log)"; fi
+          python3 .github/scripts/failure_report.py
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat failure-summary.md)" || true
       - uses: actions/upload-artifact@v4
         with:
           name: spending-tracker-apks
