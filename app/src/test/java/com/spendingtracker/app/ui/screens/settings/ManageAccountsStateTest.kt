@@ -181,14 +181,16 @@ class ManageAccountsStateTest {
         val gate = CompletableDeferred<Unit>()
         val viewModel = settingsViewModel(repositoryWith(GatedAccountDao(db.accountDao(), gate)))
 
-        // Switch account while the collector is parked: it writes a toast.
+        // While the collector is parked, an action writes a toast. A blank rename is
+        // used because it is a pure refusal - no database call - so the gate cannot
+        // block it and the test exercises only the state write that used to be lost.
         withTimeout(15_000) { viewModel.uiState.first { it.accounts.isNotEmpty() } }
-        viewModel.switchAccount(viewModel.uiState.value.accounts.first())
-        assertEquals("Using Main", viewModel.uiState.value.toast)
+        viewModel.renameAccount(viewModel.uiState.value.accounts.first(), "   ")
+        assertEquals("A name is required", viewModel.uiState.value.toast)
 
         gate.complete(Unit)
         val settled = viewModel.awaitState { !it.isLoading }
-        assertEquals("the toast must survive to be shown", "Using Main", settled.toast)
+        assertEquals("the toast must survive to be shown", "A name is required", settled.toast)
     }
 
     /**
