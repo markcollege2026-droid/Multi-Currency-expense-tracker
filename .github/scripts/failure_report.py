@@ -24,8 +24,17 @@ body += lines[:40]
 
 log = Path('build.log')
 if log.exists():
+    text = log.read_text(errors='replace')
+    # Compile errors and the failing task are what actually say why the build
+    # stopped; the stack traces in the tail do not. Print them first, unfiltered.
+    interesting = [line for line in text.splitlines()
+                   if line.startswith('e: ') or 'error:' in line.lower()
+                   or 'Execution failed for task' in line or '> Task ' in line and 'FAILED' in line
+                   or 'Lint found' in line or 'FAILURE:' in line]
+    if interesting:
+        body += ['', '## Build errors', '```'] + interesting[:60] + ['```']
     body += ['', '<details><summary>build.log (tail)</summary>', '', '```',
-             log.read_text(errors='replace')[-12000:], '```', '</details>']
+             text[-12000:], '```', '</details>']
 
 Path('failure-summary.md').write_text('\n'.join(body))
 if os.environ.get('GITHUB_STEP_SUMMARY'):
