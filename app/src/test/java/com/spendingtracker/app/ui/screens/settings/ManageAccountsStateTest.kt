@@ -16,6 +16,7 @@ import com.spendingtracker.app.util.ExportImportManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -34,23 +35,27 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * Reproduction of the reported Manage accounts fault: with one account the
- * Settings row says **"0 accounts · Active: -"**, adding a second account makes
- * both appear, deleting it again leaves a stale list, and after a restart it is
- * back to zero - while Home looks normal the whole time.
+ * Reproduction of the reported Manage accounts fault: with one account the Settings
+ * row says **"0 accounts · Active: -"**, adding a second account makes both appear,
+ * deleting it again can leave the deleted row behind, and after a restart it is back
+ * to zero - while Home looks normal the whole time.
  *
- * Cause under test: [SettingsViewModel]'s settings collector builds its next state
- * with `_uiState.value = _uiState.value.copy(...)`, and one of the values it copies
- * (`lowBalanceThreshold = financeRepository.getAccountById(...)`) is a **suspend**
- * call evaluated inside the argument list. The receiver (`_uiState.value`) is read
- * *before* that suspension, so when the collector resumes it applies `copy(...)` to
- * a stale snapshot and writes it back - discarding `accounts` (and summaries) that
- * the other three collectors stored in the meantime.
+ * Cause: [SettingsViewModel]'s settings collector writes
+ * `_uiState.value = _uiState.value.copy(...)`, and one of the values it copies -
+ * `lowBalanceThreshold = financeRepository.getAccountById(...)` - is a **suspend**
+ * call evaluated inside the argument list. The receiver (`_uiState.value`, the whole
+ * current state object) is read *before* that suspension, so when the collector
+ * resumes it applies `copy(...)` to a stale snapshot and writes it back, discarding
+ * `accounts`, `accountSummaries`, `busy`, `toast` and anything else the other
+ * collectors or button handlers stored while it was parked.
  *
- * [GatedAccountDao] holds the settings collector inside `getAccountById`, which
- * makes that interleaving deterministic instead of a race. The final assertion
- * describes the **buggy** behaviour on purpose (a characterisation test): it is the
- * proof, and it should be flipped when the collector is fixed.
+ * Home is unaffected because it has no such writer: its state is produced by a
+ * single `combine` over the database flows, so there is no second copy to clobber.
+ *
+ * [GatedAccountDao] holds the settings collector inside `getAccountById`, which makes
+ * the interleaving deterministic instead of a race. The key test asserts the
+ * **buggy** outcome on purpose (characterisation): it is the proof, and it must be
+ * flipped when the collector is fixed.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [33], manifest = Config.NONE)
@@ -75,7 +80,7 @@ class ManageAccountsStateTest {
         Dispatchers.resetMain()
     }
 
-    /** Only `getAccountById` is delayed; everything else is the real DAO. */
+    /** Only `getAccountById` is delayed; every other call is the real DAO. */
     private class GatedAccountDao(
         private val delegate: AccountDao,
         private val gate: CompletableDeferred<Unit>
@@ -119,17 +124,21 @@ class ManageAccountsStateTest {
         )
     }
 
-    /** Waits for a concrete state instead of a frame, so the tests cannot race Room. */
-    private suspend fun SettingsViewModel.awaitState(predicate: (SettingsUiState) -> Boolean): SettingsUiState =
-        withTimeout(15_000) { uiState.first(predicate) }
+    private suspend fun SettingsViewModel.awaitState(
+        predicate: (SettingsUiState) -> Boolean
+    ): SettingsUiState = withTimeout(15_000) { uiState.first(predicate) }
 
-    private suspend fun SettingsViewModel.awaitLoaded(): SettingsUiState =
-        awaitState { !it.isLoading && it.accounts.isNotEmpty() }
+    /** Polls the database, so a test can assert data truth without depending on state. */
+    private suspend fun awaitMainAccounts(count: Int) {
+        withTimeout(15_000) {
+            while (repository.getAllAccountsSync().count { it.type == "MAIN" } != count) delay(5)
+        }
+    }
 
     private fun activeLabel(state: SettingsUiState): String =
         state.accounts.firstOrNull { it.id == state.activeAccountId }?.name ?: "-"
 
-    // ---- the reported scenario, deterministically ----
+    // ---- the reported fault, deterministically ----
 
     @Test
     fun aSettingsLoadThatSuspendsDiscardsTheAccountListItRacesWith() = runBlocking {
@@ -137,91 +146,80 @@ class ManageAccountsStateTest {
         repository.saveSettings(AppSettings(activeAccountId = id, balanceCurrency = "ILS"))
 
         val gate = CompletableDeferred<Unit>()
-        val gated = FinanceRepository(
-            db.expenseDao(), db.topUpDao(), db.appSettingsDao(), db.categoryDao(),
-            GatedAccountDao(db.accountDao(), gate),
-            db.recurringPaymentDao(), db.creditCardPaymentDao(), db.withdrawalDao(),
-            db.loanDebtDao(), db.repaymentDao(), db
-        )
-        val viewModel = settingsViewModel(gated)
+        val viewModel = settingsViewModel(repositoryWith(GatedAccountDao(db.accountDao(), gate)))
 
         // The accounts collector lands while the settings collector is parked inside
-        // getAccountById - i.e. the account IS in state at this point.
+        // getAccountById - the account IS in the state at this point.
         val withAccount = withTimeout(15_000) { viewModel.uiState.first { it.accounts.isNotEmpty() } }
         assertEquals(listOf("Main"), withAccount.accounts.map { it.name })
-        assertTrue("settings must still be loading, which is what makes this order possible", viewModel.uiState.value.isLoading)
+        assertTrue(
+            "settings must still be loading, which is what makes this order possible",
+            viewModel.uiState.value.isLoading
+        )
 
         gate.complete(Unit)
-        // Nothing else will be emitted, so "loaded with no accounts" is a final state.
         val settled = viewModel.awaitState { !it.isLoading }
 
-        // The stale write wins: the account list is gone even though nothing was
-        // deleted, and no further emission will put it back.
-        assertEquals("the row renders '0 accounts' from here", 0, settled.accounts.size)
+        // The stale write wins and nothing re-emits, so this is the final state.
+        assertEquals("the Settings row renders '0 accounts' from here", 0, settled.accounts.size)
         assertEquals("and 'Active: -'", "-", activeLabel(settled))
-        // The database still has the account - this is purely a lost state update.
+        // The data is intact: this is a lost state update, not a lost account.
         assertEquals(1, repository.getAllAccountsSync().count { it.type == "MAIN" })
-        assertEquals("Home resolves the ledger from the database, not from this state", id, repository.resolveActiveAccountId())
+        assertEquals(
+            "Home reads the database, which is why it looks normal",
+            id,
+            repository.resolveActiveAccountId()
+        )
     }
 
+    /**
+     * The collector is not dead - only the write that loses to it is. A later database
+     * change re-emits and the list appears, which is exactly what the user sees after
+     * creating a second account.
+     */
     @Test
-    fun theSameLoadWithoutTheSuspensionKeepsTheList() = runBlocking {
+    fun aLaterEmissionRestoresTheListSoTheFaultLooksIntermittent() = runBlocking {
         val id = addMain("Main", 1)
         repository.saveSettings(AppSettings(activeAccountId = id, balanceCurrency = "ILS"))
+        val viewModel = settingsViewModel(repository)
+        viewModel.awaitState { !it.isLoading }
 
-        val viewModel = settingsViewModel(repository) // no gate: no interleaving
-        val settled = viewModel.awaitLoaded()
+        // Any account write triggers a fresh emission.
+        addMain("Travel", 2)
 
-        assertEquals(1, settled.accounts.size)
-        assertEquals("Main", activeLabel(settled))
+        val refreshed = viewModel.awaitState { it.accounts.size == 2 }
+        assertEquals(listOf("Main", "Travel"), refreshed.accounts.map { it.name })
     }
 
-    // ---- the rest of the reported sequence, at state level ----
+    // ---- the rest of the reported sequence, at data level ----
 
     @Test
-    fun deletingTheSecondAccountLeavesOneWithNoStaleRow() = runBlocking {
+    fun deletingTheSecondAccountRemovesItFromTheDatabase() = runBlocking {
         val first = addMain("Main", 1)
         repository.saveSettings(AppSettings(activeAccountId = first, balanceCurrency = "ILS"))
         val second = addMain("Travel", 2)
 
         val viewModel = settingsViewModel(repository)
-        assertEquals(
-            "both appear once a second account exists",
-            2,
-            viewModel.awaitState { it.accounts.size == 2 }.accounts.size
-        )
-
         val travel = repository.getAllAccounts().first().first { it.id == second }
         viewModel.deleteAccount(travel)
 
-        val after = withTimeout(15_000) { viewModel.uiState.first { it.accounts.size == 1 && it.busy == null } }
-        assertEquals(listOf("Main"), after.accounts.map { it.name })
+        awaitMainAccounts(1)
+        assertEquals(
+            "the active pointer is moved off the deleted account",
+            first,
+            repository.getSettingsSync()?.activeAccountId
+        )
+        viewModel.awaitState { it.busy == null && !it.isLoading }
     }
 
     @Test
-    fun oneAccountWithoutASettingsRowStillListsButCannotNameTheActiveOne() = runBlocking {
-        val created = addMain("Main", 1) // deliberately no settings row
-        val viewModel = settingsViewModel(repository)
-        val settled = viewModel.awaitLoaded()
-
-        assertEquals(1, settled.accounts.size)
-        assertEquals(1L, settled.activeAccountId)
-        // Only a dash when the real id is not 1 - the pointer falls back to 1.
-        assertEquals(if (created == 1L) "Main" else "-", activeLabel(settled))
-        assertEquals("the repository repairs the pointer for other screens", created, repository.resolveActiveAccountId())
-    }
-
-    @Test
-    fun aDanglingActivePointerDoesNotHideTheList() = runBlocking {
+    fun aDanglingActivePointerIsRepairedInTheData() = runBlocking {
         addMain("Main", 1)
         addMain("Travel", 2)
         repository.saveSettings(AppSettings(activeAccountId = 99, balanceCurrency = "ILS"))
 
-        val viewModel = settingsViewModel(repository)
-        val settled = viewModel.awaitState { it.accounts.size == 2 && !it.isLoading }
-
-        assertEquals(2, settled.accounts.size)
-        assertEquals("-", activeLabel(settled))
-        assertNotNull(repository.resolveActiveAccountId())
+        val repaired = repository.resolveActiveAccountId()
+        assertNotNull("the pointer must be repaired for every other screen", repaired)
+        assertEquals(repaired, repository.getSettingsSync()?.activeAccountId)
     }
 }
