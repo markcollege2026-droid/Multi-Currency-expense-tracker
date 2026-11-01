@@ -147,10 +147,13 @@ fun settlementFormState(
         typedInTargetCurrency = typedInPayCurrency && !sameCurrency
     )
     val amountInLoanCurrency = amounts.from
+    // What moves in the paying currency - the same number as the loan side when
+    // there is only one currency, but always available for the balance check below.
+    val movesInPayCurrency = amounts.to
+    // Only a real conversion has a second figure to show and store.
     val amountInPayCurrency = if (sameCurrency) null else amounts.to
     val error = when {
-        amountInLoanCurrency <= BigDecimal.ZERO ||
-            (amountInPayCurrency != null && amountInPayCurrency <= BigDecimal.ZERO) ->
+        amountInLoanCurrency <= BigDecimal.ZERO || movesInPayCurrency <= BigDecimal.ZERO ->
             "Amount is too small after conversion"
         amountInLoanCurrency > remaining ->
             "That is " + CurrencyFormatter.formatSimple(amountInLoanCurrency, loanCurrency) +
@@ -162,8 +165,7 @@ fun settlementFormState(
                         payCurrency
                     ) + ")"
                 } ?: "")
-        isDebt && account != null && accountBalance != null && amountInPayCurrency != null &&
-            amountInPayCurrency > accountBalance ->
+        isDebt && account != null && accountBalance != null && movesInPayCurrency > accountBalance ->
             "More than " + account.name + " holds (" +
                 CurrencyFormatter.formatSimple(accountBalance, account.currency) + ")"
         else -> null

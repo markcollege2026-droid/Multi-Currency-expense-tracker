@@ -1,5 +1,6 @@
 package com.spendingtracker.app.ui.screens.loans
 
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -123,16 +124,16 @@ class SettleDialogPayCurrencyTest {
 
     @Test
     fun theCurrencySelectorIsAvailableWithoutChoosingABalance() {
-        var opened = false
-        render(
-            payCurrency = "ILS", typedInPayCurrency = false, amount = "9",
-            onCurrencyMenuOpen = { opened = true }
-        )
+        render(payCurrency = "ILS", typedInPayCurrency = false, amount = "9")
         // No account is selected (external revenue), yet the paying currency can change.
         compose.onNodeWithText("PAY IN").assertIsDisplayed()
-        // The selector carries its label and current value as one description.
-        compose.onNodeWithContentDescription("Currency:", substring = true).performClick()
-        assertEquals(true, opened)
+        // The selector names the currency and what is owed in it, and is a button.
+        // (Opening it and picking a currency is covered end to end by
+        // choosingUsdPrefillsTheEquivalentAndConfirmsInBothCurrencies.)
+        val selector = compose.onNodeWithContentDescription("Currency:", substring = true)
+        selector.assertIsDisplayed()
+        selector.assertHasClickAction()
+        compose.onNodeWithText("ILS · ₪9.00").assertIsDisplayed()
     }
 
     @Test
