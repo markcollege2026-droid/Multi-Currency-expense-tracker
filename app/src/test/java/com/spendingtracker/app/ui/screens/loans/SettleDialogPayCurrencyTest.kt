@@ -98,7 +98,7 @@ class SettleDialogPayCurrencyTest {
                 payCurrency = payCurrency,
                 currencies = listOf("USD", "EUR", "ILS"),
                 currencyMenuOpen = false,
-                onCurrencyMenuOpen = onCurrencyMenuOpen,
+                onCurrencyMenuChange = { onCurrencyMenuOpen() },
                 onPayCurrencySelected = onPayCurrencySelected
             )
         }
