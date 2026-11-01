@@ -514,7 +514,15 @@ class FinanceRepository @Inject constructor(
         accountId: Long? = null,
         rate: BigDecimal = BigDecimal.ONE,
         note: String? = null,
-        date: Long = System.currentTimeMillis()
+        date: Long = System.currentTimeMillis(),
+        /**
+         * Amount actually handed over, in [paidCurrency]. Used for an **external**
+         * payment made in another currency, where no balance exists to derive it
+         * from. Ignored when a balance is linked (that side is computed instead).
+         */
+        paidAmount: BigDecimal? = null,
+        /** Currency the money was paid in; null or the loan's currency = same currency. */
+        paidCurrency: String? = null
     ): Repayment? = database.withTransaction {
         val loan = loanDebtDao.getLoanDebtById(loanId) ?: error("Loan not found")
         require(!loan.isSettled) { "This loan is already settled" }
@@ -534,6 +542,25 @@ class FinanceRepository @Inject constructor(
         var accountAmount: BigDecimal? = null
         var accountCurrency: String? = null
         var storedRate: BigDecimal? = null
+        if (accountId == null) {
+            // External payment in another currency: the loan is still reduced in its
+            // own currency, and the paid side is recorded so History can show what
+            // was actually handed over. No balance is touched (accountId stays null).
+            val payCurrency = paidCurrency?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            if (payCurrency != null && !payCurrency.equals(loan.currencyOriginal, ignoreCase = true)) {
+                require(rate > BigDecimal.ZERO) { "Exchange rate must be positive" }
+                val paid = paidAmount ?: amount.multiply(rate)
+                require(paid > BigDecimal.ZERO) { "Paid amount must be positive" }
+                // The two sides must describe the same payment: amount = paid / rate.
+                val implied = paid.divide(rate, TransferMath.SCALE, java.math.RoundingMode.HALF_EVEN)
+                require(implied.subtract(amount).abs() <= BigDecimal("0.01")) {
+                    "Amount and paid amount disagree at this rate"
+                }
+                accountAmount = paid.setScale(TransferMath.SCALE, java.math.RoundingMode.HALF_EVEN)
+                accountCurrency = payCurrency
+                storedRate = rate
+            }
+        }
         if (accountId != null) {
             val account = accountDao.getAccountById(accountId) ?: error("Account not found")
             require(account.type in listOf("MAIN", "CASH")) { "Choose a main or cash balance" }
@@ -766,6 +793,16 @@ class FinanceRepository @Inject constructor(
                 require(accountAmount > BigDecimal.ZERO) { "Invalid settlement account amount" }
                 require(repayment.accountCurrency == account.currency) { "Invalid settlement currency" }
                 require((repayment.rateAsBigDecimalOrNull() ?: BigDecimal.ZERO) > BigDecimal.ZERO) { "Invalid settlement rate" }
+            } else if (repayment.accountAmount != null || repayment.accountCurrency != null) {
+                // External payment made in another currency: there is no balance to
+                // cross-check, but the paid side must still be coherent on its own.
+                require((repayment.accountAmountAsBigDecimalOrNull() ?: BigDecimal.ZERO) > BigDecimal.ZERO) {
+                    "Invalid paid amount"
+                }
+                require(!repayment.accountCurrency.isNullOrBlank()) { "Invalid paid currency" }
+                require((repayment.rateAsBigDecimalOrNull() ?: BigDecimal.ZERO) > BigDecimal.ZERO) {
+                    "Invalid payment rate"
+                }
             }
         }
     }

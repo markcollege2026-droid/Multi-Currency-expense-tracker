@@ -281,6 +281,16 @@ fun AddLoanScreen(
                             Text(
                                 text = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(rep.date)) +
                                     (if (rep.id == uiState.settlementRepaymentId) " · settlement" else "") +
+                                    // What was actually handed over, when it differs from the
+                                    // loan's currency. The reduction above stays in the loan's.
+                                    (rep.accountCurrency?.takeIf {
+                                        rep.accountId == null && !it.equals(uiState.currency, ignoreCase = true)
+                                    }?.let { code ->
+                                        " · paid " + CurrencyFormatter.formatSimple(
+                                            rep.accountAmountAsBigDecimalOrNull() ?: java.math.BigDecimal.ZERO,
+                                            code
+                                        )
+                                    } ?: "") +
                                     (rep.note?.let { " · $it" } ?: ""),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -343,9 +353,10 @@ fun AddLoanScreen(
                 balances = uiState.accountBalances,
                 rateLookup = viewModel::conversionRate,
                 activeAccountId = uiState.activeAccountId,
-                onConfirm = { amount, accountId, rate, note ->
+                currencies = uiState.orderedCurrencies.map { it.code },
+                onConfirm = { amount, accountId, rate, note, payCurrency, payAmount ->
                     keyboard?.hide()
-                    viewModel.settle(loanId, amount, accountId, rate, note)
+                    viewModel.settle(loanId, amount, accountId, rate, note, payCurrency, payAmount)
                     showSettle = false
                 },
                 onDismiss = { showSettle = false }

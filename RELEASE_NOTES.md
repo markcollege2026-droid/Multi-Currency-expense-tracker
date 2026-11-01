@@ -1,3 +1,55 @@
+# Spending Tracker 1.12.5 - pay a loan in any currency, in parts
+
+Released 1 November 2026.
+
+Version code **18**, version name **1.12.5**.
+
+## New: settle a loan in a currency other than its own
+
+A loan keeps the currency it was created in - that is the balance you owe or are
+owed, and **1.12.5 does not re-denominate it**. What changed is the *payment*: you
+can now hand over money in a different currency, including a part payment, without
+first choosing a balance.
+
+Worked example - a **₪9 debt** and a rate of **3 ILS = $1**:
+
+- Choosing **USD** shows **"= $3.00 at 1 ILS = 0.3333333 USD"** under the ₪9.00
+  still owed, so the debt reads as payable in dollars.
+- Typing **$2** applies **₪6.00** to the loan and leaves **₪3.00** open.
+- The field label always says which currency the digits are in - `Amount (USD)` or
+  `Amount (ILS)` - and the two chips switch between them, so you never guess which
+  side is being converted.
+- The loan itself still counts down in **shekels**, in the same currency as before.
+
+Details:
+
+- **Pay in** offers every currency when the source is *External revenue (default)*.
+  Picking one switches the amount field to that currency and fills in what is still
+  owed in it.
+- Choosing a balance still uses that balance's own currency - money cannot leave an
+  account in a currency it does not hold - and keeps the two-way switch it had.
+- A cross-currency payment **requires a real rate**. With no quote on the device the
+  confirm button stays disabled and says so, instead of quietly recording 1:1. This
+  now applies to external payments too, where it used to be unchecked.
+- The paid side is stored with the repayment, so **History** shows both numbers
+  ("₪6.00" as the loan-currency amount, "$2.00" as what was handed over), the loan's
+  repayment list adds "· paid $2.00", the confirmation toast says what was paid, and
+  deleting the repayment still reverses everything.
+- Backups keep the paid side: the export already carried it, and restore no longer
+  drops it for external repayments. A restored file whose paid side is malformed is
+  rejected rather than silently 1:1.
+- The loans summary no longer presents an exact-looking total when a rate to the
+  balance currency is missing - it says those amounts are counted 1:1 and to refresh
+  rates.
+
+Guard rails: the conversion maths, the "cannot overpay in either currency" rule and
+the external cross-currency cases are covered by unit tests; the dialog's equivalent
+line, `Pay in` selector and both chips are covered by Compose tests; the repository
+tests assert that a ₪9 debt paid $2 stores ₪6 against the loan, $2 as the paid side,
+touches no balance, and refuses an inconsistent amount/rate pair.
+
+---
+
 # Spending Tracker 1.12.4 — Manage accounts fixed, loan payments in other currencies
 
 Released 29 October 2026.

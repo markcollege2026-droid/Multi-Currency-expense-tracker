@@ -116,6 +116,9 @@ jobs:
           check "refusal toast"      "Still busy: "
           check "rate refresh"       "Refreshing rates"
           check "settle labels"      "Recording payment" "Settling through a balance"
+          # Paying a loan in another currency: the equivalent line, the "Pay in"
+          # selector are the visible parts of that change.
+          check "pay in any currency" "comes off the loan" "PAY IN" " (loan currency)" "covers it"
           check "account delete label" "Deleting "
           # The composables themselves. AppFeedback.kt compiles to AppFeedbackKt,
           # which the debug APK keeps under that name. R8 renames classes in the

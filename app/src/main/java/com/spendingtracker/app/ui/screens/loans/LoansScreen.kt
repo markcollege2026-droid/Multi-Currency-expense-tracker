@@ -193,6 +193,16 @@ fun LoansScreen(
                                 valueColor = if (net < java.math.BigDecimal.ZERO) LocalAppPalette.current.expense
                                 else LocalAppPalette.current.income
                             )
+                            if (uiState.ratesIncomplete) {
+                                // Never present a total as exact when a rate was missing.
+                                Text(
+                                    text = "Some amounts have no rate to ${uiState.balanceCurrency} " +
+                                        "on this device, so they are counted 1:1. Refresh rates in Settings.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 3
+                                )
+                            }
                         }
                     }
                 }
@@ -262,8 +272,9 @@ fun LoansScreen(
             balances = uiState.accountBalances,
             rateLookup = viewModel::conversionRate,
             activeAccountId = uiState.activeAccountId,
-            onConfirm = { amount, accountId, rate, note ->
-                viewModel.settle(item, amount, accountId, rate, note)
+            currencies = uiState.payCurrencies,
+            onConfirm = { amount, accountId, rate, note, payCurrency, payAmount ->
+                viewModel.settle(item, amount, accountId, rate, note, payCurrency, payAmount)
                 pendingSettle = null
             },
             onDismiss = { pendingSettle = null }

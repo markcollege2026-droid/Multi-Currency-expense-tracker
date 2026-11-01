@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.spendingtracker.app.util.CurrencyFormatter
 import com.spendingtracker.app.util.parseAmountOrNull
 
 data class LoanWithBalance(
@@ -43,6 +44,13 @@ data class LoansUiState(
     /** Ledger the user is looking at; only used to shorten the dropdown labels. */
     val activeAccountId: Long? = null,
     val accountBalances: Map<Long, BigDecimal> = emptyMap(),
+    /** Currencies the settle dialog offers when paying without a balance. */
+    val payCurrencies: List<String> = emptyList(),
+    /**
+     * True when at least one loan had no rate to [balanceCurrency] and its totals
+     * were counted 1:1. Surfaced in the UI instead of being silently wrong.
+     */
+    val ratesIncomplete: Boolean = false,
     val message: String? = null,
     /**
      * One-shot toast, cleared by the screen once shown. Refusals and results that
@@ -65,9 +73,26 @@ class LoansViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoansUiState())
-    val uiState: StateFlow<LoansUiState> = _uiState.asStateFlow()
+
+    /**
+     * Currency list for the settle dialog's "Pay in" selector, kept beside the main
+     * state and merged into it. Loading it once into [_uiState] would race the
+     * database collector, which replaces the whole state on every emission and
+     * could drop the list again.
+     */
+    private val payCurrencies = MutableStateFlow<List<String>>(emptyList())
+
+    val uiState: StateFlow<LoansUiState> = combine(_uiState, payCurrencies) { state, currencies ->
+        state.copy(payCurrencies = currencies)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, LoansUiState())
 
     init {
+        viewModelScope.launch {
+            // Currencies offered by the settle dialog's "Pay in" selector, in the
+            // user's configured order. Loaded once; the order rarely changes here.
+            val ordered = runCatching { financeRepository.orderedCurrencies() }.getOrDefault(emptyList())
+            payCurrencies.value = ordered.map { currency -> currency.code }
+        }
         viewModelScope.launch {
             combine(
                 loanRepository.getAllLoanDebts(),
@@ -81,6 +106,7 @@ class LoansViewModel @Inject constructor(
                 val archived = mutableListOf<LoanWithBalance>()
                 var totalDebtConverted = BigDecimal.ZERO
                 var totalLoanConverted = BigDecimal.ZERO
+                var ratesIncomplete = false
 
                 // One bulk query instead of one query per loan (N+1)
                 val repaymentsByLoan = loanRepository.getAllRepaymentsSync().groupBy { it.loanDebtId }
@@ -90,8 +116,12 @@ class LoansViewModel @Inject constructor(
                     val repaymentAmounts = repayments.map { try { BigDecimal(it.amount) } catch (e: Exception) { BigDecimal.ZERO } }
                     val calc = loanCalculator.calculateRemaining(loan.amountAsBigDecimal(), repaymentAmounts)
 
-                    // Convert to balance currency for summary
-                    val rate = rateRepository.getConversionRate(loan.currencyOriginal, balanceCurrency) ?: BigDecimal.ONE
+                    // Convert to balance currency for summary. A loan with no quote
+                    // to the balance currency is counted 1:1 and the summary says so,
+                    // rather than presenting a silently wrong total as exact.
+                    val quote = rateRepository.getConversionRateStrict(loan.currencyOriginal, balanceCurrency)
+                    if (quote == null) ratesIncomplete = true
+                    val rate = quote ?: BigDecimal.ONE
                     val convertedOriginal = loan.amountAsBigDecimal().multiply(rate)
                     val convertedRemaining = calc.remaining.multiply(rate)
                     val item = LoanWithBalance(
@@ -130,6 +160,7 @@ class LoansViewModel @Inject constructor(
                     settleAccounts = SettlementAccounts.options(accounts, account?.id),
                     activeAccountId = account?.id,
                     accountBalances = summaries.mapValues { it.value.balance },
+                    ratesIncomplete = ratesIncomplete,
                     message = _uiState.value.message,
                     busy = _uiState.value.busy,
                     isLoading = false
@@ -189,7 +220,9 @@ class LoansViewModel @Inject constructor(
         amountLoanCurrency: String,
         accountId: Long?,
         rate: String,
-        note: String?
+        note: String?,
+        payCurrency: String? = null,
+        payAmount: String? = null
     ) {
         // A cross-currency settlement without a real rate must be refused, not
         // quietly recorded 1:1: the old `?: BigDecimal.ONE` here re-introduced
@@ -197,9 +230,11 @@ class LoansViewModel @Inject constructor(
         val targetCurrency = accountId?.let { id ->
             _uiState.value.settleAccounts.firstOrNull { it.id == id }?.currency
         }
-        val appliedRate = SettlementRate.resolve(item.loan.currencyOriginal, targetCurrency, rate)
+        // With no balance the paying side comes from the dialog's own currency choice.
+        val payingCurrency = targetCurrency ?: payCurrency?.takeIf { it.isNotBlank() }
+        val appliedRate = SettlementRate.resolve(item.loan.currencyOriginal, payingCurrency, rate)
         if (appliedRate == null) {
-            val refusal = SettlementRate.missingRateMessage(item.loan.currencyOriginal, targetCurrency)
+            val refusal = SettlementRate.missingRateMessage(item.loan.currencyOriginal, payingCurrency)
             _uiState.update { it.copy(message = refusal, toast = refusal) }
             return
         }
@@ -215,11 +250,23 @@ class LoansViewModel @Inject constructor(
                     amount = amount,
                     accountId = accountId,
                     rate = parsedRate,
-                    note = note
+                    note = note,
+                    paidAmount = payAmount?.parseAmountOrNull(),
+                    paidCurrency = payingCurrency
                 )
                 val accountName = accountId?.let { id ->
                     _uiState.value.settleAccounts.firstOrNull { it.id == id }?.name
                 }
+                // When the money was handed over in another currency, say so: the
+                // reduction is in the loan's currency, which reads as the wrong number.
+                val paidNote = if (
+                    accountId == null && payCurrency != null &&
+                    !payCurrency.equals(item.loan.currencyOriginal, ignoreCase = true)
+                ) {
+                    payAmount?.parseAmountOrNull()?.let { paid ->
+                        " · paid " + CurrencyFormatter.formatSimple(paid, payCurrency.uppercase())
+                    } ?: ""
+                } else ""
                 val result = when {
                     amount.compareTo(BigDecimal.ZERO) == 0 ->
                         "\"${item.loan.personName}\" moved to the settled archive"
@@ -227,8 +274,8 @@ class LoansViewModel @Inject constructor(
                         "\"${item.loan.personName}\" settled" +
                             (accountName?.let { name ->
                                 if (item.loan.type == LoanDebt.TYPE_DEBT) " from $name" else " into $name"
-                            } ?: " (external)") + " · see History"
-                    else -> "Payment recorded for \"${item.loan.personName}\""
+                            } ?: " (external)") + paidNote + " · see History"
+                    else -> "Payment recorded for \"${item.loan.personName}\"" + paidNote
                 }
                 _uiState.update { it.copy(message = result, toast = result) }
             } catch (e: Exception) {

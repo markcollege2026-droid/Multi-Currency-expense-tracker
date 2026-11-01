@@ -204,7 +204,9 @@ class AddLoanViewModel @Inject constructor(
         amountLoanCurrency: String,
         accountId: Long?,
         rate: String,
-        note: String?
+        note: String?,
+        payCurrency: String? = null,
+        payAmount: String? = null
     ) {
         viewModelScope.launch {
             val amount = amountLoanCurrency.parseAmountOrNull()
@@ -217,9 +219,10 @@ class AddLoanViewModel @Inject constructor(
             val targetCurrency = accountId?.let { id ->
                 _uiState.value.settleAccounts.firstOrNull { it.id == id }?.currency
             }
-            val parsedRate = SettlementRate.resolve(_uiState.value.currency, targetCurrency, rate)
+            val payingCurrency = targetCurrency ?: payCurrency?.takeIf { it.isNotBlank() }
+            val parsedRate = SettlementRate.resolve(_uiState.value.currency, payingCurrency, rate)
             if (parsedRate == null) {
-                val refusal = SettlementRate.missingRateMessage(_uiState.value.currency, targetCurrency)
+                val refusal = SettlementRate.missingRateMessage(_uiState.value.currency, payingCurrency)
                 _uiState.value = _uiState.value.copy(error = refusal)
                 return@launch
             }
@@ -229,7 +232,9 @@ class AddLoanViewModel @Inject constructor(
                     amount = amount,
                     accountId = accountId,
                     rate = parsedRate,
-                    note = note
+                    note = note,
+                    paidAmount = payAmount?.parseAmountOrNull(),
+                    paidCurrency = payingCurrency
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message ?: "Unable to record repayment")
