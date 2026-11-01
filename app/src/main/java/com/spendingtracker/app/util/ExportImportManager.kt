@@ -120,6 +120,15 @@ data class ExportLoanDebt(
     val settlementRepaymentId: Long? = null
 )
 
+/**
+ * The paid side of a repayment survives an import when the repayment was external
+ * (paying in another currency with no balance) or when its balance still exists.
+ * A settlement whose balance vanished becomes external with no paid side, because
+ * the amount it claims was moved through an account that is no longer there.
+ */
+private fun <T> keepPaidSide(accountId: Long?, value: T, validAccountIds: Set<Long>): T? =
+    if (accountId == null || accountId in validAccountIds) value else null
+
 @Serializable
 data class ExportRepayment(
     val id: Long,
@@ -452,13 +461,14 @@ class ExportImportManager @Inject constructor(
                             note = it.note,
                             createdAt = it.createdAt,
                             // A settlement whose account did not survive the import
-                            // becomes external rather than failing the whole restore.
-                            // Money/rate fields only apply to a linked account, so
-                            // they are dropped together with the link.
+                            // becomes external rather than failing the whole restore,
+                            // and its money/rate fields are dropped with the link.
+                            // An *already* external payment keeps them: that is how a
+                            // payment made in another currency is remembered.
                             accountId = it.accountId?.takeIf { id -> id in validAccountIds },
-                            accountAmount = if (it.accountId != null && it.accountId in validAccountIds) it.accountAmount else null,
-                            accountCurrency = if (it.accountId != null && it.accountId in validAccountIds) it.accountCurrency else null,
-                            exchangeRate = if (it.accountId != null && it.accountId in validAccountIds) it.exchangeRate else null
+                            accountAmount = keepPaidSide(it.accountId, it.accountAmount, validAccountIds),
+                            accountCurrency = keepPaidSide(it.accountId, it.accountCurrency, validAccountIds),
+                            exchangeRate = keepPaidSide(it.accountId, it.exchangeRate, validAccountIds)
                         )
                     )
                 }

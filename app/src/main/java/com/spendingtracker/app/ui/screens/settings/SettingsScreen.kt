@@ -18,15 +18,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.awaitCancellation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.spendingtracker.app.BuildConfig
 import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.repository.AccountSummary
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppBusyRow
 import com.spendingtracker.app.ui.components.AppButton
 import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppDialog
@@ -36,9 +42,11 @@ import com.spendingtracker.app.ui.components.AppOutlinedButton
 import com.spendingtracker.app.ui.components.AppSectionHeader
 import com.spendingtracker.app.ui.components.AppSelectorRow
 import com.spendingtracker.app.ui.components.AppTextField
+import com.spendingtracker.app.ui.components.AppToast
 import com.spendingtracker.app.ui.components.AppTopBar
 import com.spendingtracker.app.ui.components.AppValueRow
 import com.spendingtracker.app.ui.screens.transactions.CurrencyPickerDialog
+import com.spendingtracker.app.widget.WidgetPin
 import com.spendingtracker.app.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.*
@@ -46,9 +54,17 @@ import java.util.*
 @Composable
 fun SettingsScreen(
     onBack: (() -> Unit)? = null,
+    /**
+     * Opens Settings -> Manage accounts straight away. Home's account menu says
+     * "Manage accounts…", so it has to land there instead of on the Settings root.
+     */
+    initialManageAccounts: Boolean = false,
+    onInitialManageAccountsConsumed: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    // Refusals and short results ("Still deleting…", "Rates refreshed").
+    AppToast(uiState.toast, viewModel::clearToast)
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showAddAccount by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Account?>(null) }
@@ -61,6 +77,13 @@ fun SettingsScreen(
     // the Settings tab, so account management lives where users look for it
     // (previously the only way in was the account menu at the top of Home).
     var showManageAccounts by rememberSaveable { mutableStateOf(false) }
+    // Consumed once: a restored flag must not re-open the subpage after Back.
+    LaunchedEffect(initialManageAccounts) {
+        if (initialManageAccounts) {
+            showManageAccounts = true
+            onInitialManageAccountsConsumed()
+        }
+    }
     var selectedAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAddCash by remember { mutableStateOf(false) }
     var addCashForAccountId by remember { mutableStateOf<Long?>(null) }
@@ -70,6 +93,20 @@ fun SettingsScreen(
     var showAddCashCurrencyPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val dims = LocalAppDimens.current
+    // The widget lives outside the app, so whether it is placed and whether the
+    // launcher can pin it are read from the system, not from app state.
+    var widgetMessage by remember { mutableStateOf<String?>(null) }
+    var widgetPlaced by remember { mutableStateOf(false) }
+    var widgetPinnable by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            widgetPinnable = WidgetPin.isSupported(context)
+            widgetPlaced = WidgetPin.isPlaced(context)
+            awaitCancellation()
+        }
+    }
+    AppToast(widgetMessage, onShown = { widgetMessage = null })
 
     val selectedAccount = uiState.accounts.firstOrNull { it.id == selectedAccountId }
     LaunchedEffect(selectedAccountId, uiState.accounts) {
@@ -110,8 +147,10 @@ fun SettingsScreen(
                     summaries = uiState.accountSummaries,
                     isActive = selectedAccount.id == uiState.activeAccountId,
                     canDeleteAccount = uiState.accounts.size > 1,
+                    summariesLoaded = uiState.summariesLoaded,
+                    busyLabel = uiState.busy,
                     message = uiState.message,
-                    error = uiState.error,
+                    error = uiState.error ?: uiState.summariesError,
                     onDismissMessage = viewModel::clearMessage,
                     onUseAccount = { viewModel.switchAccount(selectedAccount) },
                     onRename = { renameTarget = selectedAccount },
@@ -133,8 +172,10 @@ fun SettingsScreen(
                     balanceAccounts = uiState.balanceAccounts,
                     summaries = uiState.accountSummaries,
                     activeAccountId = uiState.activeAccountId,
+                    summariesLoaded = uiState.summariesLoaded,
+                    busyLabel = uiState.busy,
                     message = uiState.message,
-                    error = uiState.error,
+                    error = uiState.error ?: uiState.summariesError,
                     onDismissMessage = viewModel::clearMessage,
                     onOpenAccount = { selectedAccountId = it.id },
                     onUseAccount = viewModel::switchAccount,
@@ -153,6 +194,9 @@ fun SettingsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
+                uiState.busy?.let { label ->
+                    item(key = "busy") { AppBusyRow(label) }
+                }
                 if (uiState.message != null || uiState.error != null) {
                     item(key = "messages") {
                         Surface(
@@ -198,6 +242,45 @@ fun SettingsScreen(
                                 (uiState.accounts.firstOrNull { it.id == uiState.activeAccountId }?.name ?: "-"),
                             onClick = { showManageAccounts = true }
                         )
+                    }
+                }
+
+                item(key = "widget") {
+                    SettingsSection("Home-screen widget") {
+                        Text(
+                            text = if (widgetPlaced) {
+                                "The widget is on a home screen. It shows the active ledger's " +
+                                    "total available and one conversion rate, with a + Expense button."
+                            } else {
+                                "Shows the active ledger's total available and one conversion rate, " +
+                                    "with a + Expense button that opens the expense form. " +
+                                    "It updates itself every 12 hours while it is placed."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        AppButton(
+                            onClick = {
+                                widgetMessage = when {
+                                    !widgetPinnable -> WidgetPin.manualInstructions
+                                    WidgetPin.request(context) -> "Confirm on the home screen to place the widget"
+                                    else -> WidgetPin.manualInstructions
+                                }
+                                widgetPlaced = WidgetPin.isPlaced(context)
+                            }
+                        ) {
+                            Text(
+                                if (widgetPlaced) "Add another widget" else "Add widget to home screen",
+                                maxLines = 1
+                            )
+                        }
+                        if (!widgetPinnable) {
+                            Text(
+                                text = WidgetPin.manualInstructions,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
@@ -328,18 +411,27 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        AppButton(onClick = viewModel::refreshRates) {
-                            Text("Refresh rates", maxLines = 1)
+                        AppButton(
+                            onClick = viewModel::refreshRates,
+                            enabled = uiState.busy == null
+                        ) {
+                            Text(if (uiState.busy == null) "Refresh rates" else "Working\u2026", maxLines = 1)
                         }
                     }
                 }
 
                 item(key = "data") {
                     SettingsSection("Data") {
-                        AppOutlinedButton(onClick = viewModel::exportJson) {
+                        AppOutlinedButton(
+                            onClick = viewModel::exportJson,
+                            enabled = uiState.busy == null
+                        ) {
                             Text("Export all as JSON", maxLines = 1)
                         }
-                        AppOutlinedButton(onClick = viewModel::exportCsv) {
+                        AppOutlinedButton(
+                            onClick = viewModel::exportCsv,
+                            enabled = uiState.busy == null
+                        ) {
                             Text("Export transactions as CSV", maxLines = 1)
                         }
                         BackupControls(uiState, viewModel)
@@ -367,6 +459,18 @@ fun SettingsScreen(
                             }
                         }
 
+                        AppValueRow(
+                            "Version",
+                            BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")" +
+                                " · " + BuildConfig.GIT_SHA
+                        )
+                        Text(
+                            text = "Built from commit " + BuildConfig.GIT_SHA +
+                                ". Quote this when reporting a bug so the exact build can be checked.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
                         AppButton(
                             onClick = viewModel::requestErase,
                             enabled = !uiState.backupBusy,
@@ -581,9 +685,10 @@ fun SettingsScreen(
 
         if (uiState.showEraseDialog) {
             AppDialog(
-                onDismissRequest = viewModel::dismissErase,
+                onDismissRequest = { if (uiState.busy == null) viewModel.dismissErase() },
                 title = "Erase all data?",
-                confirmLabel = "Erase",
+                confirmLabel = if (uiState.busy == null) "Erase" else "Erasing\u2026",
+                confirmEnabled = uiState.busy == null,
                 // The erase is one transaction; afterwards there is no ledger, so the
                 // app restarts into setup instead of showing empty screens.
                 onConfirm = {
@@ -595,6 +700,7 @@ fun SettingsScreen(
                         "Save a backup from this screen first if you might want the data back.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                uiState.busy?.let { AppBusyRow(it) }
             }
         }
 
@@ -814,6 +920,8 @@ internal fun ManageAccountsList(
     onOpenAccount: (Account) -> Unit,
     onUseAccount: (Account) -> Unit,
     onAddAccount: () -> Unit,
+    summariesLoaded: Boolean = true,
+    busyLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     val dims = LocalAppDimens.current
@@ -827,13 +935,23 @@ internal fun ManageAccountsList(
         ),
         verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
     ) {
+        busyLabel?.let { label ->
+            item(key = "manage-busy") { AppBusyRow(label) }
+        }
         item(key = "manage-messages") {
             ManageMessageBanner(message, error, onDismissMessage)
         }
         item(key = "manage-intro") {
             Text(
-                text = "Deleting an account removes only that account and its own entries - " +
-                    "every other account keeps its data. Tap an account to see its cash balances and cards.",
+                text = if (accounts.size == 1) {
+                    // One ledger: everything is managed from this one page, and a
+                    // second account is what unlocks moving money between ledgers.
+                    "You have one account. Tap it to manage its cash balances and cards, " +
+                        "or add another account to keep a second ledger."
+                } else {
+                    "Deleting an account removes only that account and its own entries - " +
+                        "every other account keeps its data. Tap an account to see its cash balances and cards."
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -862,10 +980,14 @@ internal fun ManageAccountsList(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Now " + CurrencyFormatter.formatSimple(
-                                summary?.balance ?: account.startingBalanceAsBigDecimal(),
-                                account.currency
-                            ) + " · " + entriesLabel(summary?.entries ?: 0),
+                            text = if (!summariesLoaded) {
+                                "Calculating\u2026"
+                            } else {
+                                "Now " + CurrencyFormatter.formatSimple(
+                                    summary?.balance ?: account.startingBalanceAsBigDecimal(),
+                                    account.currency
+                                ) + " · " + entriesLabel(summary?.entries ?: 0)
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -916,6 +1038,8 @@ internal fun AccountDetailContent(
     summaries: Map<Long, AccountSummary>,
     isActive: Boolean,
     canDeleteAccount: Boolean,
+    summariesLoaded: Boolean = true,
+    busyLabel: String? = null,
     message: String?,
     error: String?,
     onDismissMessage: () -> Unit,
@@ -940,6 +1064,9 @@ internal fun AccountDetailContent(
         ),
         verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
     ) {
+        busyLabel?.let { label ->
+            item(key = "detail-busy") { AppBusyRow(label) }
+        }
         item(key = "detail-messages") {
             ManageMessageBanner(message, error, onDismissMessage)
         }
@@ -947,17 +1074,20 @@ internal fun AccountDetailContent(
             SettingsSection("Account") {
                 AppValueRow(
                     "Balance now",
-                    CurrencyFormatter.formatSimple(
+                    if (summariesLoaded) CurrencyFormatter.formatSimple(
                         summary?.balance ?: account.startingBalanceAsBigDecimal(),
                         account.currency
-                    )
+                    ) else "Calculating\u2026"
                 )
                 AppValueRow(
                     "Starting balance",
                     CurrencyFormatter.formatSimple(account.startingBalanceAsBigDecimal(), account.currency)
                 )
                 AppValueRow("Currency", account.currency)
-                AppValueRow("Entries", entriesLabel(summary?.entries ?: 0))
+                AppValueRow(
+                    "Entries",
+                    if (summariesLoaded) entriesLabel(summary?.entries ?: 0) else "Calculating\u2026"
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (isActive) {
                         Text(
@@ -999,7 +1129,7 @@ internal fun AccountDetailContent(
                     )
                 }
                 cash.forEach { child ->
-                    BalanceChildRow(child, summaries[child.id], onDeleteChild)
+                    BalanceChildRow(child, summaries[child.id], summariesLoaded, onDeleteChild)
                     AppHairline()
                 }
                 AppOutlinedButton(onClick = onAddCash) {
@@ -1017,7 +1147,7 @@ internal fun AccountDetailContent(
                     )
                 }
                 cards.forEach { child ->
-                    BalanceChildRow(child, summaries[child.id], onDeleteChild)
+                    BalanceChildRow(child, summaries[child.id], summariesLoaded, onDeleteChild)
                     AppHairline()
                 }
                 Text(
@@ -1035,6 +1165,7 @@ internal fun AccountDetailContent(
 private fun BalanceChildRow(
     child: Account,
     summary: AccountSummary?,
+    summariesLoaded: Boolean = true,
     onDeleteChild: (Account) -> Unit
 ) {
     Row(
@@ -1049,10 +1180,11 @@ private fun BalanceChildRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = CurrencyFormatter.formatSimple(
+                text = (if (summariesLoaded) CurrencyFormatter.formatSimple(
                     summary?.balance ?: child.startingBalanceAsBigDecimal(),
                     child.currency
-                ) + " · " + entriesLabel(summary?.entries ?: 0) +
+                ) + " · " + entriesLabel(summary?.entries ?: 0)
+                else "Calculating\u2026") +
                     (if (child.type == "CASH" && !child.includedInTotal) " · set aside" else ""),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

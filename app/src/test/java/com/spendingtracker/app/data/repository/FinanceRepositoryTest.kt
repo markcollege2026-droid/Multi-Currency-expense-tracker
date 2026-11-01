@@ -6,6 +6,7 @@ import androidx.room.Room
 import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.data.local.entity.*
 import com.spendingtracker.app.di.AppModule
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.*
 import org.junit.Assert.*
@@ -360,6 +361,77 @@ class FinanceRepositoryTest {
         assertFalse(db.loanDebtDao().getLoanDebtById(owed)!!.isSettled)
         assertTrue(repository.getRepaymentsSync().isEmpty())
     }
+    // ---- external payments in another currency (no balance involved) ----
+
+    @Test fun anExternalPaymentInAnotherCurrencyReducesTheLoanAndTouchesNoBalance() = runBlocking {
+        // The reported example: ₪9 owed, 3 ILS = $1, so paying $2 applies ₪6.
+        val debt = loan(LoanDebt.TYPE_DEBT, "9")
+        val repayment = repository.recordRepayment(
+            loanId = debt,
+            amount = BigDecimal("6"),
+            accountId = null,
+            rate = BigDecimal("0.3333333"),
+            paidAmount = BigDecimal("2"),
+            paidCurrency = "USD"
+        )!!
+        // The loan keeps its own currency: ₪9 - ₪6 = ₪3 still owed.
+        assertEquals("6", db.repaymentDao().getRepaymentsForLoanSync(debt).single().amount)
+        assertEquals("ILS", db.loanDebtDao().getLoanDebtById(debt)!!.currencyOriginal)
+        // What was handed over is recorded, for History and the loan's repayment list.
+        assertNull("external: no balance moved", repayment.accountId)
+        assertMoney("2", repayment.accountAmountAsBigDecimalOrNull()!!)
+        assertEquals("USD", repayment.accountCurrency)
+        // No balance was touched at all.
+        money("100", cashId); money("1000", mainId)
+        // History shows the paid side next to the loan-currency reduction.
+        val item = repository.getTransactions().first().single { it.type == "LOAN_REPAYMENT" }
+        assertMoney("6", item.amountOriginal)
+        assertEquals("ILS", item.currencyOriginal)
+        assertMoney("2", item.amountConverted)
+        assertEquals("USD", item.currencyConverted)
+    }
+
+    @Test fun anExternalPaymentMustAgreeWithItsRate() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "9")
+        // $2 at 1 ILS = 0.3333 USD is ₪6, not ₪5 - an inconsistent pair must not store.
+        rejected {
+            repository.recordRepayment(
+                loanId = debt, amount = BigDecimal("5"), accountId = null,
+                rate = BigDecimal("0.3333333"), paidAmount = BigDecimal("2"), paidCurrency = "USD"
+            )
+        }
+        // A rate is required even without a balance, or the payment would be 1:1.
+        rejected {
+            repository.recordRepayment(
+                loanId = debt, amount = BigDecimal("6"), accountId = null,
+                rate = BigDecimal.ZERO, paidAmount = BigDecimal("2"), paidCurrency = "USD"
+            )
+        }
+        // Overpaying is still refused, in the loan's currency.
+        rejected {
+            repository.recordRepayment(
+                loanId = debt, amount = BigDecimal("12"), accountId = null,
+                rate = BigDecimal("0.3333333"), paidAmount = BigDecimal("4"), paidCurrency = "USD"
+            )
+        }
+        assertTrue(db.repaymentDao().getRepaymentsForLoanSync(debt).isEmpty())
+    }
+
+    @Test fun aForeignCurrencyPaymentCanClearTheLoanAndIsReversible() = runBlocking {
+        val debt = loan(LoanDebt.TYPE_DEBT, "9")
+        val settlement = repository.recordRepayment(
+            loanId = debt, amount = BigDecimal("9"), accountId = null,
+            rate = BigDecimal("0.3333333"), paidAmount = BigDecimal("3"), paidCurrency = "USD"
+        )!!
+        assertTrue("the whole balance was paid", db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+        assertEquals("USD", settlement.accountCurrency)
+        money("100", cashId)
+        // Deleting the settlement reopens the loan; no balance had moved either way.
+        repository.deleteRepayment(settlement)
+        assertFalse(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+        money("100", cashId)
+    }
+
     @Test fun fullyRepaidLoanCanBeArchivedWithoutMovingNewMoney() = runBlocking {
         val debt = loan(LoanDebt.TYPE_DEBT, "60")
         // Legacy-style repayments wrote the loan off without settling it.

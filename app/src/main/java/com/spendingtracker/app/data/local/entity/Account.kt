@@ -37,4 +37,13 @@ data class Account(
     fun thresholdAsBigDecimal(): BigDecimal? = lowBalanceThreshold?.let {
         try { BigDecimal(it) } catch (e: Exception) { null }
     }
+
+    companion object {
+        /** Ledger owner. Holds expenses, top-ups and children. */
+        const val TYPE_MAIN = "MAIN"
+        /** Cash balance inside a main account; may hold its own currency. */
+        const val TYPE_CASH = "CASH"
+        /** Credit card: its balance is debt (negative) and never spendable. */
+        const val TYPE_CREDIT_CARD = "CREDIT_CARD"
+    }
 }

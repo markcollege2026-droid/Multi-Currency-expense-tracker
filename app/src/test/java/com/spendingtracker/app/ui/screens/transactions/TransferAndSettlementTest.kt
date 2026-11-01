@@ -98,7 +98,9 @@ class SettlementFormStateTest {
         isDebt: Boolean = true,
         account: Account? = null,
         balance: String? = null,
-        rate: String = "1"
+        rate: String = "1",
+        payCurrency: String? = null,
+        typedInPayCurrency: Boolean = false
     ) = settlementFormState(
         amountText = amount,
         remaining = BigDecimal(remaining),
@@ -106,7 +108,9 @@ class SettlementFormStateTest {
         loanCurrency = "ILS",
         account = account,
         accountBalance = balance?.let { BigDecimal(it) },
-        rate = BigDecimal(rate)
+        rate = BigDecimal(rate),
+        payCurrency = payCurrency ?: account?.currency ?: "ILS",
+        typedInPayCurrency = typedInPayCurrency
     )
 
     @Test fun externalRevenueIsTheDefaultAndNeedsNoBalance() {
@@ -115,7 +119,7 @@ class SettlementFormStateTest {
         val state = form("80")
         assertTrue(state.canConfirm)
         assertTrue(state.settlesFully)
-        assertNull(state.accountAmount)
+        assertNull(state.payAmount)
         assertEquals("Settle debt", settlementConfirmLabel(true, state))
         assertEquals("Settle loan", settlementConfirmLabel(false, state))
     }
@@ -135,7 +139,9 @@ class SettlementFormStateTest {
     @Test fun receivingIntoCashHasNoBalanceLimit() {
         val state = form("80", isDebt = false, account = cash, balance = "0")
         assertTrue(state.canConfirm)
-        assertMoney("80", state.accountAmount)
+        // Same currency: one figure, no second side to record.
+        assertMoney("80", state.amount)
+        assertNull(state.payAmount)
     }
 
     @Test fun overpayingTheLoanIsRejected() {
@@ -146,7 +152,7 @@ class SettlementFormStateTest {
     @Test fun foreignCashSettlementConvertsAndChecksTheConvertedSide() {
         // ₪80 of debt at 1 ILS = 0.25 EUR costs €20.
         val ok = form("80", account = eurCash, balance = "20", rate = "0.25")
-        assertMoney("20", ok.accountAmount)
+        assertMoney("20", ok.payAmount)
         assertTrue(ok.canConfirm)
         assertFalse(form("80", account = eurCash, balance = "19.99", rate = "0.25").canConfirm)
     }

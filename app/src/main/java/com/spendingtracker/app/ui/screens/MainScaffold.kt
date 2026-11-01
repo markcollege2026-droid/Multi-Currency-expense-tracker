@@ -60,6 +60,8 @@ fun MainScaffold(
     onEditLoan: (Long) -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(Screen.Home.route) }
+    // One-shot request set by Home's account menu, consumed by the Settings tab.
+    var manageAccountsRequest by rememberSaveable { mutableStateOf(false) }
     val stateHolder = rememberSaveableStateHolder()
     val compact = LocalCompactUi.current
     val dims = LocalAppDimens.current
@@ -155,6 +157,10 @@ fun MainScaffold(
                         onNavigateToTransactions = { selectedTab = Screen.Transactions.route },
                         onNavigateToSettings = { selectedTab = Screen.Settings.route },
                         onNavigateToLoans = { selectedTab = Screen.Loans.route },
+                        onManageAccounts = {
+                            manageAccountsRequest = true
+                            selectedTab = Screen.Settings.route
+                        },
                         onEditExpense = onEditExpense,
                         onEditTopUp = onEditTopUp
                     )
@@ -177,7 +183,10 @@ fun MainScaffold(
                     )
                 }
                 Screen.Settings.route -> stateHolder.SaveableStateProvider(Screen.Settings.route) {
-                    SettingsScreen()
+                    SettingsScreen(
+                        initialManageAccounts = manageAccountsRequest,
+                        onInitialManageAccountsConsumed = { manageAccountsRequest = false }
+                    )
                 }
             }
         }

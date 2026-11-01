@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The debug build installs beside the release app (applicationIdSuffix .debug),
+  so both can have a widget placed at the same time. Label the debug one so the
+  two cannot be mistaken for each other in the launcher's widget list.
+-->
+<resources>
+    <string name="widget_label">Spending Tracker (debug)</string>
+</resources>

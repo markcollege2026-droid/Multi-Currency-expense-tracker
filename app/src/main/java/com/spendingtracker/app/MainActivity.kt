@@ -1,6 +1,7 @@
 package com.spendingtracker.app
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -27,6 +28,7 @@ import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.ui.navigation.AppNavHost
 import com.spendingtracker.app.ui.theme.SpendingTrackerTheme
 import com.spendingtracker.app.ui.theme.resolveDarkTheme
+import com.spendingtracker.app.util.AppEntry
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,10 +58,25 @@ class MainActivity : ComponentActivity() {
     // Read on the main thread by Compose; written once DB load finishes off the main thread.
     private val startupState: MutableState<StartupInfo?> = mutableStateOf(null)
 
+    /**
+     * Entry action requested from outside the app (the widget's "add expense"
+     * button). Held as state and cleared by the navigation graph once it has been
+     * carried out, so a rotation cannot replay it.
+     */
+    private val pendingAction: MutableState<String?> = mutableStateOf(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTop: tapping the widget while the app is running lands here.
+        setIntent(intent)
+        pendingAction.value = intent.getStringExtra(AppEntry.EXTRA_ACTION)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        pendingAction.value = intent?.getStringExtra(AppEntry.EXTRA_ACTION)
 
         // Keep the splash screen up only until startup data is ready (never block the main thread).
         splash.setKeepOnScreenCondition { startupState.value == null }
@@ -140,7 +157,9 @@ class MainActivity : ComponentActivity() {
                                     com.spendingtracker.app.ui.navigation.Screen.Main.route
                                 } else {
                                     "setup"
-                                }
+                                },
+                                pendingAction = pendingAction.value,
+                                onActionConsumed = { pendingAction.value = null }
                             )
                         }
                     }

@@ -9,6 +9,7 @@ import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.data.repository.RecurringRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -54,13 +55,21 @@ class RecurringViewModel @Inject constructor(
                 recurringRepository.getAll()
             ) { account, all -> account to all.filter { it.accountId == account?.id } }
                 .collect { (account, payments) ->
-                    _uiState.value = _uiState.value.copy(
-                        payments = payments,
-                        account = account,
-                        categories = financeRepository.getAllCategoriesSync(),
-                        orderedCurrencies = financeRepository.orderedCurrencies(),
-                        isLoading = false
-                    )
+                    // Fetch first, assign second. A suspend call inside the copy()
+                    // argument list captured the state before suspending, so an
+                    // emission could put back `editing = null` and close the
+                    // add/edit dialog while the user was typing in it.
+                    val categories = financeRepository.getAllCategoriesSync()
+                    val ordered = financeRepository.orderedCurrencies()
+                    _uiState.update {
+                        it.copy(
+                            payments = payments,
+                            account = account,
+                            categories = categories,
+                            orderedCurrencies = ordered,
+                            isLoading = false
+                        )
+                    }
                 }
         }
     }
@@ -100,7 +109,8 @@ class RecurringViewModel @Inject constructor(
         if (previous != null && previous.currency != draft.currency) {
             viewModelScope.launch {
                 financeRepository.recordRecentCurrency(draft.currency)
-                _uiState.value = _uiState.value.copy(orderedCurrencies = financeRepository.orderedCurrencies())
+                val ordered = financeRepository.orderedCurrencies()
+                _uiState.update { it.copy(orderedCurrencies = ordered) }
             }
         }
     }

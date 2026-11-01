@@ -72,14 +72,20 @@ class AddExpenseViewModel @Inject constructor(
                 val settings = financeRepository.getSettingsSync()
                 val cats = financeRepository.getAllCategoriesSync()
                 val ordered = computeOrdered(settings)
-                _uiState.value = _uiState.value.copy(
-                    balanceCurrency = account?.currency ?: "USD",
-                    categories = cats,
-                    currency = account?.currency ?: "USD",
-                    orderedCurrencies = ordered,
-                    accountId = account?.id,
-                    paymentAccounts = financeRepository.getAllAccountsSync().filter { it.id == account?.id || it.parentAccountId == account?.id }
-                )
+                // No suspension inside the copy() argument list: it captured the
+                // state first, so anything typed while this ran was overwritten.
+                val paymentAccounts = financeRepository.getAllAccountsSync()
+                    .filter { it.id == account?.id || it.parentAccountId == account?.id }
+                _uiState.update {
+                    it.copy(
+                        balanceCurrency = account?.currency ?: "USD",
+                        categories = cats,
+                        currency = account?.currency ?: "USD",
+                        orderedCurrencies = ordered,
+                        accountId = account?.id,
+                        paymentAccounts = paymentAccounts
+                    )
+                }
             }
             return
         }

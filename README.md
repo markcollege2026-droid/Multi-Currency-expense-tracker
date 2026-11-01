@@ -27,7 +27,24 @@ all existing features (accounts, cards, autopay, recurring, loans, converter,
 backups) are unchanged. See [QIN_F21.md](QIN_F21.md) for dimensions, key mappings,
 build/test results and known limitations.
 
-## Current release: 1.11.0 — amount entry, currency order, live theme & Manage Accounts
+## Current release: 1.12.0 — settle from any account, currency-aware repayments, widget
+
+**Loans settle through any account in any currency, Manage accounts tells the
+truth, and there is a home-screen widget.** Version code **13**; database and
+backup schema unchanged (DB **v6**, backups **schema 6**). Fixes #15, #16, #18,
+#19 and #20: the Settle dropdown offers every main account and cash balance
+(four countries of ledgers included, cards excluded); the loan edit screen's
+external-only repayment form is replaced by that same dialog, so a payment can
+be made in the loan's currency **or** the balance's, and a missing rate refuses
+to confirm instead of converting at 1:1; entry counts are counted against the
+balance that paid; deletes show progress and only snapshot the whole ledger for
+main accounts; "Calculating…" replaces stale-looking placeholders; and Home's
+"Manage accounts…" opens the page it names. New: a `RemoteViews` widget (no
+Compose runtime, no DB or network in `onUpdate`, 12-hour network-gated refresh
+that only exists while a widget is placed). Full notes:
+[RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+## Previous release: 1.11.0 — amount entry, currency order, live theme & Manage Accounts
 
 **Decimal amounts type cleanly, the currency order applies everywhere, the
 theme applies immediately, and accounts are managed from Settings.**

@@ -204,6 +204,30 @@ class ExchangeRateRepository @Inject constructor(
     }
 
     /**
+     * Like [getConversionRateOrFallback], but never invents a 1:1 rate.
+     *
+     * Used where a wrong rate moves real money (loan settlements typed in another
+     * currency). The cached table is tried first; failing that, the built-in USD
+     * reference table is used *only* when both currencies are listed there - that
+     * is a real (if static) quote. Anything else returns null so the caller can ask
+     * the user to refresh rates instead of silently converting at 1:1.
+     */
+    suspend fun getConversionRateStrict(fromCurrency: String, toCurrency: String): BigDecimal? {
+        if (fromCurrency == toCurrency) return BigDecimal.ONE
+        getConversionRate(fromCurrency, toCurrency)?.let { return it }
+        val usdToFrom = getConversionRate("USD", fromCurrency)?.toDouble()
+            ?: DEFAULT_ALL_USD_RATES[fromCurrency]
+        val usdToTo = getConversionRate("USD", toCurrency)?.toDouble()
+            ?: DEFAULT_ALL_USD_RATES[toCurrency]
+        if (usdToFrom != null && usdToTo != null && usdToFrom > 0.0 && usdToTo > 0.0) {
+            return BigDecimal.valueOf(usdToTo / usdToFrom)
+                .setScale(10, RoundingMode.HALF_EVEN)
+                .stripTrailingZeros()
+        }
+        return null
+    }
+
+    /**
      * Fetches historical exchange rate series for the Charts view.
      * Uses Frankfurter API for supported currency pairs when online, and falls back
      * to a deterministic series anchored to the current conversion rate for

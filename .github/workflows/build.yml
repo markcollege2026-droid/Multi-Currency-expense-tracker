@@ -35,7 +35,140 @@ jobs:
       - name: Test and compile signed APKs
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease \
+            -PGIT_SHA="${{ github.sha }}" \
+            --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
+
+      # Proves what the artifacts are, from the APK itself rather than from the
+      # gradle file: versionCode/versionName are read back out of the built APK and
+      # compared with app/build.gradle.kts, and the commit SHA is recorded next to
+      # the APKs. A stale/resurrected artifact can no longer pass silently.
+      # Proves what the artifacts are, from the APK itself rather than from the
+      # gradle file. Two things are checked:
+      #   1. identity  - versionCode/versionName read back out of the APK, and the
+      #                  debug package name, must match the source.
+      #   2. content   - marker strings from the newest UI work must be present in
+      #                  the debug DEX, so an artifact built before that work cannot
+      #                  be published under a newer version number.
+      - name: Verify the built APK matches this commit
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          dbg=app/build/outputs/apk/debug/app-debug.apk
+          expected_code=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
+          expected_name=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/*/ 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$bt" ] && [ -x "${bt}aapt" ]; then
+            aapt="${bt}aapt"
+          elif command -v aapt >/dev/null; then
+            aapt=aapt
+          else
+            echo "::error::aapt not found; cannot verify the artifacts"; exit 1
+          fi
+          echo "using $aapt" | tee -a build.log
+
+          "$aapt" dump badging "$apk" > release-badging.txt
+          "$aapt" dump badging "$dbg" > debug-badging.txt
+          code=$(grep -oP "versionCode='\K[0-9]+" release-badging.txt | head -1)
+          name=$(grep -oP "versionName='\K[^']+" release-badging.txt | head -1)
+          dcode=$(grep -oP "versionCode='\K[0-9]+" debug-badging.txt | head -1)
+          dname=$(grep -oP "versionName='\K[^']+" debug-badging.txt | head -1)
+          dpkg=$(grep -oP "^package: name='\K[^']+" debug-badging.txt | head -1)
+          echo "release: code=$code name=$name" | tee -a build.log
+          echo "debug:   code=$dcode name=$dname package=$dpkg" | tee -a build.log
+          test "$code" = "$expected_code" || { echo "::error::release APK versionCode $code != $expected_code"; exit 1; }
+          test "$name" = "$expected_name" || { echo "::error::release APK versionName $name != $expected_name"; exit 1; }
+          test "$dcode" = "$expected_code" || { echo "::error::debug APK versionCode $dcode != $expected_code"; exit 1; }
+          test "$dpkg" = "com.spendingtracker.app.debug" || { echo "::error::debug APK package $dpkg is not the side-by-side build"; exit 1; }
+
+          # Content markers. Each one is a user-visible string introduced by work
+          # that must be inside this build; a missing marker means a stale
+          # artifact. Checked in the debug APK (nothing stripped, so this also
+          # catches "the source never had it") AND in the release APK (R8 ran, so
+          # this catches "the shrinker removed it"): the release APK is what gets
+          # installed, so it has to be checked directly, not inferred.
+          tmp=$(mktemp -d)
+          dexdump() {
+            rm -rf "$tmp/x"; mkdir -p "$tmp/x"
+            unzip -q -o "$1" 'classes*.dex' -d "$tmp/x"
+            cat "$tmp/x"/classes*.dex > "$2"
+          }
+          dexdump "$dbg" "$tmp/debug.dex"
+          dexdump "$apk" "$tmp/release.dex"
+
+          missing=""
+          check() {
+            label=$1; shift
+            for marker in "$@"; do
+              where=""
+              for f in "$tmp/debug.dex" "$tmp/release.dex"; do
+                grep -aqF -- "$marker" "$f" || where="$where ${f##*/}"
+              done
+              if [ -z "$where" ]; then
+                echo "marker present in both APKs: $label ($marker)" | tee -a build.log
+              else
+                echo "::error::marker missing from$where: $label ($marker)"
+                missing="$missing [$label]"
+              fi
+            done
+          }
+          check "refusal toast"      "Still busy: "
+          check "rate refresh"       "Refreshing rates"
+          check "settle labels"      "Recording payment" "Settling through a balance"
+          # Paying a loan in another currency: the equivalent line, the "Pay in"
+          # selector are the visible parts of that change.
+          check "pay in any currency" "comes off the loan" "PAY IN" " (loan currency)" "covers it"
+          check "account delete label" "Deleting "
+          # The composables themselves. AppFeedback.kt compiles to AppFeedbackKt,
+          # which the debug APK keeps under that name. R8 renames classes in the
+          # release APK, so a class-name grep there proves nothing either way; the
+          # release-side evidence is the string markers above, because R8 drops a
+          # string constant together with the code that used it. The R8 mapping is
+          # reported for traceability only.
+          grep -aqF "AppFeedbackKt" "$tmp/debug.dex" || { echo "::error::AppFeedbackKt missing from debug APK"; missing="$missing [AppFeedbackKt]"; }
+          echo "release minification: $(grep -oE 'isMinifyEnabled = [a-z]+' app/build.gradle.kts | tail -1)" | tee -a build.log
+          mapping=app/build/outputs/mapping/release/mapping.txt
+          if [ -s "$mapping" ]; then
+            echo "R8 mapping: $(wc -l < "$mapping") lines, $(grep -c 'AppFeedbackKt' "$mapping" || true) AppFeedbackKt reference(s)" | tee -a build.log
+            grep 'AppFeedbackKt' "$mapping" | head -3 | tee -a build.log || true
+          else
+            echo "no R8 mapping at $mapping; mapping files present:" | tee -a build.log
+            find app/build/outputs -name 'mapping*' | head -5 | tee -a build.log
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::APK is missing expected content:$missing"; exit 1
+          fi
+
+          {
+            echo "versionName: $name"
+            echo "versionCode: $code"
+            echo "debugVersionName: $dname"
+            echo "debugPackage: $dpkg (installs beside the release build)"
+            echo "gitCommit:   ${{ github.sha }}"
+            echo "gitRef:      ${{ github.ref_name }}"
+            echo "runId:       ${{ github.run_id }}"
+            echo "builtAt:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "releaseApk:  $(sha256sum "$apk" | cut -d' ' -f1)"
+            echo "debugApk:    $(sha256sum "$dbg" | cut -d' ' -f1)"
+            echo "contentMarkers: verified in both debug and release APKs (busy labels, refusal toast) + AppFeedbackKt kept by R8"
+          } | tee BUILD-INFO.txt
+          cp BUILD-INFO.txt app/build/outputs/apk/release/BUILD-INFO.txt
+
+      - name: Post build info
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## Built artifact'
+            echo '```'
+            cat BUILD-INFO.txt
+            echo '```'
+            echo 'The installed app shows the same version and commit in Settings (Data -> Version).'
+          } > build-info.json
+          jq -Rs '{body: .}' build-info.json > build-info-post.json
+          gh api "repos/$GITHUB_REPOSITORY/commits/${{ github.sha }}/comments" --input build-info-post.json --jq .html_url
       - name: Publish verification metadata
         if: github.event_name != 'pull_request'
         env:
@@ -56,26 +189,49 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - name: Publish requested release
+        id: publish
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.appver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Spending Tracker v${{ steps.appver.outputs.version }} — Amount entry, currency order, live theme & Manage Accounts
+          name: Spending Tracker v${{ steps.appver.outputs.version }}
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |
+            BUILD-INFO.txt
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/SHA256SUMS.txt
             app/build/outputs/bundle/release/app-release.aab
             app/build/outputs/mapping/release/mapping.txt
+      # Regression guard: v1.12.0 was published with the tag still pointing at an
+      # earlier commit, so "Source code" on the release page and the uploaded APKs
+      # disagreed. Publishing is only correct when the tag resolves to this SHA.
+      - name: Verify the release tag points at this commit
+        if: steps.publish.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.appver.outputs.tag }}"
+          remote_sha=$(git ls-remote --tags origin "refs/tags/$tag" | cut -f1)
+          if [ -z "$remote_sha" ]; then
+            echo "::error::tag $tag does not exist on the remote"; exit 1
+          fi
+          if [ "$remote_sha" != "${{ github.sha }}" ]; then
+            echo "::error::tag $tag points at $remote_sha but this build is ${{ github.sha }}"
+            exit 1
+          fi
+          echo "tag $tag -> $remote_sha (this commit)" | tee -a build.log
+
       - name: Report build failure on commit
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f build.log ]; then gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(tail -c 45000 build.log)"; fi
+          python3 .github/scripts/failure_report.py
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat failure-summary.md)" || true
       - uses: actions/upload-artifact@v4
         with:
           name: spending-tracker-apks
@@ -84,6 +240,7 @@ jobs:
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/mapping/release/mapping.txt
+            BUILD-INFO.txt
             app/schemas/**
           if-no-files-found: error
       - uses: actions/upload-artifact@v4

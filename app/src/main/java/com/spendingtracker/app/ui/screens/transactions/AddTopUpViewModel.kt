@@ -9,6 +9,7 @@ import com.spendingtracker.app.data.repository.FinanceRepository
 import com.spendingtracker.app.domain.TransferMath
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -114,15 +115,20 @@ class AddTopUpViewModel @Inject constructor(
                 val account = financeRepository.getAccountById(activeId)
                 val accounts = financeRepository.getAllAccountsSync()
                 val cash = accounts.filter { it.parentAccountId == activeId && it.type == "CASH" }
-                _uiState.value = _uiState.value.copy(
-                    balanceCurrency = account?.currency ?: "USD",
-                    accountId = account?.id,
-                    cashAccounts = cash,
-                    cashBalances = financeRepository.balances(),
-                    // The default is a deposit that does not come from cash.
-                    sourceCashId = null,
-                    rate = BigDecimal.ONE
-                )
+                // balances() is suspend; reading it inside copy() meant the state was
+                // captured first and typed input could be overwritten afterwards.
+                val cashBalances = financeRepository.balances()
+                _uiState.update {
+                    it.copy(
+                        balanceCurrency = account?.currency ?: "USD",
+                        accountId = account?.id,
+                        cashAccounts = cash,
+                        cashBalances = cashBalances,
+                        // The default is a deposit that does not come from cash.
+                        sourceCashId = null,
+                        rate = BigDecimal.ONE
+                    )
+                }
             }
             return
         }

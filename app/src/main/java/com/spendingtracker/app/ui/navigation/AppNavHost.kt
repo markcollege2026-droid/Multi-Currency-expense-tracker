@@ -17,11 +17,18 @@ import com.spendingtracker.app.ui.screens.recurring.RecurringScreen
 import com.spendingtracker.app.ui.screens.setup.SetupScreen
 import com.spendingtracker.app.ui.screens.transactions.AddExpenseScreen
 import com.spendingtracker.app.ui.screens.transactions.AddTopUpScreen
+import com.spendingtracker.app.util.AppEntry
 
 @Composable
 fun AppNavHost(
     navController: NavHostController,
-    startDestination: String
+    startDestination: String,
+    /**
+     * Entry action requested from outside the app (widget). Applied once the main
+     * graph is on screen and reported back through [onActionConsumed].
+     */
+    pendingAction: String? = null,
+    onActionConsumed: () -> Unit = {}
 ) {
     // Back from a form/overlay screen: pop, and if there is nothing to pop
     // (e.g. after a stale state restore) fall back to Main instead of dead-end.
@@ -45,6 +52,14 @@ fun AppNavHost(
         }
         // Main scaffold with persistent bottom nav for Home/Transactions/Loans/Settings
         composable(Screen.Main.route) {
+            // The widget's "add expense" button lands here. Consumed first so a
+            // recomposition (or rotation) cannot navigate twice.
+            LaunchedEffect(pendingAction) {
+                if (pendingAction == AppEntry.ACTION_ADD_EXPENSE) {
+                    onActionConsumed()
+                    navController.navigate(Screen.AddExpense.createRoute())
+                }
+            }
             com.spendingtracker.app.ui.screens.MainScaffold(
                 onNavigateToAddExpense = { navController.navigate(Screen.AddExpense.createRoute()) },
                 onNavigateToAddTopUp = { navController.navigate(Screen.AddTopUp.createRoute()) },

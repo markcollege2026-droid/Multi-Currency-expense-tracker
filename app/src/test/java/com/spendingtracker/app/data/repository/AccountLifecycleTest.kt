@@ -355,4 +355,20 @@ class AccountLifecycleTest {
         // The busy account still holds its money, even though it is not active.
         assertEquals(0, BigDecimal("80").compareTo(summaries[busy]!!.balance))
     }
+
+    @Test
+    fun anExpensePaidFromACashWalletIsCountedAgainstTheWallet() = runBlocking {
+        val main = mainAccount("Main", 1)
+        val wallet = repository.createBalanceAccount(main, "Pocket", "CASH", BigDecimal("100"))
+        expense(main, "30", balanceAccountId = wallet)
+
+        val summaries = repository.observeAccountSummaries().first()
+
+        // The money left the wallet, so the wallet is what shows an entry. Counting
+        // by accountId alone left the wallet at "0 entries" with a lower balance.
+        assertEquals(1, summaries[wallet]?.entries)
+        assertEquals(0, summaries[main]?.entries)
+        assertEquals(0, BigDecimal("70").compareTo(summaries[wallet]!!.balance))
+        assertEquals(0, BigDecimal("0").compareTo(summaries[main]!!.balance))
+    }
 }

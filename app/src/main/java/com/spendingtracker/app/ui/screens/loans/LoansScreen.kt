@@ -23,6 +23,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spendingtracker.app.data.local.entity.LoanDebt
 import com.spendingtracker.app.ui.compact.LocalAppDimens
 import com.spendingtracker.app.ui.compact.LocalCompactUi
+import com.spendingtracker.app.ui.components.AppBusyRow
+import com.spendingtracker.app.ui.components.AppToast
 import com.spendingtracker.app.ui.components.AppCard
 import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppDialog
@@ -48,6 +50,10 @@ fun LoansScreen(
     viewModel: LoansViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    // Refusals ("Still busy: …") and short results. The inline banner stays for the
+    // full message, but it sits at the top of the list and is off-screen when the
+    // user taps Settle on a loan further down - so those actions looked inert.
+    AppToast(uiState.toast, viewModel::clearToast)
     val dims = LocalAppDimens.current
 
     var pendingDelete by remember { mutableStateOf<LoanWithBalance?>(null) }
@@ -133,6 +139,9 @@ fun LoansScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
+                uiState.busy?.let { label ->
+                    item(key = "busy") { AppBusyRow(label) }
+                }
                 uiState.message?.let { message ->
                     item(key = "message") {
                         Row(
@@ -184,6 +193,16 @@ fun LoansScreen(
                                 valueColor = if (net < java.math.BigDecimal.ZERO) LocalAppPalette.current.expense
                                 else LocalAppPalette.current.income
                             )
+                            if (uiState.ratesIncomplete) {
+                                // Never present a total as exact when a rate was missing.
+                                Text(
+                                    text = "Some amounts have no rate to ${uiState.balanceCurrency} " +
+                                        "on this device, so they are counted 1:1. Refresh rates in Settings.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 3
+                                )
+                            }
                         }
                     }
                 }
@@ -252,8 +271,10 @@ fun LoansScreen(
             accounts = uiState.settleAccounts,
             balances = uiState.accountBalances,
             rateLookup = viewModel::conversionRate,
-            onConfirm = { amount, accountId, rate, note ->
-                viewModel.settle(item, amount, accountId, rate, note)
+            activeAccountId = uiState.activeAccountId,
+            currencies = uiState.payCurrencies,
+            onConfirm = { amount, accountId, rate, note, payCurrency, payAmount ->
+                viewModel.settle(item, amount, accountId, rate, note, payCurrency, payAmount)
                 pendingSettle = null
             },
             onDismiss = { pendingSettle = null }

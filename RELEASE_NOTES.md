@@ -1,3 +1,273 @@
+# Spending Tracker 1.12.5 - pay a loan in any currency, in parts
+
+Released 1 November 2026.
+
+Version code **18**, version name **1.12.5**.
+
+## New: settle a loan in a currency other than its own
+
+A loan keeps the currency it was created in - that is the balance you owe or are
+owed, and **1.12.5 does not re-denominate it**. What changed is the *payment*: you
+can now hand over money in a different currency, including a part payment, without
+first choosing a balance.
+
+Worked example - a **₪9 debt** and a rate of **3 ILS = $1**:
+
+- Choosing **USD** shows **"= $3.00 at 1 ILS = 0.3333333 USD"** under the ₪9.00
+  still owed, so the debt reads as payable in dollars.
+- Typing **$2** applies **₪6.00** to the loan and leaves **₪3.00** open.
+- The field label always says which currency the digits are in - `Amount (USD)` or
+  `Amount (ILS)` - and the two chips switch between them, so you never guess which
+  side is being converted.
+- The loan itself still counts down in **shekels**, in the same currency as before.
+
+Details:
+
+- **Pay in** offers every currency when the source is *External revenue (default)*.
+  Picking one switches the amount field to that currency and fills in what is still
+  owed in it.
+- Choosing a balance still uses that balance's own currency - money cannot leave an
+  account in a currency it does not hold - and keeps the two-way switch it had.
+- A cross-currency payment **requires a real rate**. With no quote on the device the
+  confirm button stays disabled and says so, instead of quietly recording 1:1. This
+  now applies to external payments too, where it used to be unchecked.
+- The paid side is stored with the repayment, so **History** shows both numbers
+  ("₪6.00" as the loan-currency amount, "$2.00" as what was handed over), the loan's
+  repayment list adds "· paid $2.00", the confirmation toast says what was paid, and
+  deleting the repayment still reverses everything.
+- Backups keep the paid side: the export already carried it, and restore no longer
+  drops it for external repayments. A restored file whose paid side is malformed is
+  rejected rather than silently 1:1.
+- The loans summary no longer presents an exact-looking total when a rate to the
+  balance currency is missing - it says those amounts are counted 1:1 and to refresh
+  rates.
+
+Guard rails: the conversion maths, the "cannot overpay in either currency" rule and
+the external cross-currency cases are covered by unit tests; the dialog's equivalent
+line, `Pay in` selector and both chips are covered by Compose tests; the repository
+tests assert that a ₪9 debt paid $2 stores ₪6 against the loan, $2 as the paid side,
+touches no balance, and refuses an inconsistent amount/rate pair.
+
+---
+
+# Spending Tracker 1.12.4 — Manage accounts fixed, loan payments in other currencies
+
+Released 29 October 2026.
+
+Version code **17**, version name **1.12.4**.
+
+## Fixed: Manage accounts said "0 accounts · Active: -"
+
+The Settings page could show **0 accounts** and **Active: -** with one account,
+then show both accounts once a second one was created, leave a deleted account on
+screen until the app was restarted, and come back to zero after that restart - all
+while Home looked perfectly normal.
+
+The cause was a lost update, not data loss. The Settings view model rebuilt its
+state with `_uiState.value = _uiState.value.copy(...)` and one of the values in that
+`copy(...)` - the account's low-balance threshold - was a suspending database call.
+Kotlin evaluates the receiver (`_uiState.value`) *before* the arguments, so the
+collector captured the whole state, suspended on the query, and then wrote that
+stale snapshot back: everything the other collectors stored in between (the account
+list, its summaries, the progress label, the toast) was discarded. Home was immune
+because its state comes from a single `combine` over the database with no second
+writer.
+
+- That collector now reads the threshold **before** touching state and writes with
+  the atomic `_uiState.update { }`, so nothing written while it suspends is lost.
+- The same pattern was found and fixed in **Recurring** (an emission could close
+  the add/edit dialog while typing), **Add loan** (settle dropdown and balances),
+  **Add expense** and **Add top-up** (a load could overwrite typed input).
+- If the balance calculation ever fails, the page now says so ("Balances could not
+  be calculated…") instead of sitting on "Calculating…" forever - the collector used
+  to die silently.
+
+Reproduced and guarded in CI: `ManageAccountsStateTest` holds that collector inside
+its suspension with a gated DAO and asserts the account list and a toast survive it.
+
+## Fixed: no feedback in Manage accounts
+
+- **Use this account** and **Rename** now confirm with a toast; rename also reports
+  failures instead of having no error handling at all.
+- **Deleting a cash balance or card** finishes in a single write, so its progress
+  row was cleared before a frame was drawn and nothing was ever shown: the result is
+  now a toast as well as the inline message.
+- Creating an account or cash balance confirms the same way.
+
+## Fixed: no feedback on the Loans tab
+
+Refusals ("Still busy: …"), settlement results and loan deletions were drawn only in
+the inline banner at the top of the Loans list - off-screen when the settled loan is
+further down, so the action looked like it did nothing. Loans now shows the same
+toasts Settings and Home do.
+
+## Fixed: payments in another currency could still be recorded 1:1
+
+The settle dialog refuses to confirm a cross-currency payment without a rate, but
+both view models then parsed the rate themselves and fell back to `1` - undoing that
+guarantee at the last step. A single rule (`SettlementRate`) now decides, and a
+payment that needs a rate it does not have is refused with a message naming both
+currencies.
+
+## Fixed: "there is no option to pay a loan in another currency"
+
+The option was there and hidden: the **Type in ILS / Type in EUR** chips only appear
+once you choose a balance whose currency differs from the loan's, and the dialog's
+default source is **External revenue** - where nothing converts, so there is nothing
+to choose. The dialog now says so where the missing choice would be: *"Paying in
+another currency? Choose a balance under PAY FROM - e.g. Euro wallet (EUR) - and the
+amount can be typed in either currency."* That line is absent when no balance in
+another currency exists, so it never promises something impossible.
+
+## Confirming you are running this build
+
+Open **Settings → Data** and read the **Version** row: `1.12.4 (17) · <commit>`. Database and backup schema
+unchanged (DB **v6**, backups **schema 6**). Same application ID and signing
+key; installs over 1.11.0 and over 1.12.0.
+
+## Why 1.12.2 exists
+
+The 1.12.0 release was published with the tag still on an earlier commit, and the
+publishing action does not replace assets when the tag already exists, so later
+builds uploaded nothing while the release page kept claiming the newer work.
+1.12.2 is the first artifact where CI verifies the shipped binaries themselves:
+it reads the version back out of both APKs, greps the busy-label and
+refusal-toast strings out of *both* DEX files (the release APK is the one R8
+rewrites), checks the R8 mapping for the feedback composables, and fails the run
+if the release tag does not point at the commit that was just built. The version
+code is higher than 1.12.0's, so an existing install is actually replaced
+instead of being refused by the installer.
+
+## New: the widget can be added from inside the app
+
+Finding a widget means leaving the app, long-pressing the home screen and hunting
+through the launcher's widget list - and some launchers only refresh that list
+after a restart, so a freshly installed widget looks missing. Settings now has a
+**Home-screen widget** section:
+
+- It says whether the widget is already on a home screen.
+- **Add widget to home screen** asks the launcher to place it
+  (`requestPinAppWidget`). When the launcher does not support that - many small
+  launchers do not - the same section prints the manual path instead of a button
+  that silently does nothing.
+- The widget is labelled **Spending Tracker** (it used to be **Spending**, so
+  looking for the app by name in the widget list found nothing), and the debug
+  build's copy is labelled **Spending Tracker (debug)** now that it installs
+  beside the release app.
+- Its minimum size dropped from 180x70dp to 110x40dp. A provider whose minimum
+  cannot fit the launcher grid is not offered at all, which is a silent
+  disappearance on a 320dp-wide screen. It still asks for a 3x1 cell where the
+  launcher supports `targetCellWidth`.
+
+Step-by-step instructions are in `WIDGET.md`.
+
+## Confirming you are running this build
+
+Open **Settings → Data** and read the **Version** row at the bottom. It shows
+`1.12.3 (16) · <commit>` - the commit is the SHA CI built this APK from. The
+release also ships **BUILD-INFO.txt** with the same version, commit, run id and
+the SHA-256 of both APKs, and CI posts those values as a commit comment. If the
+row says `1.12.0`–`1.12.3` you have an older APK installed. The same row sits under a **Home-screen widget** section in Settings,
+which is itself new - if that section is missing, you are not running this build.
+
+The debug APK now installs as `com.spendingtracker.app.debug`, side by side with
+a release install, so a debug build can never be confused with (or silently
+fail to replace) the real app.
+
+Everything below is in this build:
+
+## Settle from any account, currency-aware repayments, widget
+
+## Fixed: a loan can be settled through any account (#18)
+The Settle dropdown listed only the **active** account and its own cash
+balances, so with two accounts the other one - and every wallet inside it -
+was unreachable, even though loans are shared between accounts. Every main
+account and every cash balance in the database is offered now, active ledger
+first; credit cards stay excluded (they hold debt, not spendable money). Cash
+balances that belong to a different account are prefixed with that account's
+name, so two balances both called "Cash" are distinguishable.
+
+## Fixed: repayments convert currency, everywhere (#19)
+Recording a payment from the loan's own edit screen called the repository with
+no account and no rate, so a loan could only ever be repaid in its own
+currency from outside every balance. That second, poorer path is gone: the
+edit screen now opens the same **Settle** dialog as the Loans tab, which can
+pay from - or receive into - any balance, converting between the loan's
+currency and the balance's currency. The amount can be typed in **either**
+currency (there is a switch when they differ), part payments included.
+
+A missing rate no longer becomes a silent 1:1 conversion: if the device has no
+quote for the pair, the dialog says so and refuses to confirm.
+
+## Fixed: Manage accounts reflects reality (#20)
+- **Deleting** an account now says "Deleting X…" while it works. The
+  whole-ledger safety copy is taken only for a main account - deleting a single
+  cash wallet or card can no longer lose the ledger, so it skips the full
+  export that was making the delete feel stuck.
+- **Entry counts** are counted against the balance that actually paid, the
+  same rule the balance itself uses. A cash wallet used to show "0 entries"
+  while its balance dropped; the main account no longer claims cash-paid
+  expenses. Numbers shown in the delete confirmation follow the same rule.
+- **While summaries load**, the pages say "Calculating…" instead of showing the
+  starting balance and "0 entries" as if they were current.
+- The summary combine runs off the main thread.
+
+## Fixed: Manage accounts is reachable with one account (#16)
+Home's account menu item "Manage accounts…" went to the Settings **tab** and
+stopped there. It now opens Settings → Manage accounts directly, one-shot so a
+rotation cannot reopen it. With a single account the page explains what it is
+for; the last-account delete guard is unchanged (erase-all remains the way to
+start over).
+
+## New: home-screen widget (#15)
+A compact widget shows the active ledger's **total available**, one live
+conversion rate (your first favourite currency, else USD/EUR) and a
+**+ Expense** button that opens the expense form directly.
+
+Built for low battery and RAM: plain `RemoteViews` (no Compose runtime for the
+widget), no database or network access in `onUpdate` - it draws a cached
+snapshot - and a 12-hour, network-gated refresh that only exists while a
+widget is placed. Fresh snapshots are also pushed when the app starts. The
+rate line shows its age, and says "No … rate" rather than pretending 1:1.
+
+## Feedback for slow work and refused actions
+Long operations no longer look like a frozen screen, and actions that are
+skipped now say so.
+
+- **Inline progress**, shown for as long as the work runs: deleting an account
+  (Manage accounts and the Settings list), erasing all data, refreshing exchange
+  rates, preparing a JSON/CSV export, settling a loan, deleting or reopening a
+  loan, and Home's transfers, withdrawals, card payments, balance deletes and
+  cash income. The label says what is happening ("Deleting Travel…",
+  "Refreshing rates…"); the buttons involved disable themselves so the same work
+  cannot be started twice.
+- **Toasts** for the results that arrive too fast to warrant a spinner, and for
+  anything refused before work starts: a second delete while one is running, a
+  rate refresh or erase while something else is busy, "Rates refreshed", "No
+  account yet".
+- **Home finally shows its results.** Messages were only drawn inside the
+  expandable accounts panel, which starts collapsed on the compact layout, so a
+  failed transfer or card payment looked like nothing had happened. Home now
+  toasts its messages.
+- Backup/restore and the Converter's refresh/charts already had progress
+  indicators and are unchanged.
+
+These states are set before the work starts and cleared in a `finally` - no
+timers, no polling, no minimum display time - so they add a single state write
+and a recomposition, never work. That is also why some actions (switching
+accounts, dismissing a payment, saving a threshold) deliberately get **no**
+progress state: they finish in milliseconds and a spinner would only add noise.
+
+## Testing
+Unit/Compose suite plus the instrumented suite on an API 33 emulator. New
+coverage: settlement account selection and labels, cross-currency settlement
+from either side, missing-rate refusal, wallet entry counts, the Manage
+accounts loading/single-account states, widget text and selection rules, and
+on-device checks that the widget layout is RemoteViews-compatible, that the
+receiver is declared with its provider metadata, that the snapshot survives a
+process-free reload, and that `MainActivity` is `singleTop` so the widget's
+button reuses the running task.
+
 # Spending Tracker 1.11.0 — Amount entry, currency order, live theme & Manage Accounts
 
 Released 28 October 2026.

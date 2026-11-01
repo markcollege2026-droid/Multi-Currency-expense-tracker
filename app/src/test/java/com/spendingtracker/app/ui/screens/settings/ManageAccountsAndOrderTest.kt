@@ -71,6 +71,76 @@ class ManageAccountsAndOrderTest {
     }
 
     @Test
+    fun summariesShowACalculatingPlaceholderUntilTheyArrive() {
+        // The old fallback printed the starting balance and "0 entries" while the
+        // combine was still computing, which read as stale data.
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                ManageAccountsList(
+                    accounts = listOf(main),
+                    balanceAccounts = listOf(main, pocket, visa),
+                    summaries = emptyMap(),
+                    activeAccountId = 1,
+                    message = null,
+                    error = null,
+                    onDismissMessage = {},
+                    onOpenAccount = {},
+                    onUseAccount = {},
+                    onAddAccount = {},
+                    summariesLoaded = false
+                )
+            }
+        }
+        compose.onNodeWithText("Calculating", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Now ", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("entry", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aSingleAccountExplainsItself() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                ManageAccountsList(
+                    accounts = listOf(main),
+                    balanceAccounts = listOf(main, pocket, visa),
+                    summaries = summaries,
+                    activeAccountId = 1,
+                    message = null,
+                    error = null,
+                    onDismissMessage = {},
+                    onOpenAccount = {},
+                    onUseAccount = {},
+                    onAddAccount = {}
+                )
+            }
+        }
+        compose.onNodeWithText("You have one account", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("+ Add account").assertIsDisplayed()
+    }
+
+    @Test
+    fun aRunningDeleteIsShownOnTheList() {
+        compose.setContent {
+            SpendingTrackerTheme(dynamicColor = false) {
+                ManageAccountsList(
+                    accounts = listOf(main, other),
+                    balanceAccounts = listOf(main, pocket, visa, other),
+                    summaries = summaries,
+                    activeAccountId = 1,
+                    message = null,
+                    error = null,
+                    onDismissMessage = {},
+                    onOpenAccount = {},
+                    onUseAccount = {},
+                    onAddAccount = {},
+                    busyLabel = "Deleting Travel\u2026"
+                )
+            }
+        }
+        compose.onNodeWithText("Deleting Travel\u2026").assertIsDisplayed()
+    }
+
+    @Test
     fun accountDetailShowsCashAndCards() {
         var addCash = false
         var deletedChild: Long? = null
