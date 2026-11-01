@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.spendingtracker.app.data.local.entity.Account
 import com.spendingtracker.app.data.local.entity.LoanDebt
 import com.spendingtracker.app.domain.SettlementAccounts
+import com.spendingtracker.app.domain.SettlementRate
 import com.spendingtracker.app.domain.TransferMath
 import com.spendingtracker.app.ui.compact.LocalHardwareKeypad
 import com.spendingtracker.app.ui.components.AppDialog
