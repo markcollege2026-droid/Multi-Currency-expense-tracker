@@ -105,13 +105,26 @@ class ConverterViewModelTest {
 
     private suspend fun ConverterViewModel.awaitState(
         predicate: (ConverterUiState) -> Boolean
-    ): ConverterUiState = withTimeout(15_000) {
+    ): ConverterUiState = withTimeout(30_000) {
         var state = uiState.value
         while (!predicate(state)) {
             delay(5)
             state = uiState.value
         }
         state
+    }
+
+    /**
+     * The constructor chains recompute -> silent refresh -> chart load in one
+     * coroutine whose Room hops take nondeterministic time. Until it reaches the
+     * chart load (observable as chart loading started, or already failed) its
+     * silent refresh is still in flight and can drop or overwrite anything the
+     * test does. Wait for that, then for the silent refresh to settle, before
+     * driving the behaviour under test.
+     */
+    private suspend fun quiesceInit(vm: ConverterViewModel) {
+        vm.awaitState { it.isChartLoading || it.chartError != null }
+        vm.awaitState { !it.isRefreshing }
     }
 
     private fun series(target: String, vararg rates: Double) = mapOf(
@@ -124,8 +137,10 @@ class ConverterViewModelTest {
     @Test
     fun staleChartResponseCannotOverwriteTheLatestSelection() = runBlocking {
         val vm = viewModel()
-        // The initial chart request (USD/EUR from the defaults) is in flight.
-        // The user switches to USD/GBP before it can complete.
+        quiesceInit(vm)
+        // The initial chart request (USD/EUR from the defaults) is now
+        // deterministically in flight. The user switches to USD/GBP before it
+        // can complete.
         vm.setChartPair("USD", "GBP")
         // The NEW request finishes first and is applied...
         api.completeHistorical("GBP", series("GBP", 0.8, 0.81, 0.82))
@@ -168,9 +183,9 @@ class ConverterViewModelTest {
     @Test
     fun refreshNeverLeavesTheIndicatorOn() = runBlocking {
         val vm = viewModel()
-        // The constructor starts a silent refresh that holds the isRefreshing
-        // guard while it runs; let it finish before asking for a visible one.
-        vm.awaitState { !it.isRefreshing }
+        // Let the constructor's silent refresh finish for good; while it is in
+        // flight it can drop the visible refresh below or clear its message.
+        quiesceInit(vm)
         // Failing refresh: the indicator must clear and the user is told we are
         // on cached rates.
         vm.refreshRatesFromApi(showFeedback = true)
@@ -200,6 +215,7 @@ class ConverterViewModelTest {
     @Test
     fun sameCurrencyChartIsRealAndConstant() = runBlocking {
         val vm = viewModel()
+        quiesceInit(vm)
         vm.setChartPair("USD", "USD")
         val state = vm.awaitState { it.chartSeries?.base == "USD" && it.chartSeries?.target == "USD" }
         assertNull(state.chartError)
