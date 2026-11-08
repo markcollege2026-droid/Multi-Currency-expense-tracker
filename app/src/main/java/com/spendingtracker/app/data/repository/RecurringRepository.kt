@@ -1,5 +1,6 @@
 package com.spendingtracker.app.data.repository
 
+import androidx.room.withTransaction
 import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.data.local.dao.AccountDao
 import com.spendingtracker.app.data.local.dao.ExpenseDao
