@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag
 
 plugins {
@@ -41,7 +42,7 @@ android {
         // historic key (release.keystore, so the signing identity is unchanged).
         // When they are absent the release build still compiles, unsigned, and
         // debug builds are unaffected. See KEYSTORE.md.
-        val signingProps = java.util.Properties().apply {
+        val signingProps = Properties().apply {
             val f = rootProject.file("signing.properties")
             if (f.exists()) f.inputStream().use { load(it) }
         }
