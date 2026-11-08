@@ -133,7 +133,8 @@ class ExchangeRateRepositoryTest {
         // is a real (if static) quote - the cross must be computed, not faked.
         val rate = repository.getConversionRateStrict("EUR", "GBP")
         assertNotNull(rate)
-        val expected = BigDecimal.valueOf(0.8790 / 0.7539)
+        // EUR -> GBP via USD: (USD->GBP) / (USD->EUR) = 0.7539 / 0.8790
+        val expected = BigDecimal.valueOf(0.7539 / 0.8790)
             .setScale(10, java.math.RoundingMode.HALF_EVEN).stripTrailingZeros()
         assertEquals(0, expected.compareTo(rate))
     }
@@ -157,20 +158,31 @@ class ExchangeRateRepositoryTest {
 
     @Test
     fun storedInvalidRowsAreIgnoredInCalculations() = runBlocking {
-        // Simulate legacy/corrupt rows reaching the table.
+        // Simulate legacy/corrupt rows reaching the table. Codes deliberately
+        // outside the built-in USD reference table: the stored row is the only
+        // possible source, and if it is invalid there is NO rate at all - never
+        // a silent 1:1.
+        db.exchangeRateDao().insertRate(
+            ExchangeRate(baseCurrency = "USD", targetCurrency = "ZZZ", rate = "0", timestamp = 1)
+        )
+        db.exchangeRateDao().insertRate(
+            ExchangeRate(baseCurrency = "USD", targetCurrency = "QQQ", rate = "-2.5", timestamp = 1)
+        )
+        db.exchangeRateDao().insertRate(
+            ExchangeRate(baseCurrency = "USD", targetCurrency = "XXX", rate = "not-a-number", timestamp = 1)
+        )
+        assertNull(repository.getConversionRate("USD", "ZZZ"))
+        assertNull(repository.getConversionRate("USD", "QQQ"))
+        assertNull(repository.getConversionRate("USD", "XXX"))
+        assertNull(repository.getConversionRateStrict("USD", "ZZZ"))
+
+        // For a currency the built-in USD table does quote, the corrupt row is
+        // skipped and the genuine built-in quote is used (0.8790 EUR per USD).
+        // Real data - still never a silent 1:1.
         db.exchangeRateDao().insertRate(
             ExchangeRate(baseCurrency = "USD", targetCurrency = "EUR", rate = "0", timestamp = 1)
         )
-        db.exchangeRateDao().insertRate(
-            ExchangeRate(baseCurrency = "USD", targetCurrency = "GBP", rate = "-2.5", timestamp = 1)
-        )
-        db.exchangeRateDao().insertRate(
-            ExchangeRate(baseCurrency = "USD", targetCurrency = "JPY", rate = "not-a-number", timestamp = 1)
-        )
-        assertNull(repository.getConversionRate("USD", "EUR"))
-        assertNull(repository.getConversionRate("USD", "GBP"))
-        assertNull(repository.getConversionRate("USD", "JPY"))
-        assertNull(repository.getConversionRateStrict("USD", "EUR"))
+        assertRate("0.8790", repository.getConversionRate("USD", "EUR"))
     }
 
     // ---- API validation and cache preservation ----
