@@ -177,12 +177,14 @@ class ExchangeRateRepositoryTest {
         assertNull(repository.getConversionRateStrict("USD", "ZZZ"))
 
         // For a currency the built-in USD table does quote, the corrupt row is
-        // skipped and the genuine built-in quote is used (0.8790 EUR per USD).
-        // Real data - still never a silent 1:1.
+        // skipped: the cache-only lookup refuses it (null) and the strict
+        // lookup falls through to the genuine built-in quote (0.8790 EUR per
+        // USD) - real data, still never a silent 1:1.
         db.exchangeRateDao().insertRate(
             ExchangeRate(baseCurrency = "USD", targetCurrency = "EUR", rate = "0", timestamp = 1)
         )
-        assertRate("0.8790", repository.getConversionRate("USD", "EUR"))
+        assertNull(repository.getConversionRate("USD", "EUR"))
+        assertRate("0.8790", repository.getConversionRateStrict("USD", "EUR"))
     }
 
     // ---- API validation and cache preservation ----

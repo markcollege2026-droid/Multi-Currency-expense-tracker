@@ -168,11 +168,14 @@ class ConverterViewModelTest {
     @Test
     fun refreshNeverLeavesTheIndicatorOn() = runBlocking {
         val vm = viewModel()
+        // The constructor starts a silent refresh that holds the isRefreshing
+        // guard while it runs; let it finish before asking for a visible one.
+        vm.awaitState { !it.isRefreshing }
         // Failing refresh: the indicator must clear and the user is told we are
         // on cached rates.
         vm.refreshRatesFromApi(showFeedback = true)
-        val failed = vm.awaitState { !it.isRefreshing && it.statusMessage != null }
-        assertEquals("Using cached / offline rates", failed.statusMessage)
+        val failed = vm.awaitState { !it.isRefreshing && it.statusMessage == "Using cached / offline rates" }
+        assertFalse(failed.isRefreshing)
         vm.clearStatusMessage()
 
         // Successful refresh: indicator clears again with a confirmation.
