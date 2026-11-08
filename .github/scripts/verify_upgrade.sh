@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Without signing secrets AGP names the release artifact app-release-unsigned.apk.
 apk=app/build/outputs/apk/release/app-release.apk
+if [ ! -f "$apk" ]; then
+  apk=app/build/outputs/apk/release/app-release-unsigned.apk
+fi
+if [ ! -f "$apk" ]; then
+  echo "::error::no release APK found under app/build/outputs/apk/release/"; exit 1
+fi
+echo "release artifact: $apk" | tee -a build.log
 tools="$ANDROID_HOME/build-tools/35.0.0"
 mkdir -p previous-release
 gh release download v1.8.0 --pattern app-release.apk --dir previous-release
@@ -39,4 +47,4 @@ if "$tools/apksigner" verify --print-certs "$apk" >/dev/null 2>&1; then
 else
   echo "::warning::Unsigned release APK: skipping apksigner verify output." | tee -a build.log
 fi
-(cd app/build/outputs/apk/release && sha256sum app-release.apk > SHA256SUMS.txt)
+(cd app/build/outputs/apk/release && sha256sum "$(basename "$apk")" > SHA256SUMS.txt)

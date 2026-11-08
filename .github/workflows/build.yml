@@ -61,7 +61,16 @@ jobs:
       - name: Verify the built APK matches this commit
         run: |
           set -euo pipefail
+          # Without signing secrets AGP names the release artifact
+          # app-release-unsigned.apk; verification must work either way.
           apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          fi
+          if [ ! -f "$apk" ]; then
+            echo "::error::no release APK found under app/build/outputs/apk/release/"; ls -l app/build/outputs/apk/release/ || true; exit 1
+          fi
+          echo "release artifact: $apk" | tee -a build.log
           dbg=app/build/outputs/apk/debug/app-debug.apk
           expected_code=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
           expected_name=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
