@@ -56,7 +56,19 @@ data class HomeUiState(
     val cardPayments: List<CreditCardPayment> = emptyList(),
     val message: String? = null,
     /** What is running right now, or null. Shown as an inline progress row. */
-    val busy: String? = null
+    val busy: String? = null,
+    /**
+     * Set when the ledger flows failed. The screen shows it with a retry
+     * instead of spinning forever - a dead collector used to leave the home
+     * page on an infinite loader.
+     */
+    val loadError: String? = null,
+    /**
+     * True when at least one currency had no conversion rate and a derived
+     * total (week/month/categories/total available) counted it 1:1. Surfaced
+     * in the UI instead of being silently wrong.
+     */
+    val ratesIncomplete: Boolean = false
 )
 
 @HiltViewModel
@@ -77,10 +89,37 @@ class HomeViewModel @Inject constructor(
     init {
         // Post any recurring payments that came due (also runs daily via WorkManager)
         viewModelScope.launch {
-            try { recurringRepository.processDuePayments(); runAutopay() } catch (e: Exception) { /* next run retries */ }
+            try {
+                recurringRepository.processDuePayments()
+                runAutopay()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                /* next run retries */
+            }
         }
 
+        observeLedger()
+
+        // Refresh rates if needed
         viewModelScope.launch {
+            val accountId = financeRepository.getActiveAccountId()
+            val account = financeRepository.getAccountById(accountId)
+            val base = account?.currency ?: "USD"
+            val lastUpdate = financeRepository.getSettingsSync()?.lastRatesUpdate ?: 0L
+            val shouldRefresh = System.currentTimeMillis() - lastUpdate > Constants.RATE_REFRESH_INTERVAL_HOURS * 60 * 60 * 1000L
+            if (shouldRefresh) {
+                refreshRates(base)
+            }
+        }
+    }
+
+    /** The ledger collector; also re-run by [retry] after a failure. */
+    private var ledgerJob: kotlinx.coroutines.Job? = null
+
+    private fun observeLedger() {
+        ledgerJob?.cancel()
+        ledgerJob = viewModelScope.launch {
             financeRepository.ensureDefaultCategories()
             val accountAndList = combine(
                 financeRepository.observeActiveAccount(),
@@ -131,11 +170,17 @@ class HomeViewModel @Inject constructor(
                 // An expense paid from a foreign-currency cash account stores its
                 // amount in that cash currency; translate back into the main currency
                 // with cached rates so week/month/category stats still add up.
+                // A currency with no rate is counted 1:1 but flags the summary as
+                // incomplete - never silently pretend the rate was 1.
+                var anyRateMissing = false
                 val ratesToMain: Map<String, BigDecimal> = expenses
                     .map { it.currencyConverted }
                     .distinct()
                     .filter { it != balanceCurrency }
-                    .associateWith { cur -> rateRepository.getConversionRateOrFallback(cur, balanceCurrency) }
+                    .associateWith { cur ->
+                        rateRepository.getConversionRateStrict(cur, balanceCurrency)
+                            ?: run { anyRateMissing = true; BigDecimal.ONE }
+                    }
                 fun inMain(e: Expense): BigDecimal {
                     val value = e.convertedAsBigDecimal()
                     val rate = ratesToMain[e.currencyConverted] ?: return value
@@ -192,7 +237,10 @@ class HomeViewModel @Inject constructor(
                     .map { it.currency }
                     .distinct()
                     .filter { it != balanceCurrency }
-                    .associateWith { cur -> rateRepository.getConversionRateOrFallback(cur, balanceCurrency) }
+                    .associateWith { cur ->
+                        rateRepository.getConversionRateStrict(cur, balanceCurrency)
+                            ?: run { anyRateMissing = true; BigDecimal.ONE }
+                    }
                 fun inBalanceCurrency(amount: BigDecimal, currency: String): BigDecimal =
                     if (currency == balanceCurrency) amount
                     else amount.multiply(childRates[currency] ?: BigDecimal.ONE)
@@ -241,27 +289,32 @@ class HomeViewModel @Inject constructor(
                     cashTotal = cashTotal,
                     cardPayments = payments.filter { it.sourceAccountId == accountId },
                     message = _uiState.value.message,
-                    busy = _uiState.value.busy
+                    busy = _uiState.value.busy,
+                    ratesIncomplete = anyRateMissing
                 )
             }
                 // Heavy aggregation (BigDecimal math, grouping, trend) runs off the main thread.
                 .flowOn(Dispatchers.Default)
+                .catch { failure ->
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            loadError = "Home could not load (" +
+                                (failure.message ?: "unknown error") + "). Tap to retry."
+                        )
+                    }
+                }
                 .collect { state ->
                     _uiState.value = state
                 }
         }
+    }
 
-        // Refresh rates if needed
-        viewModelScope.launch {
-            val accountId = financeRepository.getActiveAccountId()
-            val account = financeRepository.getAccountById(accountId)
-            val base = account?.currency ?: "USD"
-            val lastUpdate = financeRepository.getSettingsSync()?.lastRatesUpdate ?: 0L
-            val shouldRefresh = System.currentTimeMillis() - lastUpdate > Constants.RATE_REFRESH_INTERVAL_HOURS * 60 * 60 * 1000L
-            if (shouldRefresh) {
-                refreshRates(base)
-            }
-        }
+    /** Re-runs the ledger collector after a load failure. */
+    fun retry() {
+        _uiState.update { it.copy(loadError = null, isLoading = true) }
+        observeLedger()
     }
 
     private suspend fun runAutopay() {
@@ -328,7 +381,8 @@ class HomeViewModel @Inject constructor(
             ?: error("Main account not found")
         val cash = financeRepository.getAccountById(toCashId) ?: error("Cash account not found")
         require(cash.type == "CASH" && cash.parentAccountId == main.id) { "Choose a cash balance of this account" }
-        val rate = rateRepository.getConversionRateOrFallback(main.currency, cash.currency)
+        val rate = rateRepository.getConversionRateStrict(main.currency, cash.currency)
+            ?: error("No exchange rate for ${main.currency} to ${cash.currency}. Refresh rates and try again.")
         val withdrawal = financeRepository.withdraw(
             fromAccountId = main.id,
             toAccountId = cash.id,
@@ -360,7 +414,8 @@ class HomeViewModel @Inject constructor(
         require(from > BigDecimal.ZERO && to > BigDecimal.ZERO) { "Enter a positive amount" }
         val source = financeRepository.getAccountById(fromId) ?: error("Source balance not found")
         val target = financeRepository.getAccountById(toId) ?: error("Destination balance not found")
-        val rate = rateRepository.getConversionRateOrFallback(source.currency, target.currency)
+        val rate = rateRepository.getConversionRateStrict(source.currency, target.currency)
+            ?: error("No exchange rate for ${source.currency} to ${target.currency}. Refresh rates and try again.")
         financeRepository.transfer(fromId, toId, from, rate, note, amountTo = to)
         _uiState.update {
             it.copy(
@@ -371,9 +426,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
-    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
-        rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
+    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. Null when no rate is available. */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal? =
+        rateRepository.getConversionRateStrict(fromCurrency, toCurrency)
     /** Removes a cash or card balance together with its own transactions. */
     fun deleteBalanceAccount(account: Account) = action("Deleting ${account.name}\u2026") {
         // NonCancellable: a delete interrupted by closing the app must not stop
@@ -434,27 +489,40 @@ class HomeViewModel @Inject constructor(
                 // Field-level write: a whole-row REPLACE from a stale snapshot could
                 // put back an old activeAccountId (and with it an empty ledger).
                 financeRepository.saveRatesTimestamp(timestamp)
+            }.onFailure { failure ->
+                _uiState.update {
+                    it.copy(message = "Could not refresh rates: ${failure.message ?: "network error"}")
+                }
             }
         }
     }
 
     fun deleteExpense(expense: Expense) {
         viewModelScope.launch {
-            financeRepository.deleteExpense(expense)
+            try {
+                financeRepository.deleteExpense(expense)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(message = e.message ?: "Unable to delete") }
+            }
         }
     }
 
     fun deleteTopUp(topUp: TopUp) {
         viewModelScope.launch {
-            financeRepository.deleteTopUp(topUp)
+            try {
+                financeRepository.deleteTopUp(topUp)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(message = e.message ?: "Unable to delete") }
+            }
         }
     }
 
     fun adjustBalance(desiredBalance: BigDecimal) {
         viewModelScope.launch {
-            val currentBalance = _uiState.value.balance
-            val diff = desiredBalance.subtract(currentBalance)
-            if (diff.compareTo(BigDecimal.ZERO) == 0) return@launch
+            try {
+                val currentBalance = _uiState.value.balance
+                val diff = desiredBalance.subtract(currentBalance)
+                if (diff.compareTo(BigDecimal.ZERO) == 0) return@launch
 
             val account = financeRepository.getAccountById(financeRepository.getActiveAccountId())
                 ?: return@launch
@@ -486,6 +554,9 @@ class HomeViewModel @Inject constructor(
                     paymentMethod = null
                 )
                 financeRepository.insertExpense(expense)
+            }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(message = e.message ?: "Unable to adjust balance") }
             }
         }
     }

@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag
-        required: true
-        default: v1.11.0
+        description: "Release tag (leave blank for v<versionName> from app/build.gradle.kts)"
+        required: false
+        default: ""
 permissions:
   contents: write
 jobs:
@@ -30,6 +30,13 @@ jobs:
           fi
           echo "sdk.dir=$ANDROID_HOME" > local.properties
       - name: Verify and compile
+        # Release signing credentials come from GitHub Actions secrets (see
+        # KEYSTORE.md). Without them the release APK is unsigned and the
+        # publish step below refuses to release it.
+        env:
+          SPENDINGTRACKER_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          SPENDINGTRACKER_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          SPENDINGTRACKER_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -o pipefail
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
@@ -43,11 +50,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/verify_upgrade.sh
+      # The tag defaults to v<versionName> of the app module, so the workflow
+      # can never silently publish under a stale version number again.
+      - name: Resolve release tag
+        id: appver
+        run: |
+          version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then tag="v$version"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Require signed release APK before publishing
+        run: |
+          set -euo pipefail
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          if ! "${bt}apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk >/dev/null 2>&1; then
+            echo "::error::Release APK is unsigned. Configure the RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD repository secrets to publish a release."
+            exit 1
+          fi
+          "${bt}apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | grep 'Signer #1 certificate SHA-256 digest:'
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag }}
+          tag_name: ${{ steps.appver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Spending Tracker ${{ inputs.tag }}
+          name: Spending Tracker ${{ steps.appver.outputs.tag }}
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |

@@ -44,6 +44,7 @@ import com.spendingtracker.app.ui.components.AppFilterChip
 import com.spendingtracker.app.ui.components.AppHairline
 import com.spendingtracker.app.ui.components.AppPill
 import com.spendingtracker.app.ui.components.AppIconButton
+import com.spendingtracker.app.ui.components.AppLoadError
 import com.spendingtracker.app.ui.components.AppLoadingScreen
 import com.spendingtracker.app.ui.components.AppTextButton
 import com.spendingtracker.app.ui.components.AppTextField
@@ -188,6 +189,12 @@ fun TransactionsScreen(
     ) { padding ->
         if (uiState.isLoading) {
             AppLoadingScreen(modifier = Modifier.padding(padding))
+        } else if (uiState.loadError != null) {
+            AppLoadError(
+                message = uiState.loadError!!,
+                onRetry = viewModel::retry,
+                modifier = Modifier.padding(padding)
+            )
         } else {
             Column(
                 modifier = Modifier

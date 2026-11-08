@@ -5,6 +5,9 @@ local.properties
 *.iml
 .idea/
 
+# Release signing credentials (never commit these; see KEYSTORE.md)
+signing.properties
+
 # Built APK/AAB artifacts are distributed via CI artifacts and GitHub Releases,
 # not committed to the repository.
 /apk/

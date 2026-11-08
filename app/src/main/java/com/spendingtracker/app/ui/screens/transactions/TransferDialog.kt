@@ -124,7 +124,7 @@ fun transferAccountLabel(account: Account, balance: BigDecimal): String =
 fun TransferDialog(
     accounts: List<Account>,
     balances: Map<Long, BigDecimal>,
-    rateLookup: suspend (fromCurrency: String, toCurrency: String) -> BigDecimal,
+    rateLookup: suspend (fromCurrency: String, toCurrency: String) -> BigDecimal?,
     onConfirm: (fromId: Long, toId: Long, amountFrom: String, amountTo: String, note: String?) -> Unit,
     onDismiss: () -> Unit,
     onCreateCash: (() -> Unit)? = null,
@@ -143,7 +143,7 @@ fun TransferDialog(
     }
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    var rate by remember { mutableStateOf(BigDecimal.ONE) }
+    var rate by remember { mutableStateOf<BigDecimal?>(null) }
     var rateReady by remember { mutableStateOf(false) }
     var typedInTarget by remember { mutableStateOf(false) }
     var pickerSide by remember { mutableStateOf<TransferPickerSide?>(null) }
@@ -155,7 +155,22 @@ fun TransferDialog(
     val to = accounts.firstOrNull { it.id == toId }
     val hasPair = from != null && to != null && from.id != to.id
     val sourceBalance = from?.let { balances[it.id] } ?: BigDecimal.ZERO
-    val form = transferFormState(amount, sourceBalance, rate, typedInTarget, hasPair)
+    val needsConversion = hasPair && from!!.currency != to!!.currency
+    val rateValue = rate
+    // Never derive or confirm money amounts from a missing rate: block the form
+    // while the lookup runs, and refuse it outright when no rate exists.
+    val form = when {
+        needsConversion && !rateReady ->
+            TransferFormState(null, null, null, null, false)
+        needsConversion && rateValue == null ->
+            TransferFormState(
+                null, null, null,
+                "No exchange rate for ${from!!.currency} to ${to!!.currency}. Refresh rates and try again.",
+                false
+            )
+        else ->
+            transferFormState(amount, sourceBalance, rateValue ?: BigDecimal.ONE, typedInTarget, hasPair)
+    }
     val needsCash = accounts.size < 2
 
     LaunchedEffect(Unit) {
@@ -171,7 +186,13 @@ fun TransferDialog(
             return@LaunchedEffect
         }
         rateReady = false
-        rate = try { rateLookup(source, target) } catch (e: Exception) { BigDecimal.ONE }
+        rate = try {
+            rateLookup(source, target)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
         rateReady = true
     }
 
@@ -259,7 +280,7 @@ fun TransferDialogBody(
     amount: String,
     note: String,
     form: TransferFormState,
-    rate: BigDecimal,
+    rate: BigDecimal?,
     rateReady: Boolean,
     typedInTargetCurrency: Boolean = false,
     focusRequester: FocusRequester? = null,
@@ -368,8 +389,13 @@ fun TransferDialogBody(
                 overflow = TextOverflow.Ellipsis
             )
             if (needsConversion && rateReady) {
+                val knownRate = rate
                 Text(
-                    text = "1 ${from.currency} = ${rate.stripTrailingZeros().toPlainString()} ${to.currency}",
+                    text = if (knownRate != null) {
+                        "1 ${from.currency} = ${knownRate.stripTrailingZeros().toPlainString()} ${to.currency}"
+                    } else {
+                        "Exchange rate unavailable for ${from.currency}/${to.currency}"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1

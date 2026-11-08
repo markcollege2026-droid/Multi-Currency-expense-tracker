@@ -189,7 +189,8 @@ private fun ConverterScreenBody(
                                 viewModel.setChartPair(uiState.chartBaseCode, code)
                             }
                         },
-                        onSelectTimeframe = { tf -> viewModel.setChartTimeframe(tf) }
+                        onSelectTimeframe = { tf -> viewModel.setChartTimeframe(tf) },
+                        onRetryChart = { viewModel.loadChartSeries() }
                     )
                 }
             }
@@ -491,7 +492,7 @@ private fun TopBaseCurrencyCard(
             Spacer(Modifier.width(4.dp))
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = if (compact) 96.dp else 160.dp)) {
                 Text(
-                    text = formatConverterValue(item.convertedAmount),
+                    text = item.convertedAmount?.let { formatConverterValue(it) } ?: "—",
                     style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = ConverterBlue,
@@ -519,15 +520,27 @@ private fun TargetCurrencyCard(
     onOpenChart: () -> Unit
 ) {
     val compact = LocalCompactUi.current
-    val isPositive = item.changePercent24h >= 0.0
-    val badgeBg = if (isPositive) PositiveGreenBg else NegativeRedBg
-    val badgeText = if (isPositive) PositiveGreenText else NegativeRedText
-    val changeFormatted = String.format(
-        Locale.US,
-        "%s%.2f%%",
-        if (isPositive) "+" else "",
-        item.changePercent24h
-    )
+    val change = item.changePercent24h
+    val isPositive = (change ?: 0.0) >= 0.0
+    val badgeBg = if (change == null) {
+        MaterialTheme.colorScheme.surfaceContainer
+    } else if (isPositive) {
+        PositiveGreenBg
+    } else {
+        NegativeRedBg
+    }
+    val badgeText = if (change == null) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else if (isPositive) {
+        PositiveGreenText
+    } else {
+        NegativeRedText
+    }
+    val changeFormatted = if (change != null) {
+        String.format(Locale.US, "%s%.2f%%", if (isPositive) "+" else "", change)
+    } else {
+        "24h n/a"
+    }
     val corner = if (compact) 8.dp else 16.dp
 
     Surface(
@@ -576,15 +589,23 @@ private fun TargetCurrencyCard(
                     }
                 }
                 Text(
-                    text = "1 $baseCode = ${formatConverterValue(item.unitRateFromBase)} ${item.info.code}",
+                    text = if (item.unitRateFromBase != null) {
+                        "1 $baseCode = ${formatConverterValue(item.unitRateFromBase)} ${item.info.code}"
+                    } else {
+                        "Rate unavailable for $baseCode/${item.info.code}"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (item.info.isCommodity || item.unitRateFromBase < BigDecimal("0.01")) {
+                val unitRate = item.unitRateFromBase
+                val inverseRate = item.inverseRateToBase
+                if (unitRate != null && inverseRate != null &&
+                    (item.info.isCommodity || unitRate.compareTo(BigDecimal("0.01")) < 0)
+                ) {
                     Text(
-                        text = "1 ${item.info.code} = ${formatConverterValue(item.inverseRateToBase)} $baseCode",
+                        text = "1 ${item.info.code} = ${formatConverterValue(inverseRate)} $baseCode",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         maxLines = 1,
@@ -595,7 +616,7 @@ private fun TargetCurrencyCard(
             Spacer(Modifier.width(4.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = formatConverterValue(item.convertedAmount),
+                    text = item.convertedAmount?.let { formatConverterValue(it) } ?: "—",
                     style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -742,7 +763,7 @@ private fun AmountSelectionDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     previewTargets.take(if (compact) 2 else 3).forEach { target ->
-                        val previewVal = parsedAmount.multiply(target.unitRateFromBase)
+                        val previewVal = target.unitRateFromBase?.let { parsedAmount.multiply(it) }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -753,7 +774,7 @@ private fun AmountSelectionDialog(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = formatConverterValue(previewVal),
+                                text = previewVal?.let { formatConverterValue(it) } ?: "rate unavailable",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -772,7 +793,8 @@ private fun ConverterChartsContent(
     onPickBase: () -> Unit,
     onPickTarget: () -> Unit,
     onSelectTargetQuick: (String) -> Unit,
-    onSelectTimeframe: (ChartTimeframe) -> Unit
+    onSelectTimeframe: (ChartTimeframe) -> Unit,
+    onRetryChart: () -> Unit
 ) {
     val baseInfo = remember(uiState.chartBaseCode) { CurrencyProvider.getInfo(uiState.chartBaseCode) }
     val targetInfo = remember(uiState.chartTargetCode) { CurrencyProvider.getInfo(uiState.chartTargetCode) }
@@ -782,10 +804,12 @@ private fun ConverterChartsContent(
     val dims = LocalAppDimens.current
     val chartHeight = if (compact) 150.dp else 210.dp
 
-    val firstRate = points.firstOrNull()?.rate ?: 1.0
-    val latestRate = points.lastOrNull()?.rate ?: 1.0
+    val firstRate = points.firstOrNull()?.rate ?: 0.0
+    val latestRate = points.lastOrNull()?.rate ?: 0.0
     val delta = latestRate - firstRate
-    val pctChange = if (firstRate > 0.0) (delta / firstRate) * 100.0 else 0.0
+    // Change percentages are computed only from genuine, comparable history.
+    val hasHistory = series?.isLiveHistory == true && points.size >= 2
+    val pctChange = if (hasHistory && firstRate > 0.0) (delta / firstRate) * 100.0 else 0.0
     val isPositive = pctChange >= 0.0
 
     val minRate = points.minOfOrNull { it.rate } ?: latestRate
@@ -869,7 +893,11 @@ private fun ConverterChartsContent(
             Column(modifier = Modifier.padding(if (compact) 7.dp else 16.dp)) {
                 var scrubbedIndex by remember(series) { mutableStateOf<Int?>(null) }
                 val activePoint = scrubbedIndex?.let { points.getOrNull(it) } ?: points.lastOrNull()
-                val displayRate = activePoint?.rate ?: latestRate
+                // Without historical points the headline still shows the current
+                // cached rate - never a fabricated 1.0 placeholder.
+                val displayRate: Double? = activePoint?.rate
+                    ?: uiState.chartCurrentRate?.toDouble()
+                val displayRateUsable = displayRate != null && displayRate.isFinite() && displayRate > 0.0
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -878,14 +906,18 @@ private fun ConverterChartsContent(
                 ) {
                     Column {
                         Text(
-                            text = "1 ${baseInfo.code} = ${formatConverterValue(BigDecimal.valueOf(displayRate))} ${targetInfo.code}",
+                            text = if (displayRateUsable) {
+                                "1 ${baseInfo.code} = ${formatConverterValue(BigDecimal.valueOf(displayRate!!))} ${targetInfo.code}"
+                            } else {
+                                "1 ${baseInfo.code} = rate unavailable ${targetInfo.code}"
+                            },
                             style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (uiState.baseAmount.compareTo(BigDecimal.ONE) != 0) {
-                            val totalConverted = uiState.baseAmount.multiply(BigDecimal.valueOf(displayRate))
+                        if (displayRateUsable && uiState.baseAmount.compareTo(BigDecimal.ONE) != 0) {
+                            val totalConverted = uiState.baseAmount.multiply(BigDecimal.valueOf(displayRate!!))
                             Text(
                                 text = "${formatConverterValue(uiState.baseAmount)} ${baseInfo.code} = ${formatConverterValue(totalConverted)} ${targetInfo.code}",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -894,7 +926,11 @@ private fun ConverterChartsContent(
                             )
                         }
                         Text(
-                            text = activePoint?.dateLabel ?: "",
+                            text = when {
+                                activePoint != null -> activePoint.dateLabel
+                                displayRateUsable -> "current rate (cached)"
+                                else -> ""
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -902,19 +938,31 @@ private fun ConverterChartsContent(
 
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = if (isPositive) PositiveGreenBg else NegativeRedBg
+                        color = if (hasHistory) {
+                            if (isPositive) PositiveGreenBg else NegativeRedBg
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainer
+                        }
                     ) {
                         Text(
-                            text = String.format(
-                                Locale.US,
-                                "%s%.2f%% (%s)",
-                                if (isPositive) "+" else "",
-                                pctChange,
-                                uiState.chartTimeframe.label
-                            ),
+                            text = if (hasHistory) {
+                                String.format(
+                                    Locale.US,
+                                    "%s%.2f%% (%s)",
+                                    if (isPositive) "+" else "",
+                                    pctChange,
+                                    uiState.chartTimeframe.label
+                                )
+                            } else {
+                                "No historical data"
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (isPositive) PositiveGreenText else NegativeRedText,
+                            color = if (hasHistory) {
+                                if (isPositive) PositiveGreenText else NegativeRedText
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                             modifier = Modifier.padding(horizontal = if (compact) 6.dp else 10.dp, vertical = if (compact) 2.dp else 5.dp)
                         )
                     }
@@ -959,6 +1007,26 @@ private fun ConverterChartsContent(
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator()
+                    }
+                } else if (points.size < 2) {
+                    // No genuine history: say so and offer a retry instead of
+                    // drawing an invented series to fill the space.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(chartHeight),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = uiState.chartError ?: "Historical data unavailable for ${baseInfo.code}/${targetInfo.code}.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        AppButton(onClick = onRetryChart) { Text("Retry") }
                     }
                 } else if (points.size >= 2) {
                     InteractiveRateLineChart(
@@ -1016,9 +1084,15 @@ private fun ConverterChartsContent(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    StatColumn("High", formatConverterValue(BigDecimal.valueOf(maxRate)))
-                    StatColumn("Low", formatConverterValue(BigDecimal.valueOf(minRate)))
-                    StatColumn("Average", formatConverterValue(BigDecimal.valueOf(avgRate)))
+                    if (hasHistory) {
+                        StatColumn("High", formatConverterValue(BigDecimal.valueOf(maxRate)))
+                        StatColumn("Low", formatConverterValue(BigDecimal.valueOf(minRate)))
+                        StatColumn("Average", formatConverterValue(BigDecimal.valueOf(avgRate)))
+                    } else {
+                        StatColumn("High", "—")
+                        StatColumn("Low", "—")
+                        StatColumn("Average", "—")
+                    }
                 }
             }
         }
@@ -1040,8 +1114,9 @@ private fun ConverterChartsContent(
                     fontWeight = FontWeight.Bold
                 )
                 uiState.items.drop(1).forEach { item ->
-                    val pos = item.changePercent24h >= 0
-                    val barFraction = (abs(item.changePercent24h).toFloat() / 2.0f).coerceIn(0.08f, 1f)
+                    val change = item.changePercent24h
+                    val pos = (change ?: 0.0) >= 0
+                    val barFraction = ((abs(change ?: 0.0).toFloat()) / 2.0f).coerceIn(0.08f, 1f)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1054,15 +1129,26 @@ private fun ConverterChartsContent(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "${item.info.flag} ${item.info.code} (${formatConverterValue(item.convertedAmount)})",
+                                text = "${item.info.flag} ${item.info.code} (" +
+                                    (item.convertedAmount?.let { formatConverterValue(it) } ?: "rate unavailable") + ")",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = String.format(Locale.US, "%s%.2f%%", if (pos) "+" else "", item.changePercent24h),
+                                text = if (change != null) {
+                                    String.format(Locale.US, "%s%.2f%%", if (pos) "+" else "", change)
+                                } else {
+                                    "24h n/a"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (pos) PositiveGreenText else NegativeRedText
+                                color = if (change == null) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else if (pos) {
+                                    PositiveGreenText
+                                } else {
+                                    NegativeRedText
+                                }
                             )
                         }
                         Spacer(Modifier.height(4.dp))

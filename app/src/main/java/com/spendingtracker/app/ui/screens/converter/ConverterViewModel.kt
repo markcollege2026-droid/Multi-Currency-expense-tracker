@@ -13,6 +13,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -22,10 +23,16 @@ import com.spendingtracker.app.util.parseAmountOrNull
 data class ConverterListItem(
     val info: CurrencyProvider.CurrencyInfo,
     val isTopBase: Boolean,
-    val unitRateFromBase: BigDecimal,
-    val inverseRateToBase: BigDecimal,
-    val convertedAmount: BigDecimal,
-    val changePercent24h: Double
+    /** Null when no exchange rate for the pair is available on this device. */
+    val unitRateFromBase: BigDecimal?,
+    val inverseRateToBase: BigDecimal?,
+    val convertedAmount: BigDecimal?,
+    /**
+     * Real 24h change, or null when no comparable historical data exists.
+     * The app has no genuine intraday history source, so this stays null and
+     * the UI shows "24h n/a" instead of inventing a percentage.
+     */
+    val changePercent24h: Double? = null
 )
 
 enum class ConverterSubTab {
@@ -56,6 +63,10 @@ data class ConverterUiState(
     val chartTimeframe: ChartTimeframe = ChartTimeframe.ONE_MONTH,
     val chartSeries: HistoricalRateSeries? = null,
     val isChartLoading: Boolean = false,
+    /** Set when historical data is unavailable (offline, unsupported pair, API failure). */
+    val chartError: String? = null,
+    /** Latest cached rate for the chart pair; shown when no historical points exist. */
+    val chartCurrentRate: BigDecimal? = null,
     /** Currencies in the user's configured order; the pickers rank by this. */
     val orderedCurrencies: List<CurrencyProvider.CurrencyInfo> = CurrencyProvider.allCurrencies
 ) {
@@ -138,23 +149,23 @@ class ConverterViewModel @Inject constructor(
             val unitRate = if (isTop) {
                 BigDecimal.ONE
             } else {
-                rateRepository.getConversionRateOrFallback(topBaseCode, code)
+                // Strict: null (not a silent 1:1) when no real quote exists.
+                rateRepository.getConversionRateStrict(topBaseCode, code)
             }
-            val inverseRate = if (isTop || unitRate.compareTo(BigDecimal.ZERO) == 0) {
-                BigDecimal.ONE
+            val inverseRate = if (isTop || unitRate == null || unitRate.compareTo(BigDecimal.ZERO) == 0) {
+                if (isTop) BigDecimal.ONE else null
             } else {
                 try {
                     BigDecimal.ONE.divide(unitRate, 8, RoundingMode.HALF_EVEN).stripTrailingZeros()
                 } catch (_: Exception) {
-                    BigDecimal.ONE
+                    null
                 }
             }
-            val converted = if (isTop) {
-                baseAmt
-            } else {
-                currencyConverter.convert(baseAmt, topBaseCode, code, unitRate)
+            val converted = when {
+                isTop -> baseAmt
+                unitRate == null -> null // no rate: show "unavailable", never a guess
+                else -> currencyConverter.convert(baseAmt, topBaseCode, code, unitRate)
             }
-            val change24h = rateRepository.get24hChangePercent(topBaseCode, code)
 
             ConverterListItem(
                 info = info,
@@ -162,7 +173,7 @@ class ConverterViewModel @Inject constructor(
                 unitRateFromBase = unitRate,
                 inverseRateToBase = inverseRate,
                 convertedAmount = converted,
-                changePercent24h = change24h
+                changePercent24h = null
             )
         }
 
@@ -314,30 +325,45 @@ class ConverterViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Refreshes the cached rate table from the network. One refresh at a time;
+     * the indicator is always cleared - success, failure or unexpected error -
+     * so it can never stick on forever.
+     */
     fun refreshRatesFromApi(showFeedback: Boolean = true) {
+        if (_uiState.value.isRefreshing) return
         val topBase = _uiState.value.selectedCodes.firstOrNull() ?: "USD"
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRefreshing = true)
-            val result = rateRepository.refreshRates(topBase)
-            result.fold(
-                onSuccess = { ts ->
-                    // Field-level write; see FinanceRepository.saveRatesTimestamp.
-                    financeRepository.saveRatesTimestamp(ts)
-                    recomputeConversionList(ts)
-                    _uiState.value = _uiState.value.copy(
-                        isRefreshing = false,
-                        lastUpdatedMillis = ts,
-                        statusMessage = if (showFeedback) "Exchange rates updated" else null
-                    )
-                },
-                onFailure = {
-                    recomputeConversionList(_uiState.value.lastUpdatedMillis)
-                    _uiState.value = _uiState.value.copy(
-                        isRefreshing = false,
-                        statusMessage = if (showFeedback) "Using cached / offline rates" else null
-                    )
-                }
-            )
+            try {
+                val result = rateRepository.refreshRates(topBase)
+                result.fold(
+                    onSuccess = { ts ->
+                        // Field-level write; see FinanceRepository.saveRatesTimestamp.
+                        financeRepository.saveRatesTimestamp(ts)
+                        recomputeConversionList(ts)
+                        _uiState.value = _uiState.value.copy(
+                            lastUpdatedMillis = ts,
+                            statusMessage = if (showFeedback) "Exchange rates updated" else null
+                        )
+                    },
+                    onFailure = {
+                        recomputeConversionList(_uiState.value.lastUpdatedMillis)
+                        _uiState.value = _uiState.value.copy(
+                            statusMessage = if (showFeedback) "Using cached / offline rates" else null
+                        )
+                    }
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                recomputeConversionList(_uiState.value.lastUpdatedMillis)
+                _uiState.value = _uiState.value.copy(
+                    statusMessage = if (showFeedback) "Using cached / offline rates" else null
+                )
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 
@@ -365,17 +391,49 @@ class ConverterViewModel @Inject constructor(
         loadChartSeries()
     }
 
+    /** Latest chart request wins: older in-flight requests are cancelled and, if they still finish, ignored. */
+    private var chartJob: kotlinx.coroutines.Job? = null
+    private var chartRequestSeq = 0
+
     fun loadChartSeries() {
         val base = _uiState.value.chartBaseCode
         val target = _uiState.value.chartTargetCode
         val days = _uiState.value.chartTimeframe.days
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isChartLoading = true)
-            val series = rateRepository.getHistoricalSeries(base, target, days)
-            _uiState.value = _uiState.value.copy(
-                chartSeries = series,
-                isChartLoading = false
-            )
+        val seq = ++chartRequestSeq
+        chartJob?.cancel()
+        chartJob = viewModelScope.launch {
+            _uiState.update { it.copy(isChartLoading = true, chartError = null) }
+            val currentRate = try {
+                rateRepository.getConversionRateStrict(base, target)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            val series = try {
+                rateRepository.getHistoricalSeries(base, target, days)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            // A newer request already owns the chart state: never let a slow,
+            // stale response overwrite the pair/range the user picked last.
+            if (seq != chartRequestSeq) return@launch
+            val live = series?.isLiveHistory == true
+            _uiState.update {
+                it.copy(
+                    chartSeries = series,
+                    chartCurrentRate = currentRate,
+                    isChartLoading = false,
+                    chartError = if (live) {
+                        null
+                    } else {
+                        "Historical rates for $base/$target are unavailable right now. " +
+                            "Check your connection and try again."
+                    }
+                )
+            }
         }
     }
 

@@ -113,7 +113,7 @@ class ManageAccountsStateTest {
     private fun settingsViewModel(repo: FinanceRepository): SettingsViewModel {
         val rates = ExchangeRateRepository(db.exchangeRateDao(), noNetworkApi())
         val loans = LoanRepository(db.loanDebtDao(), db.repaymentDao())
-        val recurring = RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates)
+        val recurring = RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates, db)
         val exports = ExportImportManager(repo, loans, rates, recurring)
         val files = BackupFileManager(RuntimeEnvironment.getApplication(), exports)
         return SettingsViewModel(repo, rates, loans, exports, files, RuntimeEnvironment.getApplication())

@@ -1,11 +1,14 @@
 package com.spendingtracker.app.data.repository
 
+import com.spendingtracker.app.data.local.AppDatabase
 import com.spendingtracker.app.data.local.dao.AccountDao
 import com.spendingtracker.app.data.local.dao.ExpenseDao
 import com.spendingtracker.app.data.local.dao.RecurringPaymentDao
 import com.spendingtracker.app.data.local.entity.Expense
 import com.spendingtracker.app.data.local.entity.RecurringPayment
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.math.BigDecimal
 import java.math.RoundingMode
 import javax.inject.Inject
@@ -16,7 +19,8 @@ class RecurringRepository @Inject constructor(
     private val recurringPaymentDao: RecurringPaymentDao,
     private val accountDao: AccountDao,
     private val expenseDao: ExpenseDao,
-    private val exchangeRateRepository: ExchangeRateRepository
+    private val exchangeRateRepository: ExchangeRateRepository,
+    private val database: AppDatabase
 ) {
     fun getForAccount(accountId: Long): Flow<List<RecurringPayment>> =
         recurringPaymentDao.getForAccount(accountId)
@@ -39,79 +43,106 @@ class RecurringRepository @Inject constructor(
      * Posts every due recurring payment as an expense in its account and advances
      * its schedule. Catches up missed occurrences (capped per run).
      *
+     * Correctness guarantees:
+     * - **Atomic**: every expense insert commits in the same Room transaction as
+     *   the schedule advance. A crash mid-run rolls back cleanly, so an
+     *   occurrence can never be posted without its schedule moving - which is
+     *   exactly what used to duplicate the payment on the next run.
+     * - **Idempotent**: retries and process restarts see the advanced schedule
+     *   and skip already-posted occurrences.
+     * - **Single-executor**: concurrent runs (Home startup + WorkManager) are
+     *   serialized by [runMutex], and each run re-reads the schedule inside its
+     *   transaction, so two executions can never post the same occurrence twice.
+     *
      * If an exchange rate is not available yet, the payment stays due and is
      * retried on the next run - it is never posted with a wrong amount.
      *
      * @return number of expenses created
      */
     suspend fun processDuePayments(now: Long = System.currentTimeMillis()): Int {
-        var created = 0
-        for (payment in recurringPaymentDao.getAllSync()) {
-            if (!payment.isActive) continue
-            val account = accountDao.getAccountById(payment.accountId)
-            if (account == null) {
-                // Orphaned payment - its account is gone
-                recurringPaymentDao.update(payment.copy(isActive = false))
-                continue
-            }
-            var next = payment.nextDueAt
-            var lastRun = payment.lastRunAt
-            var madeProgress = false
-            var completed = false // deactivated at end date - nothing more to save
-            var safety = 0
-            while (next <= now && safety < MAX_CATCH_UP_PER_RUN && !completed) {
-                safety++
-                val end = payment.endDate
-                if (end != null && next > end) {
-                    // Schedule is over - keep the record but stop firing
-                    recurringPaymentDao.update(
-                        payment.copy(nextDueAt = next, lastRunAt = lastRun, isActive = false)
-                    )
-                    completed = true
-                    break
+        runMutex.withLock {
+            var created = 0
+            database.withTransaction {
+                // Re-read inside the transaction: a concurrent run that committed
+                // first has already advanced the schedules below.
+                for (payment in recurringPaymentDao.getAllSync()) {
+                    if (!payment.isActive) continue
+                    val account = accountDao.getAccountById(payment.accountId)
+                    if (account == null) {
+                        // Orphaned payment - its account is gone
+                        recurringPaymentDao.update(payment.copy(isActive = false))
+                        continue
+                    }
+                    var next = payment.nextDueAt
+                    var lastRun = payment.lastRunAt
+                    var madeProgress = false
+                    var completed = false // deactivated at end date - nothing more to save
+                    var safety = 0
+                    while (next <= now && safety < MAX_CATCH_UP_PER_RUN && !completed) {
+                        safety++
+                        val end = payment.endDate
+                        if (end != null && next > end) {
+                            // Schedule is over - keep the record but stop firing
+                            recurringPaymentDao.update(
+                                payment.copy(nextDueAt = next, lastRunAt = lastRun, isActive = false)
+                            )
+                            completed = true
+                            break
+                        }
+                        // A malformed amount must never post a 0-value expense.
+                        val original = payment.amountAsBigDecimal()
+                        if (original <= BigDecimal.ZERO) break
+                        // Convert at execution time with the currently cached rate
+                        val rate = if (payment.currencyOriginal == account.currency) {
+                            BigDecimal.ONE
+                        } else {
+                            exchangeRateRepository.getConversionRate(payment.currencyOriginal, account.currency)
+                        }
+                        if (rate == null) {
+                            // No rate yet - leave the remaining occurrences due and retry
+                            // later (never guess the amount). Other payments still process.
+                            break
+                        }
+                        val converted = original.multiply(rate).setScale(6, RoundingMode.HALF_EVEN)
+                        expenseDao.insertExpense(
+                            Expense(
+                                accountId = account.id,
+                                amountOriginal = original.toPlainString(),
+                                currencyOriginal = payment.currencyOriginal,
+                                amountConverted = converted.toPlainString(),
+                                currencyConverted = account.currency,
+                                exchangeRateUsed = rate.toPlainString(),
+                                categoryId = payment.categoryId,
+                                date = next,
+                                note = payment.note ?: payment.title,
+                                paymentMethod = payment.paymentMethod
+                            )
+                        )
+                        created++
+                        lastRun = next
+                        next = RecurringPayment.nextAfter(next, payment.frequency)
+                        madeProgress = true
+                    }
+                    if (madeProgress && !completed) {
+                        recurringPaymentDao.update(
+                            payment.copy(nextDueAt = next, lastRunAt = lastRun)
+                        )
+                    }
                 }
-                // Convert at execution time with the currently cached rate
-                val rate = if (payment.currencyOriginal == account.currency) {
-                    BigDecimal.ONE
-                } else {
-                    exchangeRateRepository.getConversionRate(payment.currencyOriginal, account.currency)
-                }
-                if (rate == null) {
-                    // No rate yet - leave the remaining occurrences due and retry
-                    // later (never guess the amount). Other payments still process.
-                    break
-                }
-                val original = payment.amountAsBigDecimal()
-                val converted = original.multiply(rate).setScale(6, RoundingMode.HALF_EVEN)
-                expenseDao.insertExpense(
-                    Expense(
-                        accountId = account.id,
-                        amountOriginal = original.toPlainString(),
-                        currencyOriginal = payment.currencyOriginal,
-                        amountConverted = converted.toPlainString(),
-                        currencyConverted = account.currency,
-                        exchangeRateUsed = rate.toPlainString(),
-                        categoryId = payment.categoryId,
-                        date = next,
-                        note = payment.note ?: payment.title,
-                        paymentMethod = payment.paymentMethod
-                    )
-                )
-                created++
-                lastRun = next
-                next = RecurringPayment.nextAfter(next, payment.frequency)
-                madeProgress = true
             }
-            if (madeProgress && !completed) {
-                recurringPaymentDao.update(
-                    payment.copy(nextDueAt = next, lastRunAt = lastRun)
-                )
-            }
+            return created
         }
-        return created
     }
 
     companion object {
         private const val MAX_CATCH_UP_PER_RUN = 50
+
+        /**
+         * Process-wide guard: Home's startup pass and the WorkManager pass can
+         * overlap, and both post real money entries. The Room transaction alone
+         * would already serialize them; the mutex makes the intent explicit and
+         * keeps the read-check-write window closed.
+         */
+        private val runMutex = Mutex()
     }
 }

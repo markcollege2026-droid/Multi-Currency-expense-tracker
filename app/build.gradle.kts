@@ -32,11 +32,38 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = rootProject.file("release.keystore")
-            storePassword = "spendingtracker"
-            keyAlias = "spendingtracker"
-            keyPassword = "spendingtracker"
+        // Release signing credentials are deliberately NOT hard-coded in source
+        // control. Supply them through one of:
+        //   1. environment variables (CI: map GitHub Actions secrets to these), or
+        //   2. a gitignored `signing.properties` in the repo root, or
+        //   3. Gradle properties (-P / ~/.gradle/gradle.properties).
+        // When all four values are present the release build is signed with the
+        // historic key (release.keystore, so the signing identity is unchanged).
+        // When they are absent the release build still compiles, unsigned, and
+        // debug builds are unaffected. See KEYSTORE.md.
+        val signingProps = java.util.Properties().apply {
+            val f = rootProject.file("signing.properties")
+            if (f.exists()) f.inputStream().use { load(it) }
+        }
+        fun signingValue(env: String, prop: String): String? =
+            System.getenv(env)?.takeIf { it.isNotBlank() }
+                ?: signingProps.getProperty(prop)?.takeIf { it.isNotBlank() }
+                ?: (project.findProperty(prop) as String?)?.takeIf { it.isNotBlank() }
+        val releaseStoreFile = signingValue("SPENDINGTRACKER_STORE_FILE", "releaseStoreFile")
+            ?.let { rootProject.file(it) }
+            ?: rootProject.file("release.keystore").takeIf { it.exists() }
+        val releaseStorePassword = signingValue("SPENDINGTRACKER_STORE_PASSWORD", "releaseStorePassword")
+        val releaseKeyAlias = signingValue("SPENDINGTRACKER_KEY_ALIAS", "releaseKeyAlias")
+        val releaseKeyPassword = signingValue("SPENDINGTRACKER_KEY_PASSWORD", "releaseKeyPassword")
+        if (releaseStoreFile != null && releaseStorePassword != null &&
+            releaseKeyAlias != null && releaseKeyPassword != null
+        ) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -46,7 +73,10 @@ android {
             // and startup. Proguard rules live in app/proguard-rules.pro.
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            // Signed only when the credentials above are configured; otherwise the
+            // release artifact is unsigned rather than silently signed with a
+            // hard-coded secret.
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

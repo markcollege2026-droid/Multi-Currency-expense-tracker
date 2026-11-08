@@ -12,7 +12,8 @@ permissions:
   contents: write
 jobs:
   verify-and-build:
-    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'arena/')
+    # Pull requests always run this workflow - including PRs from arena/*
+    # branches, which used to be skipped and therefore had no checks at all.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +34,13 @@ jobs:
           fi
           echo "sdk.dir=$ANDROID_HOME" > local.properties
       - name: Test and compile signed APKs
+        # Release signing credentials come from GitHub Actions secrets (see
+        # KEYSTORE.md); when they are not configured the release build compiles
+        # unsigned and the publish steps below refuse to publish it.
+        env:
+          SPENDINGTRACKER_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          SPENDINGTRACKER_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          SPENDINGTRACKER_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -o pipefail
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease \
@@ -188,6 +196,18 @@ jobs:
           version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      # Publishing an unsigned artifact would silently change the app's signing
+      # identity for every installer. Releases require configured secrets.
+      - name: Require signed release APK before publishing
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
+        run: |
+          set -euo pipefail
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          if ! "${bt}apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk >/dev/null 2>&1; then
+            echo "::error::Release APK is unsigned. Configure the RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD repository secrets to publish a release."
+            exit 1
+          fi
+          "${bt}apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | grep 'Signer #1 certificate SHA-256 digest:'
       - name: Publish requested release
         id: publish
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')

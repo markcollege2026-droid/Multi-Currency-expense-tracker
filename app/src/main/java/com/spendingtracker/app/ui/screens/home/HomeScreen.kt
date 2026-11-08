@@ -149,6 +149,12 @@ fun HomeScreen(
     ) { padding ->
         if (uiState.isLoading) {
             AppLoadingScreen(modifier = Modifier.padding(padding))
+        } else if (uiState.loadError != null) {
+            AppLoadError(
+                message = uiState.loadError!!,
+                onRetry = viewModel::retry,
+                modifier = Modifier.padding(padding)
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -164,6 +170,14 @@ fun HomeScreen(
             ) {
                 uiState.busy?.let { label ->
                     item(key = "busy") { AppBusyRow(label) }
+                }
+                if (uiState.ratesIncomplete) {
+                    item(key = "rates-incomplete") {
+                        AppEmptyState(
+                            "Some totals are missing an exchange rate and were counted 1:1. " +
+                                "Refresh rates to make them exact."
+                        )
+                    }
                 }
                 item(key = "balance") {
                     BalanceHero(

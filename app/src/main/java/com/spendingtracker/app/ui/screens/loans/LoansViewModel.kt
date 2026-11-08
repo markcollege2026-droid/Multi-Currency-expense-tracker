@@ -61,7 +61,12 @@ data class LoansUiState(
     val toast: String? = null,
     /** What is running right now, or null. Shown as an inline progress row. */
     val busy: String? = null,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    /**
+     * Set when the loan flows failed. The screen shows it with a retry instead
+     * of spinning forever on a dead collector.
+     */
+    val loadError: String? = null
 )
 
 @HiltViewModel
@@ -93,7 +98,15 @@ class LoansViewModel @Inject constructor(
             val ordered = runCatching { financeRepository.orderedCurrencies() }.getOrDefault(emptyList())
             payCurrencies.value = ordered.map { currency -> currency.code }
         }
-        viewModelScope.launch {
+        observeLoans()
+    }
+
+    /** The ledger collector; also re-run by [retry] after a failure. */
+    private var loansJob: kotlinx.coroutines.Job? = null
+
+    private fun observeLoans() {
+        loansJob?.cancel()
+        loansJob = viewModelScope.launch {
             combine(
                 loanRepository.getAllLoanDebts(),
                 financeRepository.observeActiveAccount(),
@@ -168,8 +181,24 @@ class LoansViewModel @Inject constructor(
             }
                 // Aggregation + rate lookups run off the main thread
                 .flowOn(Dispatchers.Default)
+                .catch { failure ->
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            loadError = "Loans could not load (" +
+                                (failure.message ?: "unknown error") + "). Tap to retry."
+                        )
+                    }
+                }
                 .collect { _uiState.value = it }
         }
+    }
+
+    /** Re-runs the loan collector after a load failure. */
+    fun retry() {
+        _uiState.update { it.copy(loadError = null, isLoading = true) }
+        observeLoans()
     }
 
     fun deleteLoan(loan: LoanDebt) {

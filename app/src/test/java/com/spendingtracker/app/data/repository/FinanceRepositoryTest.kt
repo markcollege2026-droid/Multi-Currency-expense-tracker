@@ -511,7 +511,7 @@ class FinanceRepositoryTest {
         ) { _, _, _ -> error("Backup tests must never call the network") } as com.spendingtracker.app.data.remote.ExchangeRateApi
         val rates = ExchangeRateRepository(db.exchangeRateDao(), api)
         return com.spendingtracker.app.util.ExportImportManager(repository, LoanRepository(db.loanDebtDao(), db.repaymentDao()),
-            rates, RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates))
+            rates, RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates, db))
     }
     @Test fun backupRoundTripKeepsCashRoutingAutopayAndPayments() = runBlocking {
         repository.insertExpense(expense(cashId, "30"))
