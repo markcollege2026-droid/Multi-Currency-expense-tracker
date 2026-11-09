@@ -5,6 +5,14 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      sign_historic:
+        description: >-
+          One-off: sign the release APK with the historic release.keystore whose
+          credentials are recovered from git history (they predate the audit that
+          removed them from source). See the key-rotation issue and KEYSTORE.md.
+        type: boolean
+        default: false
 concurrency:
   group: build-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -33,6 +41,32 @@ jobs:
             sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 2>&1 | tee -a build.log
           fi
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+      # One-off, dispatch-gated: sign with the SAME key the app shipped with until
+      # now (release.keystore at the repo root). The credentials were hard-coded
+      # in app/build.gradle.kts before the audit removed them, and they remain in
+      # git history - which is exactly why the key needs rotating (see the
+      # key-rotation issue and KEYSTORE.md). They are written to the gitignored
+      # signing.properties so the signing config picks them up; values are never
+      # echoed. No secret needs to be configured for this one-off path.
+      - name: Recover historic signing credentials from git history
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e 8883677:app/build.gradle.kts 2>/dev/null; then
+            git fetch --depth=1 origin 8883677 || git fetch --depth=1 origin main
+          fi
+          gf=$(git show 8883677:app/build.gradle.kts)
+          sp=$(grep -oP 'storePassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          ka=$(grep -oP 'keyAlias\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          kp=$(grep -oP 'keyPassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          test -n "$sp" && test -n "$ka" && test -n "$kp"
+          {
+            echo "releaseStoreFile=release.keystore"
+            echo "releaseStorePassword=$sp"
+            echo "releaseKeyAlias=$ka"
+            echo "releaseKeyPassword=$kp"
+          } > signing.properties
+          echo "Recovered historic signing credentials from git history (values not printed)."
       - name: Test and compile signed APKs
         # Release signing credentials come from GitHub Actions secrets (see
         # KEYSTORE.md); when they are not configured the release build compiles
@@ -205,6 +239,38 @@ jobs:
           version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      # One-off, dispatch-gated: publish the APK signed with the historic key as
+      # its own download (a single-purpose artifact and a dedicated pre-release),
+      # separate from the regular build artifacts.
+      - name: Publish the historic-key signed APK separately
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.appver.outputs.version }}"
+          asset="SpendingTracker-$version-legacy-key-signed.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$asset"
+          echo "sha256: $(sha256sum "$asset" | cut -d' ' -f1)" | tee -a build.log
+          mkdir -p signed-out && cp "$asset" signed-out/
+          tag="legacy-key-signed-v$version"
+          notes="One-off build signed with the app's historic release key (release.keystore).
+          Built from $GITHUB_SHA on $GITHUB_REF; signer certificate matched against v1.8.0 by the upgrade check in this run.
+          The key needs ROTATING: its credentials were in source control and remain in git history (see the key-rotation issue and KEYSTORE.md).
+          SHA-256: $(sha256sum "$asset" | cut -d' ' -f1)"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" --clobber
+          else
+            gh release create "$tag" "$asset" --prerelease --target "$GITHUB_SHA" \
+              --title "Spending Tracker v$version — signed with the legacy release key (one-off)" \
+              --notes "$notes"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
+        with:
+          name: signed-release-apk-legacy-key
+          path: signed-out/
+          if-no-files-found: error
       # Publishing an unsigned artifact would silently change the app's signing
       # identity for every installer. Releases require configured secrets.
       - name: Require signed release APK before publishing
