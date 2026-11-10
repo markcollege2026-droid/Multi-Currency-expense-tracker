@@ -29,6 +29,28 @@ jobs:
             sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 2>&1 | tee -a build.log
           fi
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+      # Standing policy until the release key is rotated (issue #22): releases
+      # are signed with the historic key. Recover its credentials from git
+      # history into the gitignored signing.properties (used only when no
+      # SPENDINGTRACKER_* env/secrets are configured; values never echoed).
+      - name: Recover historic signing credentials from git history
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e 8883677:app/build.gradle.kts 2>/dev/null; then
+            git fetch --depth=1 origin 8883677 || git fetch --depth=1 origin main
+          fi
+          gf=$(git show 8883677:app/build.gradle.kts)
+          sp=$(grep -oP 'storePassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          ka=$(grep -oP 'keyAlias\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          kp=$(grep -oP 'keyPassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          test -n "$sp" && test -n "$ka" && test -n "$kp"
+          {
+            echo "releaseStoreFile=release.keystore"
+            echo "releaseStorePassword=$sp"
+            echo "releaseKeyAlias=$ka"
+            echo "releaseKeyPassword=$kp"
+          } > signing.properties
+          echo "Recovered historic signing credentials from git history (values not printed)."
       - name: Verify and compile
         # Release signing credentials come from GitHub Actions secrets (see
         # KEYSTORE.md). Without them the release APK is unsigned and the

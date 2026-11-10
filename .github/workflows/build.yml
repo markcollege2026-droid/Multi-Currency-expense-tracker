@@ -41,15 +41,18 @@ jobs:
             sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 2>&1 | tee -a build.log
           fi
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-      # One-off, dispatch-gated: sign with the SAME key the app shipped with until
-      # now (release.keystore at the repo root). The credentials were hard-coded
-      # in app/build.gradle.kts before the audit removed them, and they remain in
-      # git history - which is exactly why the key needs rotating (see the
-      # key-rotation issue and KEYSTORE.md). They are written to the gitignored
-      # signing.properties so the signing config picks them up; values are never
-      # echoed. No secret needs to be configured for this one-off path.
+      # Signing for releases: until the release key is rotated (issue #22), the
+      # standing policy is that ALL releases are signed with the historic key
+      # (release.keystore with the credentials that are recoverable from git
+      # history - they predate the audit that removed them from source; that
+      # history exposure is exactly why the key must rotate). The recovered
+      # values go to the gitignored signing.properties and are only used when
+      # no SPENDINGTRACKER_* env/secrets are configured; values are never
+      # echoed. Also used by the explicit sign_historic dispatch.
       - name: Recover historic signing credentials from git history
-        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
+        if: |
+          (github.event_name == 'workflow_dispatch' && inputs.sign_historic) ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
         run: |
           set -euo pipefail
           if ! git cat-file -e 8883677:app/build.gradle.kts 2>/dev/null; then
@@ -178,6 +181,19 @@ jobs:
           # string constant together with the code that used it. The R8 mapping is
           # reported for traceability only.
           grep -aqF "AppFeedbackKt" "$tmp/debug.dex" || { echo "::error::AppFeedbackKt missing from debug APK"; missing="$missing [AppFeedbackKt]"; }
+
+          # AppLock auto-lock exemption: the application-level manifest marker
+          # must be in the merged manifest of BOTH shipped APKs with value true.
+          for apkcheck in "$dbg" "$apk"; do
+            "$aapt" dump xmltree "$apkcheck" AndroidManifest.xml > "$tmp/manifest.xml"
+            if ! grep -qF 'dev.pranav.applock.AUTOLOCK_EXEMPT' "$tmp/manifest.xml"; then
+              echo "::error::AUTOLOCK_EXEMPT missing from the manifest of $apkcheck"; missing="$missing [AUTOLOCK_EXEMPT]"
+            elif ! grep -B2 -A2 -F 'dev.pranav.applock.AUTOLOCK_EXEMPT' "$tmp/manifest.xml" | grep -qiE 'value.*(true|0xffffffff)'; then
+              echo "::error::AUTOLOCK_EXEMPT present in $apkcheck but its value is not Boolean true"; missing="$missing [AUTOLOCK_EXEMPT-value]"
+            else
+              echo "manifest marker present: $apkcheck (dev.pranav.applock.AUTOLOCK_EXEMPT=true)" | tee -a build.log
+            fi
+          done
           echo "release minification: $(grep -oE 'isMinifyEnabled = [a-z]+' app/build.gradle.kts | tail -1)" | tee -a build.log
           mapping=app/build/outputs/mapping/release/mapping.txt
           if [ -s "$mapping" ]; then
