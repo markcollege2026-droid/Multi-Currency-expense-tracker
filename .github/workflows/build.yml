@@ -217,6 +217,7 @@ jobs:
             echo "runId:       ${{ github.run_id }}"
             echo "builtAt:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "releaseApk:  $(sha256sum "$apk" | cut -d' ' -f1)"
+            echo "releaseApkFile: $(basename "$apk")"
             echo "debugApk:    $(sha256sum "$dbg" | cut -d' ' -f1)"
             echo "contentMarkers: verified in both debug and release APKs (busy labels, refusal toast) + AppFeedbackKt kept by R8"
           } | tee BUILD-INFO.txt
@@ -293,12 +294,23 @@ jobs:
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
         run: |
           set -euo pipefail
-          bt=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
-          if ! "${bt}apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk >/dev/null 2>&1; then
-            echo "::error::Release APK is unsigned. Configure the RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD repository secrets to publish a release."
+          ls -la app/build/outputs/apk/release/ | tee -a build.log
+          apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then apk=app/build/outputs/apk/release/app-release-unsigned.apk; fi
+          # Deterministic toolchain (matches verify_upgrade.sh): the newest
+          # build-tools dir on the runner image may be a preview whose apksigner
+          # is not reliable.
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          if [ ! -x "$tools/apksigner" ]; then
+            bt=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1); tools="${bt%/}"
+          fi
+          if ! "$tools/apksigner" verify --print-certs "$apk" > apksigner-out.txt 2>&1; then
+            cat apksigner-out.txt | tee -a build.log
+            echo "::error::Release APK ($apk) failed apksigner verify - refusing to publish. Configure the RELEASE_* secrets (or the signing.properties fallback) to sign releases."
             exit 1
           fi
-          "${bt}apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | grep 'Signer #1 certificate SHA-256 digest:'
+          cat apksigner-out.txt | tee -a build.log
+          grep 'Signer #1 certificate SHA-256 digest:' apksigner-out.txt | tee -a build.log
       - name: Publish requested release
         id: publish
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
