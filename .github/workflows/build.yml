@@ -23,6 +23,13 @@ jobs:
     # Pull requests always run this workflow - including PRs from arena/*
     # branches, which used to be skipped and therefore had no checks at all.
     runs-on: ubuntu-24.04
+    env:
+      # Preferred source of release signing credentials once configured
+      # (post key rotation). On release builds the recovered historic
+      # credentials override these via GITHUB_ENV.
+      SPENDINGTRACKER_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      SPENDINGTRACKER_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      SPENDINGTRACKER_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -69,17 +76,27 @@ jobs:
             echo "releaseKeyAlias=$ka"
             echo "releaseKeyPassword=$kp"
           } > signing.properties
-          echo "Recovered historic signing credentials from git history (values not printed)."
+          # Belt and braces: also export them as environment variables for the
+          # build step (env-file wins over job env; values are never echoed).
+          {
+            echo "SPENDINGTRACKER_STORE_FILE=release.keystore"
+            echo "SPENDINGTRACKER_STORE_PASSWORD=$sp"
+            echo "SPENDINGTRACKER_KEY_ALIAS=$ka"
+            echo "SPENDINGTRACKER_KEY_PASSWORD=$kp"
+          } >> "$GITHUB_ENV"
+          echo "::warning::Historic signing credentials recovered (signing.properties: $(wc -c < signing.properties) bytes; keys: store=$([ -n "$sp" ] && echo yes) alias=$([ -n "$ka" ] && echo yes) keypass=$([ -n "$kp" ] && echo yes))."
       - name: Test and compile signed APKs
-        # Release signing credentials come from GitHub Actions secrets (see
-        # KEYSTORE.md); when they are not configured the release build compiles
-        # unsigned and the publish steps below refuse to publish it.
-        env:
-          SPENDINGTRACKER_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          SPENDINGTRACKER_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          SPENDINGTRACKER_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        # Signing: env (secrets or the recovered historic credentials via
+        # GITHUB_ENV) > signing.properties > Gradle properties. When none are
+        # configured the release build compiles unsigned and the publish steps
+        # below refuse to publish it. See KEYSTORE.md.
         run: |
           set -o pipefail
+          if [ -f signing.properties ]; then
+            echo "::warning::signing.properties present ($(wc -c < signing.properties) bytes) - release build should be signed"
+          else
+            echo "::warning::no signing.properties - release build will be unsigned (expected unless this is a release build)"
+          fi
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease \
             -PGIT_SHA="${{ github.sha }}" \
             --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
