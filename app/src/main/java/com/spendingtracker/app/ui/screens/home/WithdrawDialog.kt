@@ -102,7 +102,7 @@ fun WithdrawDialog(
     cashAccounts: List<Account>,
     mainCurrency: String,
     mainBalance: BigDecimal,
-    rateLookup: suspend (fromCurrency: String, toCurrency: String) -> BigDecimal,
+    rateLookup: suspend (fromCurrency: String, toCurrency: String) -> BigDecimal?,
     onConfirm: (cashId: Long, amountFrom: String, amountTo: String, note: String?) -> Unit,
     onDismiss: () -> Unit,
     onCreateCash: (() -> Unit)? = null,
@@ -116,7 +116,7 @@ fun WithdrawDialog(
     }
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    var rate by remember { mutableStateOf(BigDecimal.ONE) }
+    var rate by remember { mutableStateOf<BigDecimal?>(null) }
     var rateReady by remember { mutableStateOf(false) }
     var side by remember { mutableStateOf(AmountSide.MAIN) }
     val focus = remember { FocusRequester() }
@@ -125,7 +125,23 @@ fun WithdrawDialog(
 
     val target = cashAccounts.firstOrNull { it.id == targetId }
     val noCashYet = cashAccounts.isEmpty()
-    val form = withdrawFormState(amount, mainBalance, rate, side == AmountSide.CASH, target != null)
+    val cashCurrency = target?.currency
+    val needsConversion = cashCurrency != null && cashCurrency != mainCurrency
+    val rateValue = rate
+    // Never derive or confirm money amounts from a missing rate: block the form
+    // while the lookup runs, and refuse it outright when no rate exists.
+    val form = when {
+        needsConversion && !rateReady ->
+            WithdrawFormState(null, null, null, null, false)
+        needsConversion && rateValue == null ->
+            WithdrawFormState(
+                null, null, null,
+                "No exchange rate for $mainCurrency to $cashCurrency. Refresh rates and try again.",
+                false
+            )
+        else ->
+            withdrawFormState(amount, mainBalance, rateValue ?: BigDecimal.ONE, side == AmountSide.CASH, target != null)
+    }
 
     LaunchedEffect(Unit) {
         // Focus is a convenience: a dialog window may not be attached on the
@@ -137,7 +153,13 @@ fun WithdrawDialog(
     LaunchedEffect(targetId) {
         val to = target?.currency ?: return@LaunchedEffect
         rateReady = false
-        rate = try { rateLookup(mainCurrency, to) } catch (e: Exception) { BigDecimal.ONE }
+        rate = try {
+            rateLookup(mainCurrency, to)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
         rateReady = true
     }
 
@@ -192,7 +214,7 @@ fun WithdrawDialogBody(
     amount: String,
     note: String,
     form: WithdrawFormState,
-    rate: BigDecimal,
+    rate: BigDecimal?,
     rateReady: Boolean,
     side: AmountSide = AmountSide.MAIN,
     focusRequester: FocusRequester? = null,
@@ -312,8 +334,13 @@ fun WithdrawDialogBody(
                 maxLines = 2
             )
         }
+        val knownRate = rate
         Text(
-            text = "1 $mainCurrency = ${rate.stripTrailingZeros().toPlainString()} $cashCurrency",
+            text = if (knownRate != null) {
+                "1 $mainCurrency = ${knownRate.stripTrailingZeros().toPlainString()} $cashCurrency"
+            } else {
+                "Exchange rate unavailable for $mainCurrency/$cashCurrency"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1

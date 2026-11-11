@@ -30,6 +30,7 @@ import com.spendingtracker.app.ui.components.AppConfirmDialog
 import com.spendingtracker.app.ui.components.AppDialog
 import com.spendingtracker.app.ui.components.AppEmptyState
 import com.spendingtracker.app.ui.components.AppIconButton
+import com.spendingtracker.app.ui.components.AppLoadError
 import com.spendingtracker.app.ui.components.AppPill
 import com.spendingtracker.app.ui.components.AppSectionHeader
 import com.spendingtracker.app.ui.components.AppSelectorRow
@@ -93,6 +94,12 @@ fun LoansScreen(
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
             }
+        } else if (uiState.loadError != null) {
+            AppLoadError(
+                message = uiState.loadError!!,
+                onRetry = viewModel::retry,
+                modifier = Modifier.padding(padding)
+            )
         } else if (showArchive) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),

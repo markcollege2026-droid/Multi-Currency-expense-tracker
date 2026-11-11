@@ -1,3 +1,51 @@
+# Spending Tracker 1.12.6 - AppLock exemption, strict rates, crash-safe recurring payments
+
+Released 8 November 2026.
+
+Version code **19**, version name **1.12.6**.
+
+## New: AppLock automatic-protection exemption
+
+The app now declares itself exempt from automatic enrollment/protection by
+compatible AppLock implementations (for example AppLock-auto-lock) that
+recognise the standard manifest marker:
+
+```xml
+<meta-data
+    android:name="dev.pranav.applock.AUTOLOCK_EXEMPT"
+    android:value="true" />
+```
+
+This is a **self-declared opt-out, not a security boundary**: it does not protect
+any data and it cannot bypass protection that a user applied manually. See the
+README section "AppLock automatic-protection exemption" for how to verify it.
+
+## Reliability and financial accuracy (comprehensive audit)
+
+- **No silent 1:1 conversions.** Every exchange-rate lookup is strict: when no
+  real quote exists for a pair, withdraw/transfer/deposit flows refuse with a
+  clear message instead of converting at a fabricated rate. Rates are validated
+  (finite, positive) before storage and use; invalid API data can never
+  overwrite a good cached rate.
+- **Honest charts.** The converter's history chart and 24h change only ever show
+  genuine market data; when unavailable they say so and offer a retry.
+- **Recurring payments can no longer duplicate.** Posting an occurrence and
+  advancing its schedule is one atomic, idempotent transaction - safe across
+  crashes, retries and concurrent runs. Malformed amounts never post 0-value
+  expenses; missing rates defer instead of guessing.
+- **Loading and error recovery everywhere.** Every screen's data loading ends
+  with either data or a visible error with retry; repeated taps cannot create
+  duplicate operations; the refresh indicator cannot stick on.
+
+## Signing
+
+This release is signed with the app's **historic release key**, per the standing
+policy while key rotation (issue #22) is pending - its credentials were removed
+from source but remain in git history, which is why the key must be rotated.
+Install it as a normal update over 1.12.5.
+
+---
+
 # Spending Tracker 1.12.5 - pay a loan in any currency, in parts
 
 Released 1 November 2026.

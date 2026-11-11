@@ -62,8 +62,11 @@ class WidgetRefreshWorker @AssistedInject constructor(
                 .map { it.currency }
                 .distinct()
                 .filter { it != base }
+            // Same conversion rule Home uses for "total available". A currency
+            // with no cached rate is counted 1:1 in this display-only total -
+            // never stored - exactly like Home's derived aggregates.
             val childRates: Map<String, BigDecimal> = childCurrencies.associateWith { currency ->
-                rateRepository.getConversionRateOrFallback(currency, base)
+                rateRepository.getConversionRateStrict(currency, base) ?: BigDecimal.ONE
             }
             val total = AccountBalances.totalAvailable(accounts, balances, account.id) { currency ->
                 childRates[currency] ?: BigDecimal.ONE
@@ -93,6 +96,8 @@ class WidgetRefreshWorker @AssistedInject constructor(
             )
             SpendingWidgetProvider.requestUpdate(applicationContext)
             Result.success()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.retry()
         }

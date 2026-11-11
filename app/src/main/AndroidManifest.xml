@@ -16,6 +16,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SpendingTracker"
         tools:targetApi="31">
+
+        <!-- Self-declared opt-out from automatic enrollment/protection by
+             compatible AppLock implementations (dev.pranav.applock). This is a
+             manifest-metadata opt-out only - not a security feature and not a
+             way to bypass manually applied protection. -->
+        <meta-data
+            android:name="dev.pranav.applock.AUTOLOCK_EXEMPT"
+            android:value="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -123,6 +123,18 @@ class DepositFormStateTest {
         assertFalse(depositFormState("abc", BigDecimal.ONE, null, null).canSave)
         assertEquals("Enter a positive amount", depositFormState("abc", BigDecimal.ONE, null, null).error)
     }
+
+    @Test fun missingRateRefusesCrossCurrencyFundingInsteadOfConvertingAtOne() {
+        // No real quote for EUR -> ILS: the form must refuse and say why,
+        // never fall back to a silent 1:1 that debits the wrong cash amount.
+        val form = depositFormState("40", null, BigDecimal("100"), "EUR")
+        assertFalse(form.canSave)
+        assertNull(form.cashAmount)
+        assertEquals(
+            "No exchange rate for EUR to the account currency. Refresh rates and try again.",
+            form.error
+        )
+    }
 }
 
 /** The History toolbar offers the same three actions as Home, as pills. */

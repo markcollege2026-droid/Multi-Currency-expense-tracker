@@ -337,6 +337,50 @@ class FinanceRepositoryTest {
         assertEquals("EUR", repayment.accountCurrency)
         money("80", eurCash); money("1000", mainId)
     }
+    // Issue #19 regression: partial repayment in another currency must debit the
+    // converted amount and keep the remaining balance in the loan's own currency.
+    @Test fun partialCrossCurrencyRepaymentDebitsTheConvertedAmount() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("100"), "EUR")
+        val debt = loan(LoanDebt.TYPE_DEBT, "80") // ILS
+        // 30 ILS at 1 ILS = 0.25 EUR costs 7.50 EUR of the wallet.
+        val repayment = repository.recordRepayment(
+            debt, BigDecimal("30"), accountId = eurCash, rate = BigDecimal("0.25")
+        )!!
+        assertMoney("7.50", repayment.accountAmountAsBigDecimalOrNull()!!)
+        assertEquals("EUR", repayment.accountCurrency)
+        assertMoney("0.25", repayment.rateAsBigDecimalOrNull()!!)
+        money("92.50", eurCash)
+        // The loan keeps counting in its own currency: 80 - 30 = 50 ILS remain.
+        assertFalse(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+        val rest = repository.recordRepayment(
+            debt, BigDecimal("50"), accountId = eurCash, rate = BigDecimal("0.25")
+        )!!
+        assertMoney("12.50", rest.accountAmountAsBigDecimalOrNull()!!)
+        money("80", eurCash)
+        assertTrue(db.loanDebtDao().getLoanDebtById(debt)!!.isSettled)
+    }
+    @Test fun crossCurrencyRepaymentRoundsTheAccountSideConsistently() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("100"), "EUR")
+        val debt = loan(LoanDebt.TYPE_DEBT, "80")
+        // 10 ILS at 0.333333 = 3.33333 EUR -> 3.33 EUR with HALF_EVEN at scale 2.
+        val repayment = repository.recordRepayment(
+            debt, BigDecimal("10"), accountId = eurCash, rate = BigDecimal("0.333333")
+        )!!
+        assertMoney("3.33", repayment.accountAmountAsBigDecimalOrNull()!!)
+        money("96.67", eurCash)
+    }
+    @Test fun crossCurrencyRepaymentRejectsZeroAndNegativeRates() = runBlocking {
+        val eurCash = repository.createBalanceAccount(mainId, "EUR wallet", "CASH", BigDecimal("100"), "EUR")
+        val debt = loan(LoanDebt.TYPE_DEBT, "80")
+        rejected { repository.recordRepayment(debt, BigDecimal("10"), accountId = eurCash, rate = BigDecimal.ZERO) }
+        rejected { repository.recordRepayment(debt, BigDecimal("10"), accountId = eurCash, rate = BigDecimal("-1")) }
+        assertTrue(db.repaymentDao().getRepaymentsForLoanSync(debt).isEmpty())
+        // A same-currency repayment ignores any mismatched rate: the amount moves unchanged.
+        val same = repository.recordRepayment(debt, BigDecimal("10"), accountId = cashId, rate = BigDecimal("5"))!!
+        assertMoney("10", same.accountAmountAsBigDecimalOrNull()!!)
+        assertMoney("1", same.rateAsBigDecimalOrNull()!!)
+        money("90", cashId)
+    }
     @Test fun reopeningASettledLoanReversesItsSettlement() = runBlocking {
         val debt = loan(LoanDebt.TYPE_DEBT, "80")
         repository.recordRepayment(debt, BigDecimal("30")) // earlier external part-payment stays
@@ -511,7 +555,7 @@ class FinanceRepositoryTest {
         ) { _, _, _ -> error("Backup tests must never call the network") } as com.spendingtracker.app.data.remote.ExchangeRateApi
         val rates = ExchangeRateRepository(db.exchangeRateDao(), api)
         return com.spendingtracker.app.util.ExportImportManager(repository, LoanRepository(db.loanDebtDao(), db.repaymentDao()),
-            rates, RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates))
+            rates, RecurringRepository(db.recurringPaymentDao(), db.accountDao(), db.expenseDao(), rates, db))
     }
     @Test fun backupRoundTripKeepsCashRoutingAutopayAndPayments() = runBlocking {
         repository.insertExpense(expense(cashId, "30"))

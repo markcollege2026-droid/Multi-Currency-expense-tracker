@@ -5,6 +5,14 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      sign_historic:
+        description: >-
+          One-off: sign the release APK with the historic release.keystore whose
+          credentials are recovered from git history (they predate the audit that
+          removed them from source). See the key-rotation issue and KEYSTORE.md.
+        type: boolean
+        default: false
 concurrency:
   group: build-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -12,8 +20,16 @@ permissions:
   contents: write
 jobs:
   verify-and-build:
-    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'arena/')
+    # Pull requests always run this workflow - including PRs from arena/*
+    # branches, which used to be skipped and therefore had no checks at all.
     runs-on: ubuntu-24.04
+    env:
+      # Preferred source of release signing credentials once configured
+      # (post key rotation). On release builds the recovered historic
+      # credentials override these via GITHUB_ENV.
+      SPENDINGTRACKER_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      SPENDINGTRACKER_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      SPENDINGTRACKER_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -32,9 +48,55 @@ jobs:
             sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 2>&1 | tee -a build.log
           fi
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+      # Signing for releases: until the release key is rotated (issue #22), the
+      # standing policy is that ALL releases are signed with the historic key
+      # (release.keystore with the credentials that are recoverable from git
+      # history - they predate the audit that removed them from source; that
+      # history exposure is exactly why the key must rotate). The recovered
+      # values go to the gitignored signing.properties and are only used when
+      # no SPENDINGTRACKER_* env/secrets are configured; values are never
+      # echoed. Also used by the explicit sign_historic dispatch.
+      - name: Recover historic signing credentials from git history
+        if: |
+          (github.event_name == 'workflow_dispatch' && inputs.sign_historic) ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e 8883677:app/build.gradle.kts 2>/dev/null; then
+            git fetch --depth=1 origin 8883677 || git fetch --depth=1 origin main
+          fi
+          gf=$(git show 8883677:app/build.gradle.kts)
+          sp=$(grep -oP 'storePassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          ka=$(grep -oP 'keyAlias\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          kp=$(grep -oP 'keyPassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
+          test -n "$sp" && test -n "$ka" && test -n "$kp"
+          {
+            echo "releaseStoreFile=release.keystore"
+            echo "releaseStorePassword=$sp"
+            echo "releaseKeyAlias=$ka"
+            echo "releaseKeyPassword=$kp"
+          } > signing.properties
+          # Belt and braces: also export them as environment variables for the
+          # build step (env-file wins over job env; values are never echoed).
+          {
+            echo "SPENDINGTRACKER_STORE_FILE=release.keystore"
+            echo "SPENDINGTRACKER_STORE_PASSWORD=$sp"
+            echo "SPENDINGTRACKER_KEY_ALIAS=$ka"
+            echo "SPENDINGTRACKER_KEY_PASSWORD=$kp"
+          } >> "$GITHUB_ENV"
+          echo "::warning::Historic signing credentials recovered (signing.properties: $(wc -c < signing.properties) bytes; keys: store=$([ -n "$sp" ] && echo yes) alias=$([ -n "$ka" ] && echo yes) keypass=$([ -n "$kp" ] && echo yes))."
       - name: Test and compile signed APKs
+        # Signing: env (secrets or the recovered historic credentials via
+        # GITHUB_ENV) > signing.properties > Gradle properties. When none are
+        # configured the release build compiles unsigned and the publish steps
+        # below refuse to publish it. See KEYSTORE.md.
         run: |
           set -o pipefail
+          if [ -f signing.properties ]; then
+            echo "::warning::signing.properties present ($(wc -c < signing.properties) bytes) - release build should be signed"
+          else
+            echo "::warning::no signing.properties - release build will be unsigned (expected unless this is a release build)"
+          fi
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease \
             -PGIT_SHA="${{ github.sha }}" \
             --no-daemon --no-parallel --max-workers=1 --stacktrace 2>&1 | tee -a build.log
@@ -53,7 +115,16 @@ jobs:
       - name: Verify the built APK matches this commit
         run: |
           set -euo pipefail
+          # Without signing secrets AGP names the release artifact
+          # app-release-unsigned.apk; verification must work either way.
           apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          fi
+          if [ ! -f "$apk" ]; then
+            echo "::error::no release APK found under app/build/outputs/apk/release/"; ls -l app/build/outputs/apk/release/ || true; exit 1
+          fi
+          echo "release artifact: $apk" | tee -a build.log
           dbg=app/build/outputs/apk/debug/app-debug.apk
           expected_code=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
           expected_name=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
@@ -127,6 +198,19 @@ jobs:
           # string constant together with the code that used it. The R8 mapping is
           # reported for traceability only.
           grep -aqF "AppFeedbackKt" "$tmp/debug.dex" || { echo "::error::AppFeedbackKt missing from debug APK"; missing="$missing [AppFeedbackKt]"; }
+
+          # AppLock auto-lock exemption: the application-level manifest marker
+          # must be in the merged manifest of BOTH shipped APKs with value true.
+          for apkcheck in "$dbg" "$apk"; do
+            "$aapt" dump xmltree "$apkcheck" AndroidManifest.xml > "$tmp/manifest.xml"
+            if ! grep -qF 'dev.pranav.applock.AUTOLOCK_EXEMPT' "$tmp/manifest.xml"; then
+              echo "::error::AUTOLOCK_EXEMPT missing from the manifest of $apkcheck"; missing="$missing [AUTOLOCK_EXEMPT]"
+            elif ! grep -B2 -A2 -F 'dev.pranav.applock.AUTOLOCK_EXEMPT' "$tmp/manifest.xml" | grep -qiE 'value.*(true|0xffffffff)'; then
+              echo "::error::AUTOLOCK_EXEMPT present in $apkcheck but its value is not Boolean true"; missing="$missing [AUTOLOCK_EXEMPT-value]"
+            else
+              echo "manifest marker present: $apkcheck (dev.pranav.applock.AUTOLOCK_EXEMPT=true)" | tee -a build.log
+            fi
+          done
           echo "release minification: $(grep -oE 'isMinifyEnabled = [a-z]+' app/build.gradle.kts | tail -1)" | tee -a build.log
           mapping=app/build/outputs/mapping/release/mapping.txt
           if [ -s "$mapping" ]; then
@@ -150,6 +234,7 @@ jobs:
             echo "runId:       ${{ github.run_id }}"
             echo "builtAt:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "releaseApk:  $(sha256sum "$apk" | cut -d' ' -f1)"
+            echo "releaseApkFile: $(basename "$apk")"
             echo "debugApk:    $(sha256sum "$dbg" | cut -d' ' -f1)"
             echo "contentMarkers: verified in both debug and release APKs (busy labels, refusal toast) + AppFeedbackKt kept by R8"
           } | tee BUILD-INFO.txt
@@ -188,6 +273,61 @@ jobs:
           version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      # One-off, dispatch-gated: publish the APK signed with the historic key as
+      # its own download (a single-purpose artifact and a dedicated pre-release),
+      # separate from the regular build artifacts.
+      - name: Publish the historic-key signed APK separately
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.appver.outputs.version }}"
+          asset="SpendingTracker-$version-legacy-key-signed.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$asset"
+          echo "sha256: $(sha256sum "$asset" | cut -d' ' -f1)" | tee -a build.log
+          mkdir -p signed-out && cp "$asset" signed-out/
+          tag="legacy-key-signed-v$version"
+          notes="One-off build signed with the app's historic release key (release.keystore).
+          Built from $GITHUB_SHA on $GITHUB_REF; signer certificate matched against v1.8.0 by the upgrade check in this run.
+          The key needs ROTATING: its credentials were in source control and remain in git history (see the key-rotation issue and KEYSTORE.md).
+          SHA-256: $(sha256sum "$asset" | cut -d' ' -f1)"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" --clobber
+          else
+            gh release create "$tag" "$asset" --prerelease --target "$GITHUB_SHA" \
+              --title "Spending Tracker v$version — signed with the legacy release key (one-off)" \
+              --notes "$notes"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
+        with:
+          name: signed-release-apk-legacy-key
+          path: signed-out/
+          if-no-files-found: error
+      # Publishing an unsigned artifact would silently change the app's signing
+      # identity for every installer. Releases require configured secrets.
+      - name: Require signed release APK before publishing
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')
+        run: |
+          set -euo pipefail
+          ls -la app/build/outputs/apk/release/ | tee -a build.log
+          apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then apk=app/build/outputs/apk/release/app-release-unsigned.apk; fi
+          # Deterministic toolchain (matches verify_upgrade.sh): the newest
+          # build-tools dir on the runner image may be a preview whose apksigner
+          # is not reliable.
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          if [ ! -x "$tools/apksigner" ]; then
+            bt=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1); tools="${bt%/}"
+          fi
+          if ! "$tools/apksigner" verify --print-certs "$apk" > apksigner-out.txt 2>&1; then
+            cat apksigner-out.txt | tee -a build.log
+            echo "::error::Release APK ($apk) failed apksigner verify - refusing to publish. Configure the RELEASE_* secrets (or the signing.properties fallback) to sign releases."
+            exit 1
+          fi
+          cat apksigner-out.txt | tee -a build.log
+          grep 'Signer #1 certificate SHA-256 digest:' apksigner-out.txt | tee -a build.log
       - name: Publish requested release
         id: publish
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')

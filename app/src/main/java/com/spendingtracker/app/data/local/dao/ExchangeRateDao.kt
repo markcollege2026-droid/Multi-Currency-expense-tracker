@@ -24,6 +24,17 @@ interface ExchangeRateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRates(rates: List<ExchangeRate>)
 
+    /**
+     * Replaces every rate of [base] with [rates] in one transaction. A crash
+     * between the delete and the insert used to leave the base with no rates at
+     * all; an atomic replace keeps the cache either fully old or fully new.
+     */
+    @Transaction
+    suspend fun replaceRatesForBase(base: String, rates: List<ExchangeRate>) {
+        deleteByBase(base)
+        insertRates(rates)
+    }
+
     @Query("DELETE FROM exchange_rates")
     suspend fun deleteAll()
 

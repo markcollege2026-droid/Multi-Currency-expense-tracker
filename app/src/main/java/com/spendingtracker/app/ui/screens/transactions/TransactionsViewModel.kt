@@ -59,7 +59,12 @@ data class TransactionsUiState(
     val otherAccountId: Long? = null,
     val otherAccountName: String? = null,
     val otherAccountEntryCount: Int = 0,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    /**
+     * Set when the ledger flows failed. The screen shows it with a retry
+     * instead of spinning forever on a dead collector.
+     */
+    val loadError: String? = null
 )
 
 @HiltViewModel
@@ -72,7 +77,15 @@ class TransactionsViewModel @Inject constructor(
     val uiState: StateFlow<TransactionsUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        observeLedger()
+    }
+
+    /** The ledger collector; also re-run by [retry] after a failure. */
+    private var ledgerJob: kotlinx.coroutines.Job? = null
+
+    private fun observeLedger() {
+        ledgerJob?.cancel()
+        ledgerJob = viewModelScope.launch {
             combine(
                 financeRepository.getAllExpenses(),
                 financeRepository.getAllTopUps(),
@@ -140,15 +153,33 @@ class TransactionsViewModel @Inject constructor(
                     otherAccountEntryCount = other?.second ?: 0,
                     isLoading = false
                 )
-            }.collect { baseState ->
+            }
+                .catch { failure ->
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            loadError = "History could not load (" +
+                                (failure.message ?: "unknown error") + "). Tap to retry."
+                        )
+                    }
+                }
+                .collect { baseState ->
                 _uiState.value = baseState.copy(
                     filteredExpenses = filterExpenses(baseState.allExpenses, baseState),
                     filteredTopUps = filterTopUps(baseState.allTopUps, baseState),
                     filteredWithdrawals = filterWithdrawals(baseState.allWithdrawals, baseState),
-                    filteredRepayments = filterRepayments(baseState.allRepayments, baseState)
+                    filteredRepayments = filterRepayments(baseState.allRepayments, baseState),
+                    loadError = null
                 )
             }
         }
+    }
+
+    /** Re-runs the ledger collector after a load failure. */
+    fun retry() {
+        _uiState.update { it.copy(loadError = null, isLoading = true) }
+        observeLedger()
     }
 
     private fun filterExpenses(expenses: List<Expense>, state: TransactionsUiState): List<Expense> {
@@ -293,7 +324,8 @@ class TransactionsViewModel @Inject constructor(
                     ?: error("Enter a positive amount")
                 val source = financeRepository.getAccountById(fromId) ?: error("Source balance not found")
                 val target = financeRepository.getAccountById(toId) ?: error("Destination balance not found")
-                val rate = rateRepository.getConversionRateOrFallback(source.currency, target.currency)
+                val rate = rateRepository.getConversionRateStrict(source.currency, target.currency)
+                    ?: error("No exchange rate for ${source.currency} to ${target.currency}. Refresh rates and try again.")
                 financeRepository.transfer(fromId, toId, from, rate, note, amountTo = to)
                 _uiState.value = _uiState.value.copy(
                     message = "Transferred " +
@@ -321,7 +353,8 @@ class TransactionsViewModel @Inject constructor(
                 val mainId = financeRepository.getActiveAccountId()
                 val cash = financeRepository.getAccountById(cashId) ?: error("Cash balance not found")
                 val main = financeRepository.getAccountById(mainId) ?: error("Main account not found")
-                val rate = rateRepository.getConversionRateOrFallback(main.currency, cash.currency)
+                val rate = rateRepository.getConversionRateStrict(main.currency, cash.currency)
+                    ?: error("No exchange rate for ${main.currency} to ${cash.currency}. Refresh rates and try again.")
                 financeRepository.withdraw(mainId, cash.id, from, rate, note, amountTo = to)
                 // Copy the *current* state: the ledger flow may have re-emitted while
                 // the transaction above was running.
@@ -348,9 +381,9 @@ class TransactionsViewModel @Inject constructor(
         }
     }
 
-    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. */
-    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal =
-        rateRepository.getConversionRateOrFallback(fromCurrency, toCurrency)
+    /** Rate preview for the withdraw dialog: 1 [fromCurrency] = ? [toCurrency]. Null when no rate is available. */
+    suspend fun conversionRate(fromCurrency: String, toCurrency: String): BigDecimal? =
+        rateRepository.getConversionRateStrict(fromCurrency, toCurrency)
 
     /** Applies a custom date range; null values clear that side of the range. */
     fun onDateRangeChanged(start: Long?, end: Long?) {

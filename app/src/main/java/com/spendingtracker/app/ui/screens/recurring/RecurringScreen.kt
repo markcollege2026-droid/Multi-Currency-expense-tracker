@@ -41,6 +41,9 @@ fun RecurringScreen(
     viewModel: RecurringViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    // Messages (create/update/delete results, refusals) must actually reach the
+    // user: they used to be "cleared" by a timer without ever being drawn.
+    AppToast(uiState.message, viewModel::clearMessage)
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val dims = LocalAppDimens.current
     var pendingDelete by remember { mutableStateOf<RecurringPayment?>(null) }
@@ -64,6 +67,12 @@ fun RecurringScreen(
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
             }
+        } else if (uiState.loadError != null) {
+            AppLoadError(
+                message = uiState.loadError!!,
+                onRetry = viewModel::retry,
+                modifier = Modifier.padding(padding)
+            )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -75,6 +84,9 @@ fun RecurringScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(dims.sectionSpacing)
             ) {
+                uiState.busy?.let { label ->
+                    item(key = "busy") { AppBusyRow(label) }
+                }
                 if (uiState.payments.isEmpty()) {
                     item(key = "empty") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -108,13 +120,6 @@ fun RecurringScreen(
                 onDismiss = viewModel::dismissDialog,
                 onSave = viewModel::save
             )
-        }
-
-        uiState.message?.let {
-            LaunchedEffect(it) {
-                kotlinx.coroutines.delay(2500)
-                viewModel.clearMessage()
-            }
         }
     }
 

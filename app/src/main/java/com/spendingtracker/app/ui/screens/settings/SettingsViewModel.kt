@@ -95,7 +95,20 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            financeRepository.getSettings().collect { settings ->
+            financeRepository.getSettings()
+                .catch { failure ->
+                    // A dead settings collector used to leave the whole page on
+                    // its loading spinner forever. Clear the spinner and say why.
+                    if (failure is CancellationException) throw failure
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Settings could not load (" +
+                                (failure.message ?: "unknown error") + "). Reopen Settings to retry."
+                        )
+                    }
+                }
+                .collect { settings ->
                 val sortMode = settings?.currencySortMode ?: "ALPHABETICAL"
                 val customOrder = settings?.customCurrencyOrder?.let { json ->
                     try {
@@ -154,12 +167,22 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            financeRepository.getAllAccounts().collect { accounts ->
+            financeRepository.getAllAccounts()
+                .catch { failure ->
+                    if (failure is CancellationException) throw failure
+                    _uiState.update { it.copy(error = "Accounts could not load (" + (failure.message ?: "unknown error") + ")") }
+                }
+                .collect { accounts ->
                 _uiState.update { it.copy(accounts = accounts) }
             }
         }
         viewModelScope.launch {
-            financeRepository.observeBalanceAccounts().collect { accounts ->
+            financeRepository.observeBalanceAccounts()
+                .catch { failure ->
+                    if (failure is CancellationException) throw failure
+                    _uiState.update { it.copy(error = "Balances could not load (" + (failure.message ?: "unknown error") + ")") }
+                }
+                .collect { accounts ->
                 _uiState.update { it.copy(balanceAccounts = accounts) }
             }
         }

@@ -4,6 +4,7 @@ import com.spendingtracker.app.data.local.dao.ExchangeRateDao
 import com.spendingtracker.app.data.local.entity.ExchangeRate
 import com.spendingtracker.app.data.remote.ExchangeRateApi
 import com.spendingtracker.app.util.CurrencyProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -12,8 +13,6 @@ import java.util.Calendar
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.roundToInt
-import kotlin.random.Random
 
 data class HistoricalRatePoint(
     val timestamp: Long,
@@ -55,6 +54,21 @@ class ExchangeRateRepository @Inject constructor(
 
     suspend fun clearRates() = exchangeRateDao.deleteAll()
 
+    /**
+     * A rate is usable only when it parses as a positive, finite number.
+     * Zero, negative, NaN, infinite and malformed values are never stored and
+     * never used in a financial calculation.
+     */
+    fun isUsableRate(rate: BigDecimal): Boolean =
+        rate > BigDecimal.ZERO && runCatching { rate.toPlainString().toDouble() }.getOrNull()?.isFinite() == true
+
+    private fun usableOrNull(rate: Double): Double? =
+        rate.takeIf { it.isFinite() && it > 0.0 }
+
+    /** Parses a stored rate string, rejecting malformed or non-positive values. */
+    fun parseUsableRate(raw: String): BigDecimal? =
+        try { BigDecimal(raw) } catch (e: NumberFormatException) { null }?.takeIf { isUsableRate(it) }
+
     suspend fun refreshRates(baseCurrency: String): Result<Long> {
         return try {
             val isCommodityBase = CurrencyProvider.isCommodity(baseCurrency)
@@ -62,6 +76,8 @@ class ExchangeRateRepository @Inject constructor(
             val response = try {
                 val res = api.getLatestRates(queryBase)
                 if (res.result == "success") res else api.getLatestRates("USD")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (queryBase != "USD") api.getLatestRates("USD") else throw e
             }
@@ -72,16 +88,27 @@ class ExchangeRateRepository @Inject constructor(
 
             val actualBase = response.base_code.ifBlank { queryBase }
             val timestamp = System.currentTimeMillis()
-            val mergedRates = response.rates.toMutableMap()
+            // Reject unusable API values outright: a zero/negative/NaN rate must
+            // never overwrite a previously cached good rate for the same pair.
+            val mergedRates = response.rates.mapNotNull { (target, rateDouble) ->
+                usableOrNull(rateDouble)?.let { target to it }
+            }.toMap().toMutableMap()
+            if (mergedRates.isEmpty()) {
+                return Result.failure(Exception("API returned no valid exchange rates"))
+            }
 
             // Try to enrich with live metal/commodity rates (1 USD -> commodity units)
             val liveUsdCommodities = fetchLiveUsdCommodities()
-            val usdRateFromActualBase = mergedRates["USD"] ?: if (actualBase == "USD") 1.0 else null
-            if (usdRateFromActualBase != null && usdRateFromActualBase > 0.0) {
+            val usdRateFromActualBase = mergedRates["USD"]
+                ?: if (actualBase == "USD") 1.0 else null
+            if (usdRateFromActualBase != null) {
                 for ((commodityCode, defaultUsdRate) in DEFAULT_USD_TO_COMMODITY_RATES) {
                     if (!mergedRates.containsKey(commodityCode)) {
-                        val usdToCommodity = liveUsdCommodities[commodityCode] ?: defaultUsdRate
-                        mergedRates[commodityCode] = usdRateFromActualBase * usdToCommodity
+                    val usdToCommodity = usableOrNull(liveUsdCommodities[commodityCode] ?: defaultUsdRate)
+                    val cross = usdToCommodity?.let { usdRateFromActualBase * it }
+                    if (cross != null) {
+                        usableOrNull(cross)?.let { mergedRates[commodityCode] = it }
+                    }
                     }
                 }
             }
@@ -94,30 +121,32 @@ class ExchangeRateRepository @Inject constructor(
                     timestamp = timestamp
                 )
             }
-            exchangeRateDao.deleteByBase(actualBase)
-            exchangeRateDao.insertRates(rates)
+            // Delete + insert atomically: a crash between them used to leave the
+            // base with no rates at all.
+            exchangeRateDao.replaceRatesForBase(actualBase, rates)
 
             // If caller requested a commodity base (e.g. XAU), also materialize direct rows for baseCurrency
             if (actualBase != baseCurrency) {
                 val baseRateInActual = mergedRates[baseCurrency]
-                if (baseRateInActual != null && baseRateInActual > 0.0) {
+                if (baseRateInActual != null) {
                     val directRates = mergedRates.mapNotNull { (target, targetRateInActual) ->
                         val ratio = targetRateInActual / baseRateInActual
-                        if (ratio.isFinite() && ratio > 0.0) {
+                        usableOrNull(ratio)?.let { ratioValue ->
                             ExchangeRate(
                                 baseCurrency = baseCurrency,
                                 targetCurrency = target,
-                                rate = BigDecimal.valueOf(ratio).toPlainString(),
+                                rate = BigDecimal.valueOf(ratioValue).toPlainString(),
                                 timestamp = timestamp
                             )
-                        } else null
+                        }
                     }
-                    exchangeRateDao.deleteByBase(baseCurrency)
-                    exchangeRateDao.insertRates(directRates)
+                    exchangeRateDao.replaceRatesForBase(baseCurrency, directRates)
                 }
             }
 
             Result.success(timestamp)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -137,6 +166,8 @@ class ExchangeRateRepository @Inject constructor(
                 }
             }
             map
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             emptyMap()
         }
@@ -149,14 +180,17 @@ class ExchangeRateRepository @Inject constructor(
         // 2) inverse: to -> from
         // 3) cross-rate through any pivot currency we have a quote for,
         //    e.g. EUR -> USD -> ILS when only USD-based rates are cached.
+        // Malformed or non-positive stored rows are ignored: a bad rate must
+        // never take part in a financial calculation.
         val table = try {
             exchangeRateDao.getAllRatesSync()
                 .mapNotNull { r ->
-                    val rate = try { BigDecimal(r.rate) } catch (e: Exception) { null }
-                    if (rate != null && rate.compareTo(BigDecimal.ZERO) != 0) {
+                    parseUsableRate(r.rate)?.let { rate ->
                         Triple(r.baseCurrency, r.targetCurrency, rate)
-                    } else null
+                    }
                 }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             emptyList()
         }
@@ -182,35 +216,15 @@ class ExchangeRateRepository @Inject constructor(
     }
 
     /**
-     * Returns the conversion rate from Room cache (populated by open.er-api.com),
-     * or falls back to built-in USD reference rates for commodities / offline startup
-     * so the Converter UI always displays immediate rates.
-     */
-    suspend fun getConversionRateOrFallback(fromCurrency: String, toCurrency: String): BigDecimal {
-        if (fromCurrency == toCurrency) return BigDecimal.ONE
-        getConversionRate(fromCurrency, toCurrency)?.let { return it }
-
-        // If one side is cached against USD and the other is a commodity/fallback
-        val usdToFrom = getConversionRate("USD", fromCurrency)?.toDouble()
-            ?: DEFAULT_ALL_USD_RATES[fromCurrency]
-        val usdToTo = getConversionRate("USD", toCurrency)?.toDouble()
-            ?: DEFAULT_ALL_USD_RATES[toCurrency]
-
-        if (usdToFrom != null && usdToTo != null && usdToFrom > 0.0) {
-            val cross = usdToTo / usdToFrom
-            return BigDecimal.valueOf(cross).setScale(10, RoundingMode.HALF_EVEN).stripTrailingZeros()
-        }
-        return BigDecimal.ONE
-    }
-
-    /**
-     * Like [getConversionRateOrFallback], but never invents a 1:1 rate.
+     * Conversion rate from the Room cache (populated by open.er-api.com), falling
+     * back to the built-in USD reference table for offline startup so the
+     * Converter UI can display immediate rates.
      *
-     * Used where a wrong rate moves real money (loan settlements typed in another
-     * currency). The cached table is tried first; failing that, the built-in USD
-     * reference table is used *only* when both currencies are listed there - that
-     * is a real (if static) quote. Anything else returns null so the caller can ask
-     * the user to refresh rates instead of silently converting at 1:1.
+     * Returns **null** when no real quote exists for the pair. It deliberately
+     * never invents a 1:1 rate: an unknown pair converted at parity silently
+     * moves real money to the wrong value. Callers must surface "rate
+     * unavailable" and refuse the operation (or mark derived totals as
+     * incomplete) instead of substituting a guess.
      */
     suspend fun getConversionRateStrict(fromCurrency: String, toCurrency: String): BigDecimal? {
         if (fromCurrency == toCurrency) return BigDecimal.ONE
@@ -219,7 +233,9 @@ class ExchangeRateRepository @Inject constructor(
             ?: DEFAULT_ALL_USD_RATES[fromCurrency]
         val usdToTo = getConversionRate("USD", toCurrency)?.toDouble()
             ?: DEFAULT_ALL_USD_RATES[toCurrency]
-        if (usdToFrom != null && usdToTo != null && usdToFrom > 0.0 && usdToTo > 0.0) {
+        if (usdToFrom != null && usdToTo != null &&
+            usdToFrom.isFinite() && usdToTo.isFinite() && usdToFrom > 0.0 && usdToTo > 0.0
+        ) {
             return BigDecimal.valueOf(usdToTo / usdToFrom)
                 .setScale(10, RoundingMode.HALF_EVEN)
                 .stripTrailingZeros()
@@ -228,24 +244,39 @@ class ExchangeRateRepository @Inject constructor(
     }
 
     /**
-     * Fetches historical exchange rate series for the Charts view.
-     * Uses Frankfurter API for supported currency pairs when online, and falls back
-     * to a deterministic series anchored to the current conversion rate for
-     * commodities or offline mode.
+     * Fetches historical exchange rate series for the Charts view from the
+     * Frankfurter API. Historical values are only ever shown when they come from
+     * that legitimate source; when it is unavailable (offline, unsupported pair
+     * such as commodities, or an API failure) the returned series has **no
+     * points** and `isLiveHistory = false`, so the UI can say "unavailable"
+     * instead of drawing invented market data.
      */
     suspend fun getHistoricalSeries(
         base: String,
         target: String,
         days: Int
     ): HistoricalRateSeries {
-        val currentRate = getConversionRateOrFallback(base, target).toDouble()
-        val endCal = Calendar.getInstance()
-        val startCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
-        val apiDateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val labelDateFmt = SimpleDateFormat("MMM d", Locale.US)
-
-        if (base != target && !CurrencyProvider.isCommodity(base) && !CurrencyProvider.isCommodity(target)) {
+        // Same currency: the rate is definitionally constant - not market data.
+        if (base == target) {
+            val endCal = Calendar.getInstance()
+            val startCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
+            val labelDateFmt = SimpleDateFormat("MMM d", Locale.US)
+            return HistoricalRateSeries(
+                base = base,
+                target = target,
+                points = listOf(
+                    HistoricalRatePoint(startCal.timeInMillis, labelDateFmt.format(startCal.time), 1.0),
+                    HistoricalRatePoint(endCal.timeInMillis, labelDateFmt.format(endCal.time), 1.0)
+                ),
+                isLiveHistory = true
+            )
+        }
+        if (!CurrencyProvider.isCommodity(base) && !CurrencyProvider.isCommodity(target)) {
             try {
+                val endCal = Calendar.getInstance()
+                val startCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
+                val apiDateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val labelDateFmt = SimpleDateFormat("MMM d", Locale.US)
                 val startStr = apiDateFmt.format(startCal.time)
                 val endStr = apiDateFmt.format(endCal.time)
                 val url = "https://api.frankfurter.app/$startStr..$endStr?from=$base&to=$target"
@@ -255,12 +286,13 @@ class ExchangeRateRepository @Inject constructor(
                         .sortedBy { it.key }
                         .mapNotNull { (dateStr, map) ->
                             val r = map[target] ?: return@mapNotNull null
+                            // Unusable values are not charted either.
+                            if (!r.isFinite() || r <= 0.0) return@mapNotNull null
                             val parsedDate = try { apiDateFmt.parse(dateStr) } catch (_: Exception) { null }
                             val ts = parsedDate?.time ?: System.currentTimeMillis()
                             val label = if (parsedDate != null) labelDateFmt.format(parsedDate) else dateStr
                             HistoricalRatePoint(ts, label, r)
                         }
-                        .toMutableList()
 
                     if (points.size >= 2) {
                         return HistoricalRateSeries(
@@ -271,60 +303,26 @@ class ExchangeRateRepository @Inject constructor(
                         )
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
-                // Fall back to deterministic series anchored to currentRate
+                // No genuine history available: report unavailable below.
             }
         }
-
-        // Deterministic series anchored to currentRate on the final day
-        val stepCount = days.coerceIn(7, 90)
-        val seed = (base.hashCode() * 31L) xor (target.hashCode().toLong() * 17L)
-        val rng = Random(seed)
-        val dailyVol = if (CurrencyProvider.isCommodity(base) || CurrencyProvider.isCommodity(target)) 0.008 else 0.0032
-        val rawMultipliers = DoubleArray(stepCount + 1)
-        rawMultipliers[stepCount] = 1.0
-        for (i in stepCount - 1 downTo 0) {
-            val delta = (rng.nextDouble(-1.0, 1.0)) * dailyVol
-            rawMultipliers[i] = (rawMultipliers[i + 1] / (1.0 + delta)).coerceIn(0.75, 1.35)
-        }
-
-        val points = (0..stepCount).map { idx ->
-            val cal = Calendar.getInstance().apply {
-                val daysAgo = ((stepCount - idx).toDouble() / stepCount * days).roundToInt()
-                add(Calendar.DAY_OF_YEAR, -daysAgo)
-            }
-            val rateVal = if (base == target) 1.0 else currentRate * rawMultipliers[idx]
-            HistoricalRatePoint(
-                timestamp = cal.timeInMillis,
-                dateLabel = labelDateFmt.format(cal.time),
-                rate = rateVal
-            )
-        }
-
         return HistoricalRateSeries(
             base = base,
             target = target,
-            points = points,
+            points = emptyList(),
             isLiveHistory = false
         )
     }
 
-    /**
-     * Computes a 24h percentage change for the pair (e.g. +0.15% or -0.15%).
-     */
-    fun get24hChangePercent(base: String, target: String): Double {
-        if (base == target) return 0.0
-        val daySeed = System.currentTimeMillis() / (24L * 60L * 60L * 1000L)
-        val pairSeed = (base.hashCode() * 37L) xor (target.hashCode() * 73L) xor daySeed
-        val rng = Random(pairSeed)
-        val range = if (CurrencyProvider.isCommodity(base) || CurrencyProvider.isCommodity(target)) 1.65 else 0.65
-        val raw = rng.nextDouble(-range, range)
-        // Avoid exact 0.00% so badge looks informative
-        val adjusted = if (kotlin.math.abs(raw) < 0.03) 0.15 else raw
-        return (adjusted * 100.0).roundToInt() / 100.0
-    }
-
     suspend fun insertRate(rate: ExchangeRate) {
+        // A stored rate is money-relevant data: malformed or non-positive values
+        // (e.g. from a tampered backup) are rejected outright.
+        require(parseUsableRate(rate.rate) != null) {
+            "Invalid exchange rate ${rate.rate} for ${rate.baseCurrency}/${rate.targetCurrency}"
+        }
         exchangeRateDao.insertRate(rate)
     }
 

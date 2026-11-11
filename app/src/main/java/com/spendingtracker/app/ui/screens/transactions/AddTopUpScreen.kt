@@ -168,8 +168,10 @@ fun AddTopUpScreen(
                     val cashSide = form.cashAmount
                     if (cash != null && cashSide != null) {
                         val rateNote = if (cash.currency != uiState.balanceCurrency) {
-                            " · 1 " + cash.currency + " = " +
-                                uiState.rate.stripTrailingZeros().toPlainString() + " " + uiState.balanceCurrency
+                            uiState.rate?.let { known ->
+                                " · 1 " + cash.currency + " = " +
+                                    known.stripTrailingZeros().toPlainString() + " " + uiState.balanceCurrency
+                            } ?: ""
                         } else {
                             ""
                         }

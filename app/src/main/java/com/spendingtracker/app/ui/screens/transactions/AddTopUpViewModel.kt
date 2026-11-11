@@ -32,8 +32,12 @@ data class AddTopUpUiState(
     val cashBalances: Map<Long, BigDecimal> = emptyMap(),
     /** null (the default) means the deposit is external and does not touch cash. */
     val sourceCashId: Long? = null,
-    /** 1 [cashCurrency] expressed in the main currency. */
-    val rate: BigDecimal = BigDecimal.ONE
+    /**
+     * 1 [cashCurrency] expressed in the main currency. Null when no real rate
+     * is available - a cross-currency deposit is then refused, never converted
+     * at a guessed 1:1.
+     */
+    val rate: BigDecimal? = null
 ) {
     val sourceCash: Account? get() = cashAccounts.firstOrNull { it.id == sourceCashId }
 
@@ -42,8 +46,9 @@ data class AddTopUpUiState(
         val parsed = amount.parseAmountOrNull() ?: return null
         val cash = sourceCash ?: return null
         if (cash.currency == balanceCurrency) return parsed
-        if (rate <= BigDecimal.ZERO) return null
-        return parsed.divide(rate, TransferMath.SCALE, RoundingMode.HALF_EVEN)
+        val knownRate = rate ?: return null
+        if (knownRate <= BigDecimal.ZERO) return null
+        return parsed.divide(knownRate, TransferMath.SCALE, RoundingMode.HALF_EVEN)
     }
 }
 
@@ -64,7 +69,7 @@ data class DepositFormState(
  */
 fun depositFormState(
     amount: String,
-    rate: BigDecimal,
+    rate: BigDecimal?,
     cashBalance: BigDecimal?,
     cashCurrency: String?
 ): DepositFormState {
@@ -80,6 +85,17 @@ fun depositFormState(
     if (cashBalance == null) {
         // External deposit: nothing leaves cash.
         return DepositFormState(parsed, null, null, true)
+    }
+    if (rate == null) {
+        // Cross-currency funding without a real rate must refuse: converting at
+        // 1:1 would debit the wrong amount from the cash balance.
+        return DepositFormState(
+            amount = parsed,
+            cashAmount = null,
+            error = "No exchange rate for " + (cashCurrency ?: "cash") +
+                " to the account currency. Refresh rates and try again.",
+            canSave = false
+        )
     }
     val cashAmount = if (rate > BigDecimal.ZERO) {
         parsed.divide(rate, TransferMath.SCALE, RoundingMode.HALF_EVEN)
@@ -175,11 +191,13 @@ class AddTopUpViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val rate = rateRepository.getConversionRateOrFallback(
+            // Strict: null stays null so the form refuses the deposit instead of
+            // silently converting the cash side at 1:1.
+            val rate = rateRepository.getConversionRateStrict(
                 cash.currency,
                 _uiState.value.balanceCurrency
             )
-            _uiState.value = _uiState.value.copy(rate = if (rate > BigDecimal.ZERO) rate else BigDecimal.ONE)
+            _uiState.value = _uiState.value.copy(rate = rate)
         }
     }
 
@@ -221,11 +239,12 @@ class AddTopUpViewModel @Inject constructor(
                 }
                 if (cash != null && cashAmount != null) {
                     // Funded from cash: this is a transfer into main, not new money.
+                    // The form refuses to save without a real rate, so this is non-null.
                     financeRepository.withdraw(
                         fromAccountId = cash.id,
                         toAccountId = mainId,
                         amountFrom = cashAmount,
-                        rate = state.rate,
+                        rate = requireNotNull(state.rate) { "Exchange rate unavailable" },
                         note = state.note.ifBlank { null },
                         amountTo = requireNotNull(form.amount)
                     )

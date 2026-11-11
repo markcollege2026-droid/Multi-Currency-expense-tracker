@@ -979,6 +979,33 @@ fun AppEmptyState(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Full-screen load failure with a retry affordance. A screen whose data flows
+ * died must say so and offer a way forward - an infinite spinner (or silently
+ * frozen empty state) tells the user nothing.
+ */
+@Composable
+fun AppLoadError(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onRetry) {
+            Text("Retry")
+        }
+    }
+}
+
 /** Small colour dot used by category rows. */
 @Composable
 fun AppDot(color: Color, modifier: Modifier = Modifier, sizeDp: Int = 9) {

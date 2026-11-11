@@ -441,6 +441,41 @@ Outputs are in `app/build/outputs/`.
 - Release: `app/build/outputs/apk/release/app-release.apk` (signed with `release.keystore`)
 - Play bundle: `app/build/outputs/bundle/release/app-release.aab`
 
+## AppLock automatic-protection exemption
+
+This application **declares itself exempt from automatic enrollment/protection** by
+compatible AppLock implementations (for example
+[AppLock-auto-lock](https://github.com/markcollege2026-droid/AppLock-auto-lock)) that
+recognise the standard manifest marker. When an AppLock enrolls apps automatically,
+apps carrying the marker are skipped.
+
+The exemption is declared as **application-level metadata in
+`app/src/main/AndroidManifest.xml`**, inside the `<application>` element (so it lands
+in the merged manifest of every build variant):
+
+```xml
+<meta-data
+    android:name="dev.pranav.applock.AUTOLOCK_EXEMPT"
+    android:value="true" />
+```
+
+How to verify or reproduce the declaration:
+
+1. Check the source declaration in `app/src/main/AndroidManifest.xml` (exact metadata
+   name `dev.pranav.applock.AUTOLOCK_EXEMPT`, `android:value="true"`, inside
+   `<application>`).
+2. Run the unit tests: `AppLockManifestTest` asserts the source manifest is exact and
+   that the **merged** manifest carries the marker
+   (`./gradlew :app:testDebugUnitTest --tests '*AppLockManifestTest'`).
+3. Inspect the built APK directly:
+   `aapt dump xmltree app/build/outputs/apk/debug/app-debug.apk AndroidManifest.xml | grep -B1 -A2 AUTOLOCK_EXEMPT`
+   (the CI build runs this check on both the debug and release APKs).
+
+This is a **self-declared opt-out, not a security boundary**. It does not encrypt,
+hide or protect any data, it does not remove manually protected applications from an
+AppLock's protected list, and it cannot bypass protection that a user applied
+manually.
+
 ## License
 
 MIT - for demonstration purposes.
