@@ -456,18 +456,21 @@ class CommodityHistoryProviderTest {
         api.serve(dateDaysAgo(0), mapOf("xau" to 0.00050))
         val repo = provider()
         repo.getSeries("USD", "XAU", days = 1)
+        val fetchesBefore = api.calls.size
 
-        // Provider data updates; the cache is now stale.
+        // Past-dated snapshots are immutable releases and stay cached; what
+        // evolves is the in-progress "today" observation and the series entry.
         now += CommodityHistoryProvider.CACHE_TTL_MILLIS + 1
-        api.snapshots.clear()
-        api.serve(dateDaysAgo(1), mapOf("xau" to 0.00075))
         api.serve(dateDaysAgo(0), mapOf("xau" to 0.00080))
 
         val refreshed = repo.getSeries("USD", "XAU", days = 1)
         assertFalse("stale data must not masquerade as fresh", refreshed.isFromCache)
         assertTrue(refreshed.isLiveHistory)
-        assertTrue(refreshed.points.any { it.rate == 0.00075 })
+        assertTrue("the expired entry must trigger a refresh", api.calls.size > fetchesBefore)
+        // Today's refetched observation reflects the new value...
         assertTrue(refreshed.points.any { it.rate == 0.00080 })
+        // ...while the immutable past keeps its genuine historical value.
+        assertTrue(refreshed.points.any { it.rate == 0.00045 })
     }
 
     @Test
