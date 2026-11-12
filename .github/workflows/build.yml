@@ -55,17 +55,20 @@ jobs:
       # history exposure is exactly why the key must rotate). The recovered
       # values go to the gitignored signing.properties and are only used when
       # no SPENDINGTRACKER_* env/secrets are configured; values are never
-      # echoed. Also used by the explicit sign_historic dispatch.
+      # echoed. STANDING POLICY (until explicitly changed - see README and the
+      # key-rotation issue): EVERY run recovers the historic key and signs the
+      # release APK with it, so each run produces a historically signed APK.
       - name: Recover historic signing credentials from git history
-        if: |
-          (github.event_name == 'workflow_dispatch' && inputs.sign_historic) ||
-          (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
         run: |
           set -euo pipefail
-          if ! git cat-file -e 8883677:app/build.gradle.kts 2>/dev/null; then
-            git fetch --depth=1 origin 8883677 || git fetch --depth=1 origin main
+          # Full object name: abbreviated SHAs cannot be fetched, and the
+          # depth-1 tip of main moves as PRs merge (this used to work only
+          # because main happened to point at this commit).
+          src=888367730833af06d77c5528973d2167d8aa5832
+          if ! git cat-file -e "$src:app/build.gradle.kts" 2>/dev/null; then
+            git fetch --depth=1 origin "$src" 2>/dev/null || git fetch --depth=200 origin main
           fi
-          gf=$(git show 8883677:app/build.gradle.kts)
+          gf=$(git show "$src:app/build.gradle.kts")
           sp=$(grep -oP 'storePassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
           ka=$(grep -oP 'keyAlias\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
           kp=$(grep -oP 'keyPassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
@@ -95,7 +98,7 @@ jobs:
           if [ -f signing.properties ]; then
             echo "::warning::signing.properties present ($(wc -c < signing.properties) bytes) - release build should be signed"
           else
-            echo "::warning::no signing.properties - release build will be unsigned (expected unless this is a release build)"
+            echo "::warning::no signing.properties - release build will be unsigned (unexpected: historic credential recovery should have run)"
           fi
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease \
             -PGIT_SHA="${{ github.sha }}" \
@@ -273,9 +276,24 @@ jobs:
           version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-      # One-off, dispatch-gated: publish the APK signed with the historic key as
-      # its own download (a single-purpose artifact and a dedicated pre-release),
-      # separate from the regular build artifacts.
+      # STANDING POLICY (until explicitly changed - see README): every run
+      # stages the release APK signed with the historic key and uploads it as
+      # the `signed-release-apk-legacy-key` run artifact, so a historically
+      # signed APK is always one download away.
+      - name: Stage the historic-key signed release APK
+        run: |
+          set -euo pipefail
+          mkdir -p signed-out
+          cp app/build/outputs/apk/release/app-release.apk \
+            "signed-out/SpendingTracker-${{ steps.appver.outputs.version }}-legacy-key-signed.apk"
+          sha256sum signed-out/*.apk | tee -a build.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-apk-legacy-key
+          path: signed-out/
+          if-no-files-found: error
+      # Dispatch-gated extra: additionally publish the historically signed APK
+      # as its own GitHub pre-release, separate from the regular artifacts.
       - name: Publish the historic-key signed APK separately
         if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
         env:
@@ -299,12 +317,6 @@ jobs:
               --title "Spending Tracker v$version — signed with the legacy release key (one-off)" \
               --notes "$notes"
           fi
-      - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.sign_historic
-        with:
-          name: signed-release-apk-legacy-key
-          path: signed-out/
-          if-no-files-found: error
       # Publishing an unsigned artifact would silently change the app's signing
       # identity for every installer. Releases require configured secrets.
       - name: Require signed release APK before publishing

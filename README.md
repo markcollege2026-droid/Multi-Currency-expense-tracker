@@ -296,6 +296,40 @@ Example transaction list shows both:
 - **Per-expense override**: User can enter manual rate, stored in expense's `exchangeRateUsed`
 - **Storage**: Rates stored as BigDecimal plain strings, with unique index on base+target
 
+## Commodity historical charts (genuine market data)
+
+The Converter's Charts tab shows real historical price series for commodities
+and crypto - never estimates. Currencies keep their existing historical source
+(Frankfurter, ECB reference rates).
+
+- **Provider**: dated snapshots of the `@fawazahmed0/currency-api` feed (now
+  [fawazahmed0/exchange-api](https://github.com/fawazahmed0/exchange-api)),
+  served by jsDelivr with the upstream-documented Cloudflare fallback. This is
+  the same free source the app already uses for current commodity prices; each
+  day is published as its own immutable release
+  (`.../currency-api@YYYY-MM-DD/v1/currencies/usd.min.json`), so every charted
+  point is that date's actual observation.
+- **Credentials**: none. No API key is required or embedded.
+- **Commodities with genuine history**: Gold (XAU), Silver (XAG), Platinum
+  (XPT), Palladium (XPD), Bitcoin (BTC), Ethereum (ETH) - in both directions
+  (e.g. USD/XAU and XAU/USD; the inverse chart uses each date's own price),
+  and as same-day crosses (EUR/XAU, XAU/XAG, ...).
+- **No history (honestly unavailable)**: WTI (WTI), Brent (BRENT), Natural Gas
+  (NG), Copper (XCU). The provider publishes no data for them and the app will
+  not invent prices, repeat today's price, or use hardcoded arrays - the chart
+  says the data source is unavailable instead.
+- **History depth**: the provider's daily snapshots start on 2024-03-02, so
+  charts cover that range forward. Larger windows (3M/6M/1Y) sample a coarser
+  stride of real dates to bound network usage; missing release days appear as
+  gaps, never as interpolated values.
+- **Caching**: fetched series are cached in memory per pair and time period for
+  6 hours (plus an HTTP cache). Repeats are served from cache and labelled
+  "cached" on the chart; expired entries are refetched. If a refresh fails
+  while offline, the previous genuine series is shown - still labelled
+  "cached", with its original observation dates.
+- **Rate limits**: the provider documents no rate limits (CC0-1.0 data);
+  jsDelivr fair-use limits apply to the CDN.
+
 ## Build Instructions
 
 ### Prerequisites
@@ -354,6 +388,22 @@ adb install app/build/outputs/apk/release/app-release.apk
 ```
 
 Or copy APK to device and install via file manager (enable unknown sources).
+
+## Release signing policy (standing)
+
+**Until this policy is explicitly changed, every GitHub Actions run produces a
+release APK signed with the app's historic release key** (`release.keystore`).
+Each run uploads it as the `signed-release-apk-legacy-key` run artifact (and
+releases cut with a `[release]` commit marker are signed with the same key), so
+the app's update identity for existing installs never changes by accident. This
+stands until the key-rotation work tracked in
+[issue #22](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/issues/22)
+is done and the policy is explicitly revised - the historic key's credentials
+remain in git history, which is exactly why it must eventually rotate.
+
+CI recovers the historic credentials from git history at build time (values are
+never logged or committed) and verifies the built APK's signer certificate
+against v1.8.0 on every run. See `KEYSTORE.md` for how signing inputs work.
 
 ## Keystore Generation
 

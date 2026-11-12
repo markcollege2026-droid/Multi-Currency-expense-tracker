@@ -429,8 +429,17 @@ class ConverterViewModel @Inject constructor(
                     chartError = if (live) {
                         null
                     } else {
-                        "Historical rates for $base/$target are unavailable right now. " +
-                            "Check your connection and try again."
+                        when (series?.unavailableReason) {
+                            com.spendingtracker.app.data.repository.HistoricalUnavailableReason.UNSUPPORTED_ASSET ->
+                                "Genuine historical market data is not available for $base/$target. " +
+                                    "This asset has no historical data source yet - the app will not invent prices."
+                            com.spendingtracker.app.data.repository.HistoricalUnavailableReason.NO_DATA_IN_RANGE ->
+                                "No genuine historical observations for $base/$target in this period. " +
+                                    "Try another time range."
+                            else ->
+                                "Historical rates for $base/$target are unavailable right now. " +
+                                    "Check your connection and try again."
+                        }
                     }
                 )
             }
