@@ -37,6 +37,11 @@ but the artifact is **unsigned** — debug builds never need signing secrets.
 CI maps the GitHub Actions secrets `RELEASE_STORE_PASSWORD`,
 `RELEASE_KEY_ALIAS` and `RELEASE_KEY_PASSWORD` to the environment variables.
 
+**Standing policy** (until explicitly changed — see the README's "Release
+signing policy" section): every CI run recovers the historic credentials from
+git history and signs the release APK with the historic key, uploading it as
+the `signed-release-apk-legacy-key` run artifact.
+
 ### Verify
 
 ```bash

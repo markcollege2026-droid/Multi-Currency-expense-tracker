@@ -389,6 +389,22 @@ adb install app/build/outputs/apk/release/app-release.apk
 
 Or copy APK to device and install via file manager (enable unknown sources).
 
+## Release signing policy (standing)
+
+**Until this policy is explicitly changed, every GitHub Actions run produces a
+release APK signed with the app's historic release key** (`release.keystore`).
+Each run uploads it as the `signed-release-apk-legacy-key` run artifact (and
+releases cut with a `[release]` commit marker are signed with the same key), so
+the app's update identity for existing installs never changes by accident. This
+stands until the key-rotation work tracked in
+[issue #22](https://github.com/markcollege2026-droid/Multi-Currency-expense-tracker/issues/22)
+is done and the policy is explicitly revised - the historic key's credentials
+remain in git history, which is exactly why it must eventually rotate.
+
+CI recovers the historic credentials from git history at build time (values are
+never logged or committed) and verifies the built APK's signer certificate
+against v1.8.0 on every run. See `KEYSTORE.md` for how signing inputs work.
+
 ## Keystore Generation
 
 Release keystore was generated with:
