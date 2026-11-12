@@ -61,10 +61,14 @@ jobs:
       - name: Recover historic signing credentials from git history
         run: |
           set -euo pipefail
-          if ! git cat-file -e 8883677:app/build.gradle.kts 2>/dev/null; then
-            git fetch --depth=1 origin 8883677 || git fetch --depth=1 origin main
+          # Full object name: abbreviated SHAs cannot be fetched, and the
+          # depth-1 tip of main moves as PRs merge (this used to work only
+          # because main happened to point at this commit).
+          src=888367730833af06d77c5528973d2167d8aa5832
+          if ! git cat-file -e "$src:app/build.gradle.kts" 2>/dev/null; then
+            git fetch --depth=1 origin "$src" 2>/dev/null || git fetch --depth=200 origin main
           fi
-          gf=$(git show 8883677:app/build.gradle.kts)
+          gf=$(git show "$src:app/build.gradle.kts")
           sp=$(grep -oP 'storePassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
           ka=$(grep -oP 'keyAlias\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
           kp=$(grep -oP 'keyPassword\s*=\s*"\K[^"]+' <<<"$gf" | head -1)
