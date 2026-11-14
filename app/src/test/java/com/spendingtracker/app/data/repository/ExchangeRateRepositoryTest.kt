@@ -51,6 +51,8 @@ class ExchangeRateRepositoryTest {
         var historical: FrankfurterTimeSeriesResponse? = null
         var historicalError: Exception? = null
         var historicalCalls = 0
+        var jsonSnapshotFor: ((String) -> JsonObject?)? = null
+        val jsonCalls = mutableListOf<String>()
 
         override suspend fun getLatestRates(base: String): ExchangeRateResponse =
             latestError?.let { throw it } ?: latest ?: error("no latest response configured")
@@ -60,8 +62,28 @@ class ExchangeRateRepositoryTest {
             return historicalError?.let { throw it } ?: historical ?: error("no historical response configured")
         }
 
-        override suspend fun getJsonUrl(url: String): JsonObject =
-            throw IOException("offline in tests")
+        override suspend fun getJsonUrl(url: String): JsonObject {
+            jsonCalls += url
+            val key = when {
+                "currency-api@" in url -> url.substringAfter("currency-api@").substringBefore("/")
+                ".currency-api.pages.dev" in url ->
+                    url.removePrefix("https://").substringBefore(".currency-api.pages.dev")
+                else -> "latest"
+            }
+            val build = jsonSnapshotFor ?: throw IOException("offline in tests")
+            return build(key) ?: throw IOException("no snapshot for $key")
+        }
+    }
+
+    /** Builds a dated commodity snapshot in the exact provider shape. */
+    private fun commoditySnapshot(date: String, rates: Map<String, Double>): JsonObject {
+        val root = JsonObject()
+        root.addProperty("date", date)
+        val usd = JsonObject()
+        usd.addProperty("usd", 1.0)
+        for ((code, value) in rates) usd.addProperty(code, value)
+        root.add("usd", usd)
+        return root
     }
 
     @Before
@@ -294,5 +316,80 @@ class ExchangeRateRepositoryTest {
         val series = repository.getHistoricalSeries("EUR", "EUR", 30)
         assertTrue(series.isLiveHistory)
         assertTrue(series.points.all { it.rate == 1.0 })
+    }
+
+    // ---- Commodity history: genuine dated observations from the commodity feed ----
+
+    @Test
+    fun commodityHistoryComesFromCommodityProviderNotFrankfurter() = runBlocking {
+        // Every requested date yields a genuine observation whose value encodes
+        // the day of month, so nothing can be repeated or invented unnoticed.
+        val served = mutableMapOf<String, Double>()
+        api.jsonSnapshotFor = { date ->
+            val day = date.substring(8).toIntOrNull() ?: 1
+            val value = 0.00040 + day * 1e-6
+            served[date] = value
+            commoditySnapshot(date, mapOf("xau" to value))
+        }
+
+        val series = repository.getHistoricalSeries("USD", "XAU", 7)
+        assertTrue(series.isLiveHistory)
+        assertTrue("genuine observations expected", series.points.size >= 2)
+        // Frankfurter has no commodity data and must not even be asked.
+        assertEquals(0, api.historicalCalls)
+        // The charted rates are exactly the dated observations the provider
+        // served, in date order - nothing repeated, nothing invented.
+        val expected = served.entries.sortedBy { it.key }.map { it.value }
+        assertEquals(expected, series.points.map { it.rate })
+    }
+
+    @Test
+    fun commodityInverseSeriesUsesPerDateInverses() = runBlocking {
+        api.jsonSnapshotFor = { date ->
+            val day = date.substring(8).toIntOrNull() ?: 1
+            commoditySnapshot(date, mapOf("xau" to 0.00040 + day * 1e-6))
+        }
+
+        val forward = repository.getHistoricalSeries("USD", "XAU", 7)
+        val inverse = repository.getHistoricalSeries("XAU", "USD", 7)
+        assertTrue(forward.isLiveHistory)
+        assertTrue(inverse.isLiveHistory)
+        assertEquals(forward.points.size, inverse.points.size)
+        // Each inverse point is the inverse of THAT date's price - a constant
+        // "today" rate spread over history would break this pairing.
+        for ((f, r) in forward.points.zip(inverse.points)) {
+            assertEquals(f.dateLabel, r.dateLabel)
+            assertEquals(1.0, f.rate * r.rate, 1e-9)
+        }
+    }
+
+    @Test
+    fun currencyHistoryStillUsesFrankfurterUnchanged() = runBlocking {
+        api.historical = FrankfurterTimeSeriesResponse(
+            rates = mapOf(
+                "2026-11-01" to mapOf("GBP" to 0.78),
+                "2026-11-02" to mapOf("GBP" to 0.79),
+                "2026-11-03" to mapOf("GBP" to 0.80)
+            )
+        )
+
+        val series = repository.getHistoricalSeries("EUR", "GBP", 7)
+        assertTrue(series.isLiveHistory)
+        assertEquals(3, series.points.size)
+        assertEquals(0.78, series.points[0].rate, 0.0)
+        // One Frankfurter request, zero commodity-feed requests: the currency
+        // pipeline is untouched.
+        assertEquals(1, api.historicalCalls)
+        assertTrue(api.jsonCalls.isEmpty())
+    }
+
+    @Test
+    fun unsupportedCommodityHistoryIsUnavailableWithAnHonestReason() = runBlocking {
+        val series = repository.getHistoricalSeries("USD", "WTI", 30)
+        assertFalse(series.isLiveHistory)
+        assertTrue(series.points.isEmpty())
+        assertEquals(HistoricalUnavailableReason.UNSUPPORTED_ASSET, series.unavailableReason)
+        assertEquals(0, api.historicalCalls)
+        assertTrue("unavailable assets are answered without network calls", api.jsonCalls.isEmpty())
     }
 }

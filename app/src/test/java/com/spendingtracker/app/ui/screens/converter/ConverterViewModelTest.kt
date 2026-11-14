@@ -67,12 +67,36 @@ class ConverterViewModelTest {
             return historicalGates.getOrPut(target) { CompletableDeferred() }.await()
         }
 
-        override suspend fun getJsonUrl(url: String): JsonObject =
-            throw IOException("offline in tests")
+        var jsonSnapshotFor: ((String) -> JsonObject?)? = null
+
+        override suspend fun getJsonUrl(url: String): JsonObject {
+            val key = when {
+                "currency-api@" in url -> url.substringAfter("currency-api@").substringBefore("/")
+                ".currency-api.pages.dev" in url ->
+                    url.removePrefix("https://").substringBefore(".currency-api.pages.dev")
+                else -> "latest"
+            }
+            val build = jsonSnapshotFor ?: throw IOException("offline in tests")
+            return build(key) ?: throw IOException("no snapshot for $key")
+        }
 
         fun completeHistorical(target: String, rates: Map<String, Map<String, Double>>) {
             historicalGates.getOrPut(target) { CompletableDeferred() }
                 .complete(FrankfurterTimeSeriesResponse(rates = rates))
+        }
+
+        /** Serves genuine dated commodity snapshots, one value per date. */
+        fun serveCommoditySnapshots() {
+            jsonSnapshotFor = { date ->
+                val day = date.substring(8).toIntOrNull() ?: 1
+                val root = JsonObject()
+                root.addProperty("date", date)
+                val usd = JsonObject()
+                usd.addProperty("usd", 1.0)
+                usd.addProperty("xau", 0.00040 + day * 1e-6)
+                root.add("usd", usd)
+                root
+            }
         }
     }
 
@@ -221,5 +245,67 @@ class ConverterViewModelTest {
         assertNull(state.chartError)
         assertTrue(state.chartSeries!!.isLiveHistory)
         assertTrue(state.chartSeries!!.points.all { it.rate == 1.0 })
+    }
+
+    // ---- Commodity charts: genuine history, honest unavailability ----
+
+    @Test
+    fun commodityChartShowsGenuineHistoricalObservations() = runBlocking {
+        api.serveCommoditySnapshots()
+        val vm = viewModel()
+        quiesceInit(vm)
+        vm.setChartPair("USD", "XAU")
+        val state = vm.awaitState { it.chartSeries?.target == "XAU" && !it.isChartLoading }
+        assertNull(state.chartError)
+        assertTrue(state.chartSeries!!.isLiveHistory)
+        assertTrue("genuine observations expected", state.chartSeries!!.points.size >= 2)
+        // Consecutive observations are genuinely different values.
+        assertTrue(state.chartSeries!!.points.zipWithNext().all { (a, b) -> a.rate != b.rate })
+    }
+
+    @Test
+    fun commodityChartUnsupportedAssetExplainsItDoesNotInventPrices() = runBlocking {
+        val vm = viewModel()
+        quiesceInit(vm)
+        vm.setChartPair("USD", "WTI")
+        val state = vm.awaitState { !it.isChartLoading && it.chartError != null }
+        assertTrue(state.chartError!!.contains("no historical data source"))
+        assertTrue(state.chartSeries == null || state.chartSeries!!.points.isEmpty())
+    }
+
+    @Test
+    fun commodityChartFailureEndsLoadingAndRetryRecovers() = runBlocking {
+        val vm = viewModel()
+        quiesceInit(vm)
+        // Commodity feed unreachable (jsonSnapshotFor not configured).
+        vm.setChartPair("USD", "XAU")
+        val failed = vm.awaitState { !it.isChartLoading && it.chartError != null }
+        assertFalse(failed.isChartLoading)
+        assertTrue(failed.chartSeries == null || failed.chartSeries!!.points.isEmpty())
+
+        // Network returns: retry must clear the error and load genuine data.
+        api.serveCommoditySnapshots()
+        vm.loadChartSeries()
+        val recovered = vm.awaitState { it.chartSeries?.isLiveHistory == true && !it.isChartLoading }
+        assertNull(recovered.chartError)
+        assertTrue(recovered.chartSeries!!.points.size >= 2)
+    }
+
+    @Test
+    fun commodityChartCachedSeriesIsIdentifiedNotPresentedAsFresh() = runBlocking {
+        api.serveCommoditySnapshots()
+        val vm = viewModel()
+        quiesceInit(vm)
+        vm.setChartPair("USD", "XAU")
+        val first = vm.awaitState { it.chartSeries?.target == "XAU" && !it.isChartLoading }
+        assertFalse("first load is a fresh fetch", first.chartSeries!!.isFromCache)
+
+        vm.loadChartSeries()
+        val second = vm.awaitState { it.chartSeries?.isFromCache == true && !it.isChartLoading }
+        // Cached data keeps its genuine observation dates.
+        assertEquals(
+            first.chartSeries!!.points.map { it.dateLabel },
+            second.chartSeries!!.points.map { it.dateLabel }
+        )
     }
 }

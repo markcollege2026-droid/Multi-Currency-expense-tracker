@@ -2,6 +2,7 @@ package com.spendingtracker.app.data.repository
 
 import com.spendingtracker.app.data.local.dao.ExchangeRateDao
 import com.spendingtracker.app.data.local.entity.ExchangeRate
+import com.spendingtracker.app.data.remote.CommodityHistoryProvider
 import com.spendingtracker.app.data.remote.ExchangeRateApi
 import com.spendingtracker.app.util.CurrencyProvider
 import kotlinx.coroutines.CancellationException
@@ -20,17 +21,33 @@ data class HistoricalRatePoint(
     val rate: Double
 )
 
+/** Why a historical series is unavailable. Never applied to genuine series. */
+enum class HistoricalUnavailableReason {
+    NONE,
+    /** No genuine historical source exists for this asset (yet). */
+    UNSUPPORTED_ASSET,
+    /** The data source could not be reached. */
+    OFFLINE_OR_UNAVAILABLE,
+    /** The source was reached but holds no valid observations for the range. */
+    NO_DATA_IN_RANGE
+}
+
 data class HistoricalRateSeries(
     val base: String,
     val target: String,
     val points: List<HistoricalRatePoint>,
-    val isLiveHistory: Boolean
+    val isLiveHistory: Boolean,
+    /** True when these genuine observations were served from the local cache. */
+    val isFromCache: Boolean = false,
+    /** Set only for unavailable series; [HistoricalUnavailableReason.NONE] otherwise. */
+    val unavailableReason: HistoricalUnavailableReason = HistoricalUnavailableReason.NONE
 )
 
 @Singleton
 class ExchangeRateRepository @Inject constructor(
     private val exchangeRateDao: ExchangeRateDao,
-    private val api: ExchangeRateApi
+    private val api: ExchangeRateApi,
+    private val commodityHistory: CommodityHistoryProvider = CommodityHistoryProvider(api)
 ) {
     fun getAllRates(): Flow<List<ExchangeRate>> = exchangeRateDao.getAllRates()
 
@@ -244,12 +261,16 @@ class ExchangeRateRepository @Inject constructor(
     }
 
     /**
-     * Fetches historical exchange rate series for the Charts view from the
-     * Frankfurter API. Historical values are only ever shown when they come from
-     * that legitimate source; when it is unavailable (offline, unsupported pair
-     * such as commodities, or an API failure) the returned series has **no
-     * points** and `isLiveHistory = false`, so the UI can say "unavailable"
-     * instead of drawing invented market data.
+     * Fetches historical exchange rate series for the Charts view.
+     *
+     * Currency pairs come from the Frankfurter API. Commodity/crypto pairs are
+     * routed to [CommodityHistoryProvider], which serves genuine dated market
+     * observations for the assets it covers. Historical values are only ever
+     * shown when they come from a legitimate source; when one is unavailable
+     * (offline, unsupported asset, or an API failure) the returned series has
+     * **no points** and `isLiveHistory = false` with an honest
+     * [HistoricalUnavailableReason], so the UI can say "unavailable" instead of
+     * drawing invented market data.
      */
     suspend fun getHistoricalSeries(
         base: String,
@@ -271,49 +292,53 @@ class ExchangeRateRepository @Inject constructor(
                 isLiveHistory = true
             )
         }
-        if (!CurrencyProvider.isCommodity(base) && !CurrencyProvider.isCommodity(target)) {
-            try {
-                val endCal = Calendar.getInstance()
-                val startCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
-                val apiDateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                val labelDateFmt = SimpleDateFormat("MMM d", Locale.US)
-                val startStr = apiDateFmt.format(startCal.time)
-                val endStr = apiDateFmt.format(endCal.time)
-                val url = "https://api.frankfurter.app/$startStr..$endStr?from=$base&to=$target"
-                val response = api.getHistoricalRates(url)
-                if (response.rates.isNotEmpty()) {
-                    val points = response.rates.entries
-                        .sortedBy { it.key }
-                        .mapNotNull { (dateStr, map) ->
-                            val r = map[target] ?: return@mapNotNull null
-                            // Unusable values are not charted either.
-                            if (!r.isFinite() || r <= 0.0) return@mapNotNull null
-                            val parsedDate = try { apiDateFmt.parse(dateStr) } catch (_: Exception) { null }
-                            val ts = parsedDate?.time ?: System.currentTimeMillis()
-                            val label = if (parsedDate != null) labelDateFmt.format(parsedDate) else dateStr
-                            HistoricalRatePoint(ts, label, r)
-                        }
-
-                    if (points.size >= 2) {
-                        return HistoricalRateSeries(
-                            base = base,
-                            target = target,
-                            points = points,
-                            isLiveHistory = true
-                        )
+        // Commodities and crypto never go to Frankfurter (it has no such data);
+        // their genuine history comes from the dedicated commodity provider.
+        if (CurrencyProvider.isCommodity(base) || CurrencyProvider.isCommodity(target)) {
+            return commodityHistory.getSeries(base, target, days)
+        }
+        try {
+            val endCal = Calendar.getInstance()
+            val startCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
+            val apiDateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val labelDateFmt = SimpleDateFormat("MMM d", Locale.US)
+            val startStr = apiDateFmt.format(startCal.time)
+            val endStr = apiDateFmt.format(endCal.time)
+            val url = "https://api.frankfurter.app/$startStr..$endStr?from=$base&to=$target"
+            val response = api.getHistoricalRates(url)
+            if (response.rates.isNotEmpty()) {
+                val points = response.rates.entries
+                    .sortedBy { it.key }
+                    .mapNotNull { (dateStr, map) ->
+                        val r = map[target] ?: return@mapNotNull null
+                        // Unusable values are not charted either.
+                        if (!r.isFinite() || r <= 0.0) return@mapNotNull null
+                        val parsedDate = try { apiDateFmt.parse(dateStr) } catch (_: Exception) { null }
+                        val ts = parsedDate?.time ?: System.currentTimeMillis()
+                        val label = if (parsedDate != null) labelDateFmt.format(parsedDate) else dateStr
+                        HistoricalRatePoint(ts, label, r)
                     }
+
+                if (points.size >= 2) {
+                    return HistoricalRateSeries(
+                        base = base,
+                        target = target,
+                        points = points,
+                        isLiveHistory = true
+                    )
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // No genuine history available: report unavailable below.
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // No genuine history available: report unavailable below.
         }
         return HistoricalRateSeries(
             base = base,
             target = target,
             points = emptyList(),
-            isLiveHistory = false
+            isLiveHistory = false,
+            unavailableReason = HistoricalUnavailableReason.OFFLINE_OR_UNAVAILABLE
         )
     }
 

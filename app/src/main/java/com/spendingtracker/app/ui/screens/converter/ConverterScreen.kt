@@ -927,7 +927,11 @@ private fun ConverterChartsContent(
                         }
                         Text(
                             text = when {
-                                activePoint != null -> activePoint.dateLabel
+                                activePoint != null ->
+                                    activePoint.dateLabel +
+                                        // Cached history is genuine data but not
+                                        // freshly fetched - say so explicitly.
+                                        if (series?.isFromCache == true) " · cached" else ""
                                 displayRateUsable -> "current rate (cached)"
                                 else -> ""
                             },
