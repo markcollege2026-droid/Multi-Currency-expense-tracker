@@ -26,13 +26,7 @@ data class ConverterListItem(
     /** Null when no exchange rate for the pair is available on this device. */
     val unitRateFromBase: BigDecimal?,
     val inverseRateToBase: BigDecimal?,
-    val convertedAmount: BigDecimal?,
-    /**
-     * Real 24h change, or null when no comparable historical data exists.
-     * The app has no genuine intraday history source, so this stays null and
-     * the UI shows "24h n/a" instead of inventing a percentage.
-     */
-    val changePercent24h: Double? = null
+    val convertedAmount: BigDecimal?
 )
 
 enum class ConverterSubTab {
@@ -172,8 +166,7 @@ class ConverterViewModel @Inject constructor(
                 isTopBase = isTop,
                 unitRateFromBase = unitRate,
                 inverseRateToBase = inverseRate,
-                convertedAmount = converted,
-                changePercent24h = null
+                convertedAmount = converted
             )
         }
 

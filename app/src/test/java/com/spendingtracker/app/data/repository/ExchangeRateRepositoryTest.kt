@@ -34,7 +34,7 @@ import java.math.BigDecimal
  *   and ignored when already stored;
  * - an invalid API response can never wipe or overwrite a valid cache;
  * - historical charts must never fabricate data: without a genuine source the
- *   series is empty and marked not-live, and there is no invented 24h change.
+ *   series is empty and marked not-live.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [28], manifest = Config.NONE)

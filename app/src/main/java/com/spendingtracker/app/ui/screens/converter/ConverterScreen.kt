@@ -65,7 +65,6 @@ import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.spendingtracker.app.util.parseAmountOrNull
 
@@ -520,27 +519,6 @@ private fun TargetCurrencyCard(
     onOpenChart: () -> Unit
 ) {
     val compact = LocalCompactUi.current
-    val change = item.changePercent24h
-    val isPositive = (change ?: 0.0) >= 0.0
-    val badgeBg = if (change == null) {
-        MaterialTheme.colorScheme.surfaceContainer
-    } else if (isPositive) {
-        PositiveGreenBg
-    } else {
-        NegativeRedBg
-    }
-    val badgeText = if (change == null) {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    } else if (isPositive) {
-        PositiveGreenText
-    } else {
-        NegativeRedText
-    }
-    val changeFormatted = if (change != null) {
-        String.format(Locale.US, "%s%.2f%%", if (isPositive) "+" else "", change)
-    } else {
-        "24h n/a"
-    }
     val corner = if (compact) 8.dp else 16.dp
 
     Surface(
@@ -625,16 +603,18 @@ private fun TargetCurrencyCard(
                     modifier = Modifier.widthIn(max = if (compact) 82.dp else 160.dp)
                 )
                 Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
+                // Opens the pair's chart. (The former 24h-change badge lived
+                // here; there is no genuine intraday history source, so that
+                // rate was always N/A and is no longer displayed or offered.)
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = badgeBg,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.clickable { onOpenChart() }
                 ) {
                     Text(
-                        text = changeFormatted,
+                        text = "📈",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = badgeText,
                         modifier = Modifier.padding(horizontal = if (compact) 5.dp else 8.dp, vertical = 1.dp)
                     )
                 }
@@ -1101,80 +1081,6 @@ private fun ConverterChartsContent(
             }
         }
 
-        // Multi-Currency Relative Change Overview
-        Surface(
-            shape = RoundedCornerShape(if (compact) 8.dp else 16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 1.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(if (compact) 7.dp else 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "Watchlist Comparison (Base: ${uiState.selectedCodes.firstOrNull() ?: "USD"})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                uiState.items.drop(1).forEach { item ->
-                    val change = item.changePercent24h
-                    val pos = (change ?: 0.0) >= 0
-                    val barFraction = ((abs(change ?: 0.0).toFloat()) / 2.0f).coerceIn(0.08f, 1f)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelectTargetQuick(item.info.code) }
-                            .padding(vertical = 4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "${item.info.flag} ${item.info.code} (" +
-                                    (item.convertedAmount?.let { formatConverterValue(it) } ?: "rate unavailable") + ")",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = if (change != null) {
-                                    String.format(Locale.US, "%s%.2f%%", if (pos) "+" else "", change)
-                                } else {
-                                    "24h n/a"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (change == null) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else if (pos) {
-                                    PositiveGreenText
-                                } else {
-                                    NegativeRedText
-                                }
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(barFraction)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(if (pos) PositiveGreenText else NegativeRedText)
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

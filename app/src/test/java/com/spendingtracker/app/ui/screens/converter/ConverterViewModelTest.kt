@@ -39,8 +39,11 @@ import java.math.BigDecimal
  * - chart loading always terminates (success, failure, cancellation);
  * - a slow, stale chart response can never overwrite the pair/timeframe the
  *   user selected most recently (latest-request-wins);
- * - the refresh indicator can never stick on;
- * - no fabricated 24h change values are ever produced.
+ * - the refresh indicator can never stick on.
+ *
+ * (The old "no fabricated 24h change" guarantee is now structural: the
+ * 24h-change option was removed entirely because the app has no genuine
+ * intraday history source and the value was always N/A.)
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [33], manifest = Config.NONE)
@@ -223,17 +226,6 @@ class ConverterViewModelTest {
         vm.refreshRatesFromApi(showFeedback = true)
         val done = vm.awaitState { !it.isRefreshing && it.statusMessage == "Exchange rates updated" }
         assertFalse(done.isRefreshing)
-    }
-
-    @Test
-    fun converterListNeverCarriesFabricated24hChange() = runBlocking {
-        val vm = viewModel()
-        vm.awaitState { it.items.isNotEmpty() }
-        val state = vm.uiState.value
-        assertTrue(state.items.isNotEmpty())
-        state.items.forEach { item ->
-            assertNull("24h change must be n/a without genuine history", item.changePercent24h)
-        }
     }
 
     @Test
